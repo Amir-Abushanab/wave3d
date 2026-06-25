@@ -584,12 +584,37 @@ export class WaveRenderer {
     this.renderOnce();
   }
 
-  /** Turn on mouse/trackpad orbit + zoom + pan for the main view (studio only). */
+  /** Turn on mouse/trackpad orbit + zoom + pan + arrow-key orbit (studio only). */
   async enableOrbit(): Promise<void> {
     this.mainOrbitOn = true;
+    this.renderer.domElement.style.cursor = "grab"; // draggable affordance (studio only)
+    window.addEventListener("keydown", this.onKeyDown);
     await this.ensureOrbit();
     if (this.orbit && !this.lightEditMode) this.orbit.enabled = true;
   }
+
+  /** Arrow keys orbit the camera around the target (←/→ azimuth, ↑/↓ elevation). */
+  private onKeyDown = (e: KeyboardEvent): void => {
+    if (!this.mainOrbitOn || !this.orbit || this.lightEditMode) return;
+    const t = e.target instanceof HTMLElement ? e.target : null;
+    if (t && (t.closest("#panel") || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return; // let the panel keep arrows
+    const step = e.shiftKey ? 0.015 : 0.05;
+    let az = 0;
+    let pol = 0;
+    if (e.key === "ArrowLeft") az = -step;
+    else if (e.key === "ArrowRight") az = step;
+    else if (e.key === "ArrowUp") pol = -step;
+    else if (e.key === "ArrowDown") pol = step;
+    else return;
+    e.preventDefault();
+    const offset = this.camera.position.clone().sub(this.orbit.target);
+    const sph = new THREE.Spherical().setFromVector3(offset);
+    sph.theta += az;
+    sph.phi = THREE.MathUtils.clamp(sph.phi + pol, 0.05, Math.PI - 0.05);
+    offset.setFromSpherical(sph);
+    this.camera.position.copy(this.orbit.target).add(offset);
+    this.orbit.update(); // fires 'change' → writes camera to config + renders
+  };
 
   /** Reset the camera to the straight-on hero framing at the configured distance. */
   resetView(): void {
@@ -635,6 +660,13 @@ export class WaveRenderer {
     this.orbit.target.set(this.config.cameraTarget.x, this.config.cameraTarget.y, this.config.cameraTarget.z);
     this.orbit.update();
     this.orbit.addEventListener("change", this.onControlsChange);
+    // Grab cursor affordance: closed hand while dragging the view.
+    this.orbit.addEventListener("start", () => {
+      if (this.mainOrbitOn) this.renderer.domElement.style.cursor = "grabbing";
+    });
+    this.orbit.addEventListener("end", () => {
+      if (this.mainOrbitOn) this.renderer.domElement.style.cursor = "grab";
+    });
   }
 
   private async ensureGizmo(): Promise<void> {
@@ -863,6 +895,7 @@ export class WaveRenderer {
     this.intersectionObserver.disconnect();
     this.motionQuery.removeEventListener("change", this.onMotionChange);
     document.removeEventListener("visibilitychange", this.onVisibilityChange);
+    window.removeEventListener("keydown", this.onKeyDown);
     this.renderer.domElement.removeEventListener("webglcontextlost", this.onContextLost);
     this.renderer.domElement.removeEventListener("webglcontextrestored", this.onContextRestored);
     this.renderer.domElement.removeEventListener("pointerdown", this.onPointerDown);

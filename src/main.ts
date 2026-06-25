@@ -94,6 +94,46 @@ window.addEventListener("resize", () => {
   applyViewInset();
 });
 
+// Camera-controls hint: shows briefly, fades on first interaction or after a few seconds.
+{
+  const hint = document.createElement("div");
+  hint.textContent = "drag to orbit · scroll to zoom · right-drag to pan · arrow keys to rotate";
+  hint.style.cssText =
+    "position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:20;" +
+    "padding:7px 14px;border-radius:999px;white-space:nowrap;pointer-events:none;" +
+    "font:12px/1 ui-sans-serif,system-ui,-apple-system,sans-serif;color:#dfe1e6;" +
+    "background:rgba(18,18,26,0.72);border:1px solid rgba(255,255,255,0.12);" +
+    "backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);" +
+    "opacity:0;transition:opacity 0.6s ease;";
+  document.body.appendChild(hint);
+  requestAnimationFrame(() => {
+    hint.style.opacity = "1";
+  });
+
+  let gone = false;
+  function dismiss(): void {
+    if (gone) return;
+    gone = true;
+    hint.style.opacity = "0";
+    setTimeout(() => hint.remove(), 700);
+    window.removeEventListener("pointerdown", onPointer, true);
+    window.removeEventListener("wheel", dismiss, true);
+    window.removeEventListener("keydown", onKey, true);
+  }
+  function onPointer(e: PointerEvent): void {
+    const t = e.target;
+    if (t instanceof HTMLElement && t.closest("#panel")) return; // panel clicks don't count
+    dismiss();
+  }
+  function onKey(e: KeyboardEvent): void {
+    if (e.key.startsWith("Arrow")) dismiss();
+  }
+  window.addEventListener("pointerdown", onPointer, true);
+  window.addEventListener("wheel", dismiss, true);
+  window.addEventListener("keydown", onKey, true);
+  setTimeout(dismiss, 5000);
+}
+
 // Exposed for debugging.
 (window as unknown as { wave: unknown }).wave = {
   renderer,
