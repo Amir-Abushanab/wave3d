@@ -1,4 +1,4 @@
-import { MAX_COLORS, MAX_LIGHTS } from "./config";
+import { MAX_COLORS, MAX_LIGHTS, MAX_NOISE_BANDS } from "./config";
 
 /**
  * Faithful port of Stripe's hero shaders (bundle 4925: vertex module #2,
@@ -128,6 +128,7 @@ void main(){
 export const fragmentShader = /* glsl */ `
 #define MAX_COLORS ${MAX_COLORS}
 #define MAX_LIGHTS ${MAX_LIGHTS}
+#define MAX_NOISE_BANDS ${MAX_NOISE_BANDS}
 #define PI 3.14159265359
 
 ${simplex2d}
@@ -137,6 +138,7 @@ uniform float uColorPos[MAX_COLORS];
 uniform int uColorCount;
 uniform int uGradType;
 uniform float uGradAngle;
+uniform float uGradShift;
 uniform float uHueShift;
 uniform float uLayerHue;
 uniform float uContrast;
@@ -155,6 +157,10 @@ uniform int uNumLights;
 uniform vec3 uLightPos[MAX_LIGHTS];
 uniform vec3 uLightColor[MAX_LIGHTS];
 uniform float uLightIntensity[MAX_LIGHTS];
+uniform int uNumNoiseBands;
+uniform vec4 uNoiseBandBounds[MAX_NOISE_BANDS];  // (startX, endX, startY, endY)
+uniform vec4 uNoiseBandParams[MAX_NOISE_BANDS];  // (feather, strength, frequency, colorAttenuation)
+uniform float uNoiseBandParaPow[MAX_NOISE_BANDS];
 
 varying vec2 vUv;
 varying vec3 vWorldPos;
@@ -194,12 +200,16 @@ vec3 grad(float u){
   return col;
 }
 
-// Map a surface uv to the 0–1 gradient coordinate per gradient type.
+// Map a surface uv to the 0–1 gradient coordinate per gradient type. uGradShift
+// adds a low-frequency simplex warp so the colour varies in 2D (along the length
+// as well as across the width) — approximating Stripe's 2D palette texture instead
+// of flat 1-D bands.
 float gradCoord(vec2 uv){
-  if (uGradType == 1){ return clamp(length(uv - 0.5) * 2.0, 0.0, 1.0); }          // radial
-  if (uGradType == 2){ return fract(atan(uv.y - 0.5, uv.x - 0.5) / (2.0 * PI) + 0.5); } // conic
+  float warp = uGradShift * snoise(uv * 1.6 + 4.0);
+  if (uGradType == 1){ return clamp(length(uv - 0.5) * 2.0 + warp, 0.0, 1.0); }    // radial
+  if (uGradType == 2){ return fract(atan(uv.y - 0.5, uv.x - 0.5) / (2.0 * PI) + 0.5 + warp); } // conic
   vec2 dir = vec2(sin(uGradAngle), cos(uGradAngle));                              // linear, angled
-  return clamp(dot(uv - 0.5, dir) + 0.5, 0.0, 1.0);
+  return clamp(dot(uv - 0.5, dir) + 0.5 + warp, 0.0, 1.0);
 }
 
 // Stripe's striations: a subtle high-frequency simplex-noise grain ADDED to the
@@ -209,10 +219,26 @@ vec3 surfaceStreaks(vec2 uv, vec3 color, float pdy){
   float strength = uFiberThickness;          // Stripe: 0.2
   float freq = uFiberCount;                   // Stripe: 600
   float colorAtten = 0.9;
+  float paraPow = 3.0;
+  // Noise bands (Stripe's USE_NOISE_BANDS): inside each rectangular uv region the
+  // fiber params are overridden, so the streaks vary per region instead of uniform.
+  for (int i = 0; i < MAX_NOISE_BANDS; i++) {
+    if (i >= uNumNoiseBands) break;
+    vec4 b = uNoiseBandBounds[i];
+    vec4 prm = uNoiseBandParams[i];
+    float feather = max(prm.x, 1.0e-4);
+    float blend =
+      smoothstep(b.x - feather, b.x, uv.x) * (1.0 - smoothstep(b.y, b.y + feather, uv.x)) *
+      smoothstep(b.z - feather, b.z, uv.y) * (1.0 - smoothstep(b.w, b.w + feather, uv.y));
+    strength = mix(strength, prm.y, blend);
+    freq = mix(freq, prm.z, blend);
+    colorAtten = mix(colorAtten, prm.w, blend);
+    paraPow = mix(paraPow, uNoiseBandParaPow[i], blend);
+  }
   // Stripe packs the high frequency along the axis ACROSS the wave so the streaks
   // run ALONG its length. Our uv is transposed vs theirs (our uv.x = length), so we
   // put the high frequency on uv.y (our width) → length-wise fibers, not cross bars.
-  float p = 1.0 - parabola(uv.y, 3.0);
+  float p = 1.0 - parabola(uv.y, paraPow);
   float n0 = snoise(vec2(uv.y * 0.1, uv.x * 0.5));
   float n1 = snoise(vec2(uv.y * (freq + freq * 0.5 * n0), uv.x * 4.0 * n0));
   n1 = mapLinear(n1, -1.0, 1.0, 0.0, 1.0);
@@ -239,7 +265,7 @@ void main(){
 
   // Stripe's volume cue: lift the flat (low-pdy) areas toward white → thickness.
   // (Stripe uses 0.25 on a black matte; eased here since we composite on white.)
-  col += (1.0 - pdy) * 0.16;
+  col += (1.0 - pdy) * 0.22;
 
   // Optional positionable lights (our feature) — additive & gentle, on top of the
   // Stripe base so the default still reads like Stripe. A finely-subdivided mesh
@@ -262,7 +288,7 @@ void main(){
   if (uTexture > 0.001) col *= 1.0 + (hash(vUv * 850.0) - 0.5) * uTexture * 0.25;
 
   // Soft long edges + optional viewport-edge fade.
-  float ribEdge = smoothstep(0.0, 0.04, vUv.y) * (1.0 - smoothstep(0.96, 1.0, vUv.y));
+  float ribEdge = smoothstep(0.0, 0.1, vUv.y) * (1.0 - smoothstep(0.9, 1.0, vUv.y));
   float alpha = uOpacity * ribEdge;
   if (uEdgeFade > 0.001) {
     vec2 sc = gl_FragCoord.xy / max(uResolution, vec2(1.0));

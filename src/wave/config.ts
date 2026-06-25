@@ -7,6 +7,7 @@
 
 export const MAX_COLORS = 8;
 export const MAX_LIGHTS = 8;
+export const MAX_NOISE_BANDS = 4;
 
 export interface Vec2 {
   x: number;
@@ -53,6 +54,40 @@ export function createLight(position: Vec3 = { x: 3, y: 5, z: 8 }, intensity = 1
   return { position: { ...position }, color: "#ffffff", intensity };
 }
 
+/**
+ * A noise band (Stripe's USE_NOISE_BANDS): inside a rectangular uv region
+ * (startX..endX along the length, startY..endY across the width, softened by
+ * `feather`), the fiber streaks are overridden — strength, frequency (density),
+ * colourAttenuation (how much the local colour suppresses them), and the
+ * end-weighting parabolaPower. Lets the fibers vary per region instead of uniform.
+ */
+export interface NoiseBand {
+  startX: number;
+  endX: number;
+  startY: number;
+  endY: number;
+  feather: number;
+  strength: number;
+  frequency: number;
+  colorAttenuation: number;
+  parabolaPower: number;
+}
+
+/** A default band: a strong, coarse streak region over the first half (like Stripe's). */
+export function createNoiseBand(): NoiseBand {
+  return {
+    startX: 0.0,
+    endX: 0.5,
+    startY: 0.0,
+    endY: 1.0,
+    feather: 0.3,
+    strength: 1.0,
+    frequency: 220,
+    colorAttenuation: 0.0,
+    parabolaPower: 2.0,
+  };
+}
+
 /** One gradient stop: a colour at a normalized position (0–1) across the width. */
 export interface ColorStop {
   color: string;
@@ -91,6 +126,8 @@ export interface WaveConfig {
   gradientType: GradientType;
   /** Linear-gradient angle in degrees (0 = across width, 90 = along length). */
   gradientAngle: number;
+  /** 2D warp of the gradient (0 = flat 1-D bands; higher = colour varies in 2D). */
+  gradientShift: number;
   /** Global hue rotation in degrees (colorHueShift). */
   hueShift: number;
   colorContrast: number;
@@ -99,6 +136,8 @@ export interface WaveConfig {
   fiberCount: number;
   /** Fiber line width (0–1). */
   fiberThickness: number;
+  /** Per-region fiber overrides (Stripe's noise bands); empty = uniform fibers. */
+  noiseBands: NoiseBand[];
   /** Film grain amount (dither). */
   grain: number;
   /** Procedural fine-texture overlay amount. */
@@ -193,12 +232,20 @@ export function createDefaultConfig(): WaveConfig {
     cameraPosition: { x: 0, y: 0, z: 10.5 },
     cameraTarget: { x: 0, y: 0, z: 0 },
 
-    // Warm-dominant across the width: a thin periwinkle tail edge, a magenta band,
-    // then orange/amber over the rest — so the broad faces read orange like Stripe,
-    // with the cool tail showing only where the twist turns that edge to camera.
-    palette: makeStops(["#b6c2ff", "#9fb0ff", "#ff7a9e", "#ff9540", "#ffb13f", "#ffce6b"]),
+    // Stripe's distribution: a thin periwinkle→lavender tail, a magenta/coral accent,
+    // then ORANGE→cream owning the broad face (positions weight orange-dominant, not a
+    // big magenta band). The 2D gradientShift warps it organically.
+    palette: [
+      { color: "#aeb8ff", pos: 0 }, // periwinkle tail
+      { color: "#c3a0f2", pos: 0.1 }, // lavender
+      { color: "#ff5fae", pos: 0.22 }, // magenta accent
+      { color: "#ff7a5e", pos: 0.4 }, // coral
+      { color: "#ff9a3d", pos: 0.66 }, // orange (dominant)
+      { color: "#ffce7e", pos: 1.0 }, // cream highlight
+    ],
     gradientType: "linear",
     gradientAngle: 0,
+    gradientShift: 0.15,
     hueShift: 0,
     colorContrast: 1.0,
     colorSaturation: 1.15,
@@ -206,14 +253,15 @@ export function createDefaultConfig(): WaveConfig {
     // (spacing), fiberThickness = strength. Fewer than Stripe's 600 since ours run
     // across the narrow width axis, not the long length axis.
     fiberCount: 130,
-    fiberThickness: 0.22,
+    fiberThickness: 0.16,
+    noiseBands: [],
     grain: 1.0,
     texture: 0,
     // Angular spin-blur angle (radians); weighted to the top/bottom edges.
     blur: 0.05,
 
     spineLength: 13.0,
-    waveWidth: 2.4,
+    waveWidth: 3.0,
     widthTaper: 0.22,
     // Hairpin fold — the strip doubles back on itself (Stripe's folded geometry).
     // Off-centre fold = a long sweep + a short folded-over tip, not a middle crease.
@@ -225,12 +273,14 @@ export function createDefaultConfig(): WaveConfig {
     displaceAmount: 0.28,
 
     // Subtle now — the hairpin fold provides the fold-over; the twist just adds life.
+    // Higher twistPower (toward Stripe's ~4–6) concentrates the twist nearer the edge.
     twistFrequency: { x: 0.4, y: 0.25, z: -0.4 },
-    twistPower: { x: 2.2, y: 1.0, z: 3.5 },
+    twistPower: { x: 3.0, y: 1.5, z: 4.0 },
 
     position: { x: 0, y: 0, z: 0 },
-    rotation: { x: -52, y: 0, z: 38 },
-    scale: { x: 1, y: 1, z: 1 },
+    rotation: { x: -52, y: 0, z: -38 },
+    // Slightly depth-compressed like Stripe's scale (10,10,7), but keep the fold.
+    scale: { x: 1, y: 0.9, z: 1 },
 
     bezelPower: 0.2,
     // glow* drive the dFdy-based pdy term (volume + where streaks show).

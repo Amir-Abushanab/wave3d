@@ -9,7 +9,7 @@ import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { TransformControls } from "three/addons/controls/TransformControls.js";
 import { vertexShader, fragmentShader, postVertexShader, postFragmentShader } from "./shaders";
 import { WaveGeometry } from "./WaveGeometry";
-import { MAX_COLORS, MAX_LIGHTS, normalizePalette, ensureCamera } from "./config";
+import { MAX_COLORS, MAX_LIGHTS, MAX_NOISE_BANDS, normalizePalette, ensureCamera } from "./config";
 import type { WaveConfig } from "./config";
 
 const BASE_SEGMENTS = 220;
@@ -169,6 +169,14 @@ export class WaveRenderer {
       lightColor.push(new THREE.Vector3(1, 1, 1));
       lightIntensity.push(0);
     }
+    const bandBounds: THREE.Vector4[] = [];
+    const bandParams: THREE.Vector4[] = [];
+    const bandParaPow: number[] = [];
+    for (let i = 0; i < MAX_NOISE_BANDS; i++) {
+      bandBounds.push(new THREE.Vector4());
+      bandParams.push(new THREE.Vector4());
+      bandParaPow.push(0);
+    }
     return {
       // Deformation (vertex)
       uTime: { value: 0 },
@@ -198,6 +206,7 @@ export class WaveRenderer {
       uColorCount: { value: 2 },
       uGradType: { value: 0 },
       uGradAngle: { value: 0 },
+      uGradShift: { value: 0.15 },
       uHueShift: { value: 0 },
       uLayerHue: { value: 0 },
       uContrast: { value: 1 },
@@ -217,6 +226,10 @@ export class WaveRenderer {
       uLightPos: { value: lightPos },
       uLightColor: { value: lightColor },
       uLightIntensity: { value: lightIntensity },
+      uNumNoiseBands: { value: 0 },
+      uNoiseBandBounds: { value: bandBounds },
+      uNoiseBandParams: { value: bandParams },
+      uNoiseBandParaPow: { value: bandParaPow },
     };
   }
 
@@ -307,6 +320,7 @@ export class WaveRenderer {
       u.uGradType.value =
         this.config.gradientType === "radial" ? 1 : this.config.gradientType === "conic" ? 2 : 0;
       u.uGradAngle.value = ((this.config.gradientAngle ?? 0) * Math.PI) / 180;
+      u.uGradShift.value = this.config.gradientShift ?? 0;
       u.uHueShift.value = this.config.hueShift;
       u.uContrast.value = this.config.colorContrast;
       u.uSaturation.value = this.config.colorSaturation;
@@ -333,6 +347,20 @@ export class WaveRenderer {
           lInt[li] = light.intensity;
         } else {
           lInt[li] = 0;
+        }
+      }
+      // Noise bands (per-region fiber overrides)
+      const bands = this.config.noiseBands ?? [];
+      u.uNumNoiseBands.value = Math.min(bands.length, MAX_NOISE_BANDS);
+      const bBounds = u.uNoiseBandBounds.value as THREE.Vector4[];
+      const bParams = u.uNoiseBandParams.value as THREE.Vector4[];
+      const bPara = u.uNoiseBandParaPow.value as number[];
+      for (let bi = 0; bi < MAX_NOISE_BANDS; bi++) {
+        const band = bands[bi];
+        if (band) {
+          bBounds[bi].set(band.startX, band.endX, band.startY, band.endY);
+          bParams[bi].set(band.feather, band.strength, band.frequency, band.colorAttenuation);
+          bPara[bi] = band.parabolaPower;
         }
       }
       // Deformation

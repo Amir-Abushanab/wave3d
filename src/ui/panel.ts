@@ -2,9 +2,11 @@ import { Pane } from "tweakpane";
 import {
   resizeLayers,
   createLight,
+  createNoiseBand,
   normalizePalette,
   MAX_COLORS,
   MAX_LIGHTS,
+  MAX_NOISE_BANDS,
   randomizeGradient,
   randomizeColor,
   randomizeSpine,
@@ -97,6 +99,8 @@ export class ControlPanel {
     if (typeof cfg.ambient !== "number") cfg.ambient = 0.45;
     if (cfg.gradientType !== "radial" && cfg.gradientType !== "conic") cfg.gradientType = "linear";
     if (typeof cfg.gradientAngle !== "number") cfg.gradientAngle = 0;
+    if (typeof cfg.gradientShift !== "number") cfg.gradientShift = 0.15;
+    if (!cfg.noiseBands) cfg.noiseBands = [];
     if (typeof cfg.foldRadius !== "number") cfg.foldRadius = 0.8;
     if (typeof cfg.foldGap !== "number") cfg.foldGap = 0.6;
     if (typeof cfg.foldCenter !== "number") cfg.foldCenter = 0.55;
@@ -202,6 +206,7 @@ export class ControlPanel {
       })
       .on("change", refresh);
     gradF.addBinding(cfg, "gradientAngle", { label: "angle°", min: 0, max: 360, step: 1 }).on("change", refresh);
+    gradF.addBinding(cfg, "gradientShift", { label: "2D warp", min: 0, max: 0.6, step: 0.01 }).on("change", refresh);
 
     // ---- Color & finish ----
     const col = mkFolder("Color & Finish", true);
@@ -214,6 +219,33 @@ export class ControlPanel {
     col.addBinding(cfg, "grain", { min: 0, max: 3, step: 0.01 }).on("change", refresh);
     col.addBinding(cfg, "texture", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
     col.addBinding(cfg, "blur", { min: 0, max: 0.3, step: 0.005 }).on("change", refresh);
+
+    // ---- Noise Bands (Stripe's per-region fiber overrides; empty = uniform) ----
+    const bandsF = mkFolder("Noise Bands", false);
+    cfg.noiseBands.forEach((band, i) => {
+      const sub = bandsF.addFolder({ title: `Band ${i + 1}`, expanded: true });
+      sub.addBinding(band, "startX", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
+      sub.addBinding(band, "endX", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
+      sub.addBinding(band, "startY", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
+      sub.addBinding(band, "endY", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
+      sub.addBinding(band, "feather", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
+      sub.addBinding(band, "strength", { min: 0, max: 2, step: 0.01 }).on("change", refresh);
+      sub.addBinding(band, "frequency", { min: 1, max: 1200, step: 1 }).on("change", refresh);
+      sub.addBinding(band, "colorAttenuation", { min: 0, max: 1, step: 0.01, label: "colorAtten" }).on("change", refresh);
+      sub.addBinding(band, "parabolaPower", { min: 0, max: 5, step: 0.01, label: "parabola" }).on("change", refresh);
+      sub.addButton({ title: "remove this band" }).on("click", () => {
+        cfg.noiseBands.splice(i, 1);
+        refresh();
+        setTimeout(() => this.rebuildPanel(), 0);
+      });
+    });
+    if (cfg.noiseBands.length < MAX_NOISE_BANDS) {
+      bandsF.addButton({ title: "+ add band" }).on("click", () => {
+        cfg.noiseBands.push(createNoiseBand());
+        refresh();
+        setTimeout(() => this.rebuildPanel(), 0);
+      });
+    }
 
     // ---- Spine (the sweep) ----
     const sp = mkFolder("Spine", false);
