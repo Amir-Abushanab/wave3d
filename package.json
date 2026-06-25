@@ -1,0 +1,27 @@
+{
+  "name": "wave-studio",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Open-source studio for authoring Stripe-style 3D gradient waves",
+  "license": "MIT",
+  "packageManager": "pnpm@11.5.2",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "build:embed": "vite build --config vite.embed.config.ts",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "three": "^0.169.0",
+    "tweakpane": "^4.0.5",
+    "@tweakpane/plugin-essentials": "^0.2.1"
+  },
+  "devDependencies": {
+    "@tweakpane/core": "^2.0.0",
+    "@types/three": "^0.169.0",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.7"
+  }
+}

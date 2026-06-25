@@ -1,0 +1,5 @@
+# pnpm reads package settings from here (not the package.json "pnpm" field).
+# Allow esbuild (a Vite dependency) to run its install script so its native
+# binary is set up; pnpm blocks dependency build scripts by default.
+allowBuilds:
+  esbuild: true
