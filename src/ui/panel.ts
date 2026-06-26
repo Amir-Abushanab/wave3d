@@ -94,23 +94,30 @@ export class ControlPanel {
 
   private build(): void {
     const cfg = this.config;
-    // Backfill fields that may be absent in older saved states.
-    if (!cfg.lights || cfg.lights.length === 0) cfg.lights = [createLight()];
+    // Backfill fields that may be absent in older saved states. Lights default to
+    // EMPTY (Stripe's hero has none) — only create the array if it's missing.
+    if (!cfg.lights) cfg.lights = [];
     if (typeof cfg.ambient !== "number") cfg.ambient = 0.45;
     if (cfg.gradientType !== "radial" && cfg.gradientType !== "conic") cfg.gradientType = "linear";
-    if (typeof cfg.gradientAngle !== "number") cfg.gradientAngle = 0;
+    if (typeof cfg.gradientAngle !== "number") cfg.gradientAngle = 90;
     if (typeof cfg.gradientShift !== "number") cfg.gradientShift = 0.15;
     if (!cfg.noiseBands) cfg.noiseBands = [];
-    if (typeof cfg.foldRadius !== "number") cfg.foldRadius = 0.8;
-    if (typeof cfg.foldGap !== "number") cfg.foldGap = 0.6;
-    if (typeof cfg.foldCenter !== "number") cfg.foldCenter = 0.55;
     normalizePalette(cfg);
     const pane = new Pane({ container: this.container, title: "Wave Studio" });
     this.pane = pane;
     // Keep sliders in sync while a light is dragged via its 3D gizmo, or while the
-    // camera is moved via orbit/zoom/pan.
-    this.renderer.onLightsChanged = () => pane.refresh();
-    this.renderer.onCameraChanged = () => pane.refresh();
+    // camera is moved via orbit/zoom/pan. Tweakpane's refresh() re-emits 'change' for
+    // any value that changed, so we guard with `syncing`: without it, orbiting writes
+    // cameraDistance → refresh re-fires the slider's change → setCameraDistance dollies
+    // the camera → another orbit change → a feedback loop that makes the view jump.
+    let syncing = false;
+    const syncPanel = (): void => {
+      syncing = true;
+      pane.refresh();
+      syncing = false;
+    };
+    this.renderer.onLightsChanged = syncPanel;
+    this.renderer.onCameraChanged = syncPanel;
 
     const refresh = (): void => this.renderer.refresh();
 
@@ -188,9 +195,9 @@ export class ControlPanel {
     });
     g.addBinding(cfg, "speed", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
     g.addBinding(cfg, "paused").on("change", () => this.renderer.refreshPlayback());
-    g.addBinding(cfg, "cameraDistance", { min: 1.5, max: 20, step: 0.05 }).on("change", () =>
-      this.renderer.setCameraDistance(cfg.cameraDistance),
-    );
+    g.addBinding(cfg, "cameraDistance", { min: 12, max: 600, step: 1 }).on("change", () => {
+      if (!syncing) this.renderer.setCameraDistance(cfg.cameraDistance);
+    });
     g.addButton({ title: "Reset view" }).on("click", () => this.renderer.resetView());
 
     // ---- Gradient (draggable stops: drag to reorder + set transition speed) ----
@@ -247,34 +254,28 @@ export class ControlPanel {
       });
     }
 
-    // ---- Spine (the sweep) ----
-    const sp = mkFolder("Spine", false);
+    // ---- Displacement (noise pushes the baked folded() geometry along Y) ----
+    const sp = mkFolder("Displacement", false);
     randomBtn(sp, randomizeSpine);
-    sp.addBinding(cfg, "spineLength", { min: 1, max: 16, step: 0.1, label: "length" }).on("change", refresh);
-    sp.addBinding(cfg, "foldRadius", { min: 0, max: 3, step: 0.01, label: "fold radius" }).on("change", refresh);
-    sp.addBinding(cfg, "foldGap", { min: 0.01, max: 3, step: 0.01, label: "fold gap" }).on("change", refresh);
-    sp.addBinding(cfg, "foldCenter", { min: -1, max: 1, step: 0.01, label: "fold pos" }).on("change", refresh);
-    vec(sp, cfg.displaceFrequency, "displace freq", { min: 0, max: 3, step: 0.05 }, ["X (len)", "Z (wid)", ""]);
-    sp.addBinding(cfg, "displaceAmount", { min: 0, max: 2, step: 0.01 }).on("change", refresh);
+    vec(sp, cfg.displaceFrequency, "displace freq", { min: 0, max: 0.02, step: 0.0002 }, ["X (len)", "Z (wid)", ""]);
+    sp.addBinding(cfg, "displaceAmount", { min: 0, max: 12, step: 0.05 }).on("change", refresh);
 
-    // ---- Transform ----
+    // ---- Transform (defaults = Stripe's hero rotation/scale on the folded mesh) ----
     const tr = mkFolder("Transform", false);
     randomBtn(tr, randomizeTransform);
-    vec(tr, cfg.position, "position", { min: -5, max: 5, step: 0.05 });
-    vec(tr, cfg.rotation, "rotation", { min: -180, max: 180, step: 1 });
-    vec(tr, cfg.scale, "scale", { min: 0, max: 3, step: 0.05 });
+    vec(tr, cfg.position, "position", { min: -20, max: 20, step: 0.1 });
+    vec(tr, cfg.rotation, "rotation", { min: -180, max: 180, step: 0.1 });
+    vec(tr, cfg.scale, "scale", { min: 0, max: 0.3, step: 0.002 });
 
     // ---- Twist (three axis-rotations: frequency × expStep(uv, power)) ----
     const tw = mkFolder("Twist", true);
     randomBtn(tw, randomizeTwist);
-    vec(tw, cfg.twistFrequency, "twist freq", { min: -6.5, max: 6.5, step: 0.05 });
-    vec(tw, cfg.twistPower, "twist power", { min: -4, max: 4, step: 0.05 });
+    vec(tw, cfg.twistFrequency, "twist freq", { min: -1, max: 1, step: 0.002 });
+    vec(tw, cfg.twistPower, "twist power", { min: 0, max: 8, step: 0.05 });
 
-    // ---- Wave & Light ----
-    const r = mkFolder("Wave & Light", true);
+    // ---- Finish ----
+    const r = mkFolder("Finish", true);
     randomBtn(r, randomizeSurface);
-    r.addBinding(cfg, "waveWidth", { min: 0.05, max: 4, step: 0.01, label: "width" }).on("change", refresh);
-    r.addBinding(cfg, "widthTaper", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
     // glow* now drive the dFdy "pdy" term — volume/thickness + where streaks appear.
     r.addBinding(cfg, "glowAmount", { min: 0, max: 4, step: 0.01, label: "volume" }).on("change", refresh);
     r.addBinding(cfg, "glowPower", { min: 0.1, max: 4, step: 0.01 }).on("change", refresh);

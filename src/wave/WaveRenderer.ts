@@ -26,8 +26,11 @@ type Strand = {
 };
 
 function hexToLinearVec3(hex: string, target: THREE.Vector3): THREE.Vector3 {
+  // three's ColorManagement (on by default in r169) already converts the sRGB hex to
+  // LINEAR when constructing the Color — its .r/.g/.b are linear. Calling
+  // convertSRGBToLinear() again would double-linearize (crushing greens → everything
+  // turns red), so we read the components directly.
   const c = new THREE.Color(hex);
-  c.convertSRGBToLinear();
   return target.set(c.r, c.g, c.b);
 }
 
@@ -104,7 +107,9 @@ export class WaveRenderer {
     this.renderer.domElement.addEventListener("webglcontextlost", this.onContextLost, false);
     this.renderer.domElement.addEventListener("webglcontextrestored", this.onContextRestored, false);
 
-    this.camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+    // Telephoto (fov 30) from far ≈ Stripe's near-orthographic, distant-camera look:
+    // fills the frame while keeping perspective distortion low.
+    this.camera = new THREE.PerspectiveCamera(30, 1, 0.5, 4000);
     this.camera.position.set(config.cameraPosition.x, config.cameraPosition.y, config.cameraPosition.z);
     this.camera.lookAt(config.cameraTarget.x, config.cameraTarget.y, config.cameraTarget.z);
     this.scene.add(this.group);
@@ -180,26 +185,17 @@ export class WaveRenderer {
     return {
       // Deformation (vertex)
       uTime: { value: 0 },
-      uSpeed: { value: 0.3 },
+      uSpeed: { value: 0.05 },
       uSeed: { value: 0 },
-      uLength: { value: 6 },
-      uWidth: { value: 3 },
-      uWidthTaper: { value: 0.35 },
-      uFoldRadius: { value: 0.8 },
-      uFoldGap: { value: 0.6 },
-      uFoldCenter: { value: 0.55 },
-      uDispFreqX: { value: 1.2 },
-      uDispFreqZ: { value: 0.8 },
-      uDispAmount: { value: 0.5 },
-      uTwFreqX: { value: 1.0 },
-      uTwFreqY: { value: 0.6 },
-      uTwFreqZ: { value: 0.4 },
-      uTwPowX: { value: 2.0 },
-      uTwPowY: { value: 1.5 },
-      uTwPowZ: { value: 2.5 },
-      uScale: { value: new THREE.Vector3(1, 1, 1) },
-      uRotation: { value: new THREE.Vector3(-14, 0, -20) },
-      uPosition: { value: new THREE.Vector3(0, 0, 0) },
+      uDispFreqX: { value: 0.003234 },
+      uDispFreqZ: { value: 0.00799 },
+      uDispAmount: { value: 6.051 },
+      uTwFreqX: { value: -0.055 },
+      uTwFreqY: { value: 0.077 },
+      uTwFreqZ: { value: -0.518 },
+      uTwPowX: { value: 3.95 },
+      uTwPowY: { value: 5.85 },
+      uTwPowZ: { value: 6.33 },
       // Colour + light (fragment)
       uColors: { value: colors },
       uColorPos: { value: colorPos },
@@ -366,12 +362,6 @@ export class WaveRenderer {
       // Deformation
       u.uSpeed.value = this.config.speed * layer.speed;
       u.uSeed.value = layer.seed;
-      u.uLength.value = this.config.spineLength;
-      u.uWidth.value = this.config.waveWidth * layer.widthMul;
-      u.uWidthTaper.value = this.config.widthTaper;
-      u.uFoldRadius.value = this.config.foldRadius;
-      u.uFoldGap.value = this.config.foldGap;
-      u.uFoldCenter.value = this.config.foldCenter;
       u.uDispFreqX.value = this.config.displaceFrequency.x;
       u.uDispFreqZ.value = this.config.displaceFrequency.y;
       u.uDispAmount.value = this.config.displaceAmount;
@@ -381,13 +371,15 @@ export class WaveRenderer {
       u.uTwPowX.value = this.config.twistPower.x;
       u.uTwPowY.value = this.config.twistPower.y;
       u.uTwPowZ.value = this.config.twistPower.z;
-      (u.uScale.value as THREE.Vector3).set(this.config.scale.x, this.config.scale.y, this.config.scale.z);
-      (u.uRotation.value as THREE.Vector3).set(
-        this.config.rotation.x,
-        this.config.rotation.y,
-        this.config.rotation.z + layer.twistOffset,
+      // Mesh transform (scale / rotation / position) — applied via modelMatrix, exactly
+      // like Stripe (THREE Euler XYZ), so the on-screen orientation matches the hero.
+      strand.mesh.scale.set(this.config.scale.x, this.config.scale.y, this.config.scale.z);
+      strand.mesh.rotation.set(
+        THREE.MathUtils.degToRad(this.config.rotation.x),
+        THREE.MathUtils.degToRad(this.config.rotation.y),
+        THREE.MathUtils.degToRad(this.config.rotation.z + layer.twistOffset),
       );
-      (u.uPosition.value as THREE.Vector3).set(
+      strand.mesh.position.set(
         this.config.position.x + layer.offset.x,
         this.config.position.y + layer.offset.y,
         this.config.position.z + layer.offset.z,
@@ -655,8 +647,8 @@ export class WaveRenderer {
     this.orbit.enabled = false; // enabled by enableOrbit() / light-edit
     this.orbit.screenSpacePanning = true;
     this.orbit.zoomToCursor = true;
-    this.orbit.minDistance = 1.5;
-    this.orbit.maxDistance = 40;
+    this.orbit.minDistance = 12;
+    this.orbit.maxDistance = 600;
     this.orbit.target.set(this.config.cameraTarget.x, this.config.cameraTarget.y, this.config.cameraTarget.z);
     this.orbit.update();
     this.orbit.addEventListener("change", this.onControlsChange);
@@ -790,8 +782,9 @@ export class WaveRenderer {
   /** Pull the camera back to a 3/4 angle that frames the wave + all lights. */
   private frameEditCamera(): void {
     const box = new THREE.Box3();
-    box.expandByPoint(new THREE.Vector3(this.config.spineLength * 0.5, 0, 0));
-    box.expandByPoint(new THREE.Vector3(-this.config.spineLength * 0.5, 0, 0));
+    // The baked + scaled wave spans ~±25 units; frame that plus any lights.
+    box.expandByPoint(new THREE.Vector3(25, 25, 25));
+    box.expandByPoint(new THREE.Vector3(-25, -25, -25));
     for (const l of this.config.lights ?? []) {
       box.expandByPoint(new THREE.Vector3(l.position.x, l.position.y, l.position.z));
     }

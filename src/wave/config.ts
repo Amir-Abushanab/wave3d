@@ -145,21 +145,11 @@ export interface WaveConfig {
   /** Soft-focus blur amount (viewport edges). */
   blur: number;
 
-  // ---- Sheet + displacement (noise pushes the flat sheet along Y) ----
-  /** Sheet length, in world units. */
-  spineLength: number;
-  /** Sheet width, in world units. */
-  waveWidth: number;
-  /** End taper (0 = none). */
-  widthTaper: number;
-  /** Hairpin fold: layer half-separation in Y (0 = flat strip). */
-  foldRadius: number;
-  /** Hairpin fold: half-length of the U-bend joining the two arms. */
-  foldGap: number;
-  /** Hairpin fold: where the fold sits along the length (−1..1; 0 = centre). */
-  foldCenter: number;
-  /** Displacement noise frequency: x = along length, y = across width (X/Z). */
+  // ---- Displacement (noise pushes the baked folded() geometry along Y) ----
+  /** Displacement noise frequency on the native folded() geometry: x along the
+   *  length, y across the width. Stripe's hero: (0.003234, 0.00799). */
   displaceFrequency: Vec2;
+  /** Displacement amount in native geometry units. Stripe's hero: 6.051. */
   displaceAmount: number;
 
   // ---- Twist: three axis-rotations, each freq * expStep(uv, power) ----
@@ -201,7 +191,7 @@ export function makeLayers(count: number): LayerConfig[] {
       widthMul: 1 - f * 0.2,
       speed: 1 + f * 0.15,
       seed: i * 3.3,
-      offset: { x: 0, y: (f - 0.5) * 0.4, z: -i * 0.1 },
+      offset: { x: 0, y: (f - 0.5) * 1.5, z: -i * 0.8 },
       twistOffset: i * 20,
     });
   }
@@ -226,70 +216,73 @@ export function createDefaultConfig(): WaveConfig {
     strandCount,
     quality: 1,
     dprMax: 2,
-    speed: 0.3,
+    // Gentle drift of the Y-displacement noise (Stripe's hero is ~0.04/s, very slow).
+    speed: 0.05,
     paused: false,
-    cameraDistance: 10.5,
-    cameraPosition: { x: 0, y: 0, z: 10.5 },
+    // Frontal telephoto view (fov 30); far distance keeps it near-orthographic like
+    // Stripe while filling the frame. The folded() geometry (~400 units) is brought
+    // to a ~40-unit world by uScale.
+    cameraDistance: 46,
+    cameraPosition: { x: 0, y: 0, z: 46 },
     cameraTarget: { x: 0, y: 0, z: 0 },
 
-    // Stripe's distribution: a thin periwinkle→lavender tail, a magenta/coral accent,
-    // then ORANGE→cream owning the broad face (positions weight orange-dominant, not a
-    // big magenta band). The 2D gradientShift warps it organically.
+    // Sampled from Stripe's own hero render (wave-fallback-desktop.png): a periwinkle
+    // tip/edge, a dominant orange core, then coral → magenta → pink, with a violet
+    // twist tip. The 2D gradientShift warps it to mimic the real palette TEXTURE.
     palette: [
-      { color: "#aeb8ff", pos: 0 }, // periwinkle tail
-      { color: "#c3a0f2", pos: 0.1 }, // lavender
-      { color: "#ff5fae", pos: 0.22 }, // magenta accent
-      { color: "#ff7a5e", pos: 0.4 }, // coral
-      { color: "#ff9a3d", pos: 0.66 }, // orange (dominant)
-      { color: "#ffce7e", pos: 1.0 }, // cream highlight
+      { color: "#8e9dff", pos: 0 }, // periwinkle (blue tip/edge)
+      { color: "#c98fd0", pos: 0.14 }, // lavender transition
+      { color: "#ff9326", pos: 0.3 }, // orange (rising)
+      { color: "#fd8108", pos: 0.52 }, // orange core
+      { color: "#fb7a36", pos: 0.64 }, // orange-coral (keeps orange dominant)
+      { color: "#d24ecc", pos: 0.78 }, // true magenta (hue ~303, not pink)
+      { color: "#e95cae", pos: 0.9 }, // pink-magenta
+      { color: "#9b6ae0", pos: 1.0 }, // violet (twist tip)
     ],
     gradientType: "linear",
-    gradientAngle: 0,
+    // 90° = the gradient runs ALONG the length (uv.x), like Stripe's palette texture.
+    gradientAngle: 90,
     gradientShift: 0.15,
-    hueShift: 0,
+    // Stripe hero: colorHueShift -0.0316 rad ≈ -1.81°, contrast 1.0, saturation 1.15.
+    hueShift: -1.81,
     colorContrast: 1.0,
     colorSaturation: 1.15,
-    // Lengthwise striations: fiberCount = how many fibers across the width
-    // (spacing), fiberThickness = strength. Fewer than Stripe's 600 since ours run
-    // across the narrow width axis, not the long length axis.
-    fiberCount: 130,
-    fiberThickness: 0.16,
+    // Stripe's hero fibers: simplexNoise at freq 600 along the length (uv.x), strength 0.2.
+    fiberCount: 600,
+    fiberThickness: 0.2,
     noiseBands: [],
     grain: 1.0,
     texture: 0,
     // Angular spin-blur angle (radians); weighted to the top/bottom edges.
     blur: 0.05,
 
-    spineLength: 13.0,
-    waveWidth: 3.0,
-    widthTaper: 0.22,
-    // Hairpin fold — the strip doubles back on itself (Stripe's folded geometry).
-    // Off-centre fold = a long sweep + a short folded-over tip, not a middle crease.
-    foldRadius: 1.1,
-    foldGap: 0.7,
-    foldCenter: 0.55,
-    // Gentle single bend along the length; almost no cross-width ripple.
-    displaceFrequency: { x: 0.35, y: 0.0 },
-    displaceAmount: 0.28,
+    // Stripe hero, verbatim (on the native 400-unit folded() geometry).
+    displaceFrequency: { x: 0.003234, y: 0.00799 },
+    displaceAmount: 6.051,
 
-    // Subtle now — the hairpin fold provides the fold-over; the twist just adds life.
-    // Higher twistPower (toward Stripe's ~4–6) concentrates the twist nearer the edge.
-    twistFrequency: { x: 0.4, y: 0.25, z: -0.4 },
-    twistPower: { x: 3.0, y: 1.5, z: 4.0 },
+    // Stripe hero twist: small frequencies, high powers (rotation concentrated at the edges).
+    twistFrequency: { x: -0.055, y: 0.077, z: -0.518 },
+    twistPower: { x: 3.95, y: 5.85, z: 6.33 },
 
     position: { x: 0, y: 0, z: 0 },
-    rotation: { x: -52, y: 0, z: -38 },
-    // Slightly depth-compressed like Stripe's scale (10,10,7), but keep the fold.
-    scale: { x: 1, y: 0.9, z: 1 },
+    // Stripe hero rotation (radians -0.1596, -0.2836, -2.8156 → -9.14°, -16.25°, -161.32°).
+    // Z is set to -205° (not the raw -161°) to reproduce the orientation of Stripe's actual
+    // rendered hero (wave-fallback-desktop.png) — the 44° gap is a Euler-order/convention
+    // difference between Stripe's engine and THREE's default XYZ. X/Y are the source values.
+    rotation: { x: -9.14, y: -16.25, z: -205 },
+    // Stripe hero scale (10,10,7) × 0.01 to fit our ~40-unit world (keeps the 10:10:7 ratio).
+    scale: { x: 0.1, y: 0.1, z: 0.07 },
 
     bezelPower: 0.2,
-    // glow* drive the dFdy-based pdy term (volume + where streaks show).
-    glowAmount: 1.5,
-    glowPower: 0.9,
-    glowRamp: 0.9,
+    // glow* drive the dFdy-based pdy term (volume + where streaks show). Stripe hero values.
+    glowAmount: 0.6,
+    glowPower: 0.589,
+    glowRamp: 1.0,
     edgeFade: 0.04,
     ambient: 0.45,
-    lights: [createLight()],
+    // Stripe's hero has no lights (lights:[]) — colour comes purely from the palette
+    // gradient + the pdy white-lift. Lights stay an opt-in feature; default matches Stripe.
+    lights: [],
 
     layers: makeLayers(strandCount),
   };
@@ -309,7 +302,7 @@ export function normalizePalette(config: WaveConfig): void {
 
 /** Backfill camera position/target for states saved before they existed. */
 export function ensureCamera(config: WaveConfig): void {
-  if (!config.cameraPosition) config.cameraPosition = { x: 0, y: 0, z: config.cameraDistance ?? 10.5 };
+  if (!config.cameraPosition) config.cameraPosition = { x: 0, y: 0, z: config.cameraDistance ?? 62 };
   if (!config.cameraTarget) config.cameraTarget = { x: 0, y: 0, z: 0 };
 }
 
@@ -374,12 +367,12 @@ export function randomizeConfig(base: WaveConfig): WaveConfig {
   cfg.hueShift = Math.round(rand(0, 360));
   cfg.colorContrast = rand(0.9, 1.3);
   cfg.colorSaturation = rand(0.85, 1.35);
-  cfg.displaceFrequency = { x: rand(0.6, 1.8), y: rand(0.5, 1.3) };
-  cfg.displaceAmount = rand(0.3, 0.8);
-  cfg.rotation = { x: rand(-25, 5), y: rand(-15, 15), z: rand(-40, 10) };
-  cfg.twistFrequency = { x: rand(0.4, 1.6), y: rand(0.3, 1.2), z: rand(0.3, 1.2) };
-  cfg.twistPower = { x: rand(1.0, 3.0), y: rand(1.0, 3.0), z: rand(1.0, 3.0) };
-  cfg.glowAmount = rand(0.2, 0.8);
+  cfg.displaceFrequency = { x: r3(rand(0.002, 0.008)), y: r3(rand(0.004, 0.014)) };
+  cfg.displaceAmount = r2(rand(3, 9));
+  cfg.rotation = { x: r2(rand(-20, 5)), y: r2(rand(-25, 10)), z: r2(rand(-170, -150)) };
+  cfg.twistFrequency = { x: r3(rand(-0.4, 0.4)), y: r3(rand(-0.2, 0.3)), z: r3(rand(-0.7, -0.2)) };
+  cfg.twistPower = { x: r2(rand(2, 6)), y: r2(rand(2, 6)), z: r2(rand(2, 7)) };
+  cfg.glowAmount = r2(rand(0.4, 1.0));
   return cfg;
 }
 
@@ -425,30 +418,27 @@ export function randomizeColor(c: WaveConfig): void {
 }
 
 export function randomizeSpine(c: WaveConfig): void {
-  c.spineLength = r2(rand(6, 11));
-  c.displaceFrequency = { x: r2(rand(0.1, 1.0)), y: r2(rand(0, 0.5)) };
-  c.displaceAmount = r2(rand(0.1, 0.7));
+  c.displaceFrequency = { x: r3(rand(0.002, 0.008)), y: r3(rand(0.004, 0.014)) };
+  c.displaceAmount = r2(rand(3, 9));
 }
 
 export function randomizeTransform(c: WaveConfig): void {
-  c.rotation = { x: Math.round(rand(-25, 5)), y: Math.round(rand(-40, 40)), z: Math.round(rand(5, 60)) };
-  c.scale = { x: r2(rand(0.8, 1.3)), y: r2(rand(0.8, 1.3)), z: r2(rand(0.8, 1.3)) };
-  c.position = { x: r2(rand(-0.8, 0.8)), y: r2(rand(-0.8, 0.8)), z: r2(rand(-0.8, 0.8)) };
+  c.rotation = { x: r2(rand(-20, 5)), y: r2(rand(-25, 10)), z: r2(rand(-170, -150)) };
+  const s = r3(rand(0.08, 0.13));
+  c.scale = { x: s, y: s, z: r3(s * rand(0.6, 0.8)) };
+  c.position = { x: r2(rand(-8, 8)), y: r2(rand(-8, 8)), z: 0 };
 }
 
 export function randomizeTwist(c: WaveConfig): void {
-  const sgn = (): number => (Math.random() < 0.5 ? -1 : 1);
-  c.twistFrequency = { x: r2(sgn() * rand(1.5, 4.5)), y: r2(sgn() * rand(0, 1.5)), z: r2(sgn() * rand(0, 1.0)) };
-  c.twistPower = { x: r2(rand(0.6, 2.4)), y: r2(rand(0.6, 2.4)), z: r2(rand(0.6, 2.4)) };
+  c.twistFrequency = { x: r3(rand(-0.4, 0.4)), y: r3(rand(-0.2, 0.3)), z: r3(rand(-0.7, -0.2)) };
+  c.twistPower = { x: r2(rand(2, 6)), y: r2(rand(2, 6)), z: r2(rand(2, 7)) };
 }
 
 /** "Wave & Light" folder: the surface/finish params (not the light objects). */
 export function randomizeSurface(c: WaveConfig): void {
-  c.waveWidth = r2(rand(1.0, 2.8));
-  c.widthTaper = r2(rand(0, 0.5));
-  c.glowAmount = r2(rand(0.8, 2.5));   // pdy strength (volume + streaks)
-  c.glowPower = r2(rand(0.6, 1.4));
-  c.glowRamp = r2(rand(0.6, 1.2));
+  c.glowAmount = r2(rand(0.4, 1.0));   // pdy strength (volume + streaks)
+  c.glowPower = r2(rand(0.45, 0.8));
+  c.glowRamp = r2(rand(0.8, 1.2));
   c.edgeFade = r2(rand(0, 0.08));
 }
 
@@ -462,8 +452,8 @@ export function randomizeLights(c: WaveConfig): void {
 }
 
 export function randomizeGlobal(c: WaveConfig): void {
-  c.speed = r2(rand(0.1, 0.6));
-  c.cameraDistance = r2(rand(8, 13));
+  c.speed = r2(rand(0.02, 0.15));
+  c.cameraDistance = r2(rand(50, 80));
   c.cameraPosition = { x: 0, y: 0, z: c.cameraDistance };
   c.cameraTarget = { x: 0, y: 0, z: 0 };
 }
@@ -475,7 +465,7 @@ export function randomizeStrands(c: WaveConfig): void {
     l.widthMul = r2(rand(0.7, 1.2));
     l.speed = r2(rand(0.7, 1.3));
     l.seed = r2(rand(0, 12));
-    l.offset = { x: r2(rand(-0.5, 0.5)), y: r2(rand(-0.5, 0.5)), z: r2(rand(-0.5, 0.5)) };
+    l.offset = { x: r2(rand(-3, 3)), y: r2(rand(-3, 3)), z: r2(rand(-3, 3)) };
     l.twistOffset = Math.round(rand(-40, 40));
   }
 }

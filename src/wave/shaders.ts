@@ -44,10 +44,8 @@ export const vertexShader = /* glsl */ `
 ${simplex2d}
 
 uniform float uTime, uSpeed, uSeed;
-uniform float uLength, uWidth, uWidthTaper, uFoldRadius, uFoldGap, uFoldCenter;
 uniform float uDispFreqX, uDispFreqZ, uDispAmount;
 uniform float uTwFreqX, uTwFreqY, uTwFreqZ, uTwPowX, uTwPowY, uTwPowZ;
-uniform vec3 uScale, uRotation, uPosition;
 
 varying vec2 vUv;
 varying vec3 vWorldPos;
@@ -73,51 +71,25 @@ mat4 rotationMatrix(vec3 axis, float angle){
 void main(){
   vUv = uv;
   float t = uTime * uSpeed + uSeed;
-  float taper = 1.0 - uWidthTaper * (1.0 - sin(uv.x * 3.14159265));
 
-  // --- FLAT sheet (previous approach — kept for revert) ---
-  // vec3 pos = vec3(position.x * uLength, 0.0, position.z * uWidth * taper);
-
-  // --- Hairpin fold (Stripe's folded()): the strip doubles back on itself along
-  // its length into two layers separated in Y by ~2*uFoldRadius, joined by a
-  // semicircular U-bend (half-length uFoldGap) at uFoldCenter along the length.
-  // Off-centre → a long main sweep + a short folded-over tip (Stripe-like), not a
-  // symmetric middle crease. uFoldRadius = 0 → effectively flat.
-  float halfLen = 0.5 * uLength;
-  float L = position.x * uLength;                 // length coordinate, [-halfLen, halfLen]
-  float wpos = position.z * uWidth * taper;       // across the width
-  float r = uFoldRadius;
-  float bend = max(uFoldGap, 1.0e-3);
-  float c = clamp(uFoldCenter, -1.0, 1.0) * halfLen;   // where the fold happens
-  vec3 pos;
-  if (L < c - bend) {
-    pos = vec3(L, r, wpos);                       // long arm, at +r
-  } else if (L < c + bend) {                      // U-bend (semicircle, +r → -r)
-    float a = 1.57079633 - (L - (c - bend)) / (2.0 * bend) * 3.14159265;
-    pos = vec3((c - bend) + r * cos(a), r * sin(a), wpos);
-  } else {
-    pos = vec3(2.0 * c - L, -r, wpos);            // short folded-over arm, at -r
-  }
+  // The geometry is already Stripe's baked folded() hairpin. On top of it we apply
+  // Stripe's vertex deformation verbatim: displace() lifts Y by simplex noise of
+  // the (x,z) position, then three axis-rotations twist the strip.
+  vec3 pos = position;
   pos.y += uDispAmount * snoise(vec2(pos.x * uDispFreqX + t, pos.z * uDispFreqZ + t));
 
-  // Stripe's three-axis twist: expStep falloff concentrates the rotation at the uv
-  // edges; diagonal axes; the X twist gets a slow animated noise wobble.
-  float twistXNoise = snoise(vec2(uv.y * 2.0, t));
-  float twistXMotion = uTwFreqX - twistXNoise * 0.1;
+  // Stripe's three-axis twist (hero vertex, module 68467): expStep falloff sets how
+  // sharply each rotation concentrates toward an edge. rotA keys off uv.x, rotB/rotC
+  // off uv.y; axes (0.5,0,0.5) and (0,0.5,0.5) are normalised inside rotationMatrix.
   mat4 rotA = rotationMatrix(vec3(0.5, 0.0, 0.5), uTwFreqY * expStep(uv.x, uTwPowY));
-  mat4 rotB = rotationMatrix(vec3(0.0, 0.5, 0.5), twistXMotion * expStep(uv.y, uTwPowX));
+  mat4 rotB = rotationMatrix(vec3(0.0, 0.5, 0.5), uTwFreqX * expStep(uv.y, uTwPowX));
   mat4 rotC = rotationMatrix(vec3(0.5, 0.0, 0.5), uTwFreqZ * expStep(uv.y, uTwPowZ));
   pos = (vec4(pos, 1.0) * rotA).xyz;
   pos = (vec4(pos, 1.0) * rotB).xyz;
   pos = (vec4(pos, 1.0) * rotC).xyz;
 
-  // Our transform (scale / rotate° / position).
-  pos *= uScale;
-  pos = (vec4(pos, 1.0) * rotationMatrix(vec3(1.0, 0.0, 0.0), radians(uRotation.x))).xyz;
-  pos = (vec4(pos, 1.0) * rotationMatrix(vec3(0.0, 1.0, 0.0), radians(uRotation.y))).xyz;
-  pos = (vec4(pos, 1.0) * rotationMatrix(vec3(0.0, 0.0, 1.0), radians(uRotation.z))).xyz;
-  pos += uPosition;
-
+  // The scale / rotation / position transform lives on the mesh (modelMatrix), exactly
+  // like Stripe — so the orientation matches THREE's Euler-XYZ, not an in-shader order.
   vec4 world = modelMatrix * vec4(pos, 1.0);
   vWorldPos = world.xyz;
   vViewDir = cameraPosition - world.xyz;
@@ -235,12 +207,13 @@ vec3 surfaceStreaks(vec2 uv, vec3 color, float pdy){
     colorAtten = mix(colorAtten, prm.w, blend);
     paraPow = mix(paraPow, uNoiseBandParaPow[i], blend);
   }
-  // Stripe packs the high frequency along the axis ACROSS the wave so the streaks
-  // run ALONG its length. Our uv is transposed vs theirs (our uv.x = length), so we
-  // put the high frequency on uv.y (our width) → length-wise fibers, not cross bars.
-  float p = 1.0 - parabola(uv.y, paraPow);
-  float n0 = snoise(vec2(uv.y * 0.1, uv.x * 0.5));
-  float n1 = snoise(vec2(uv.y * (freq + freq * 0.5 * n0), uv.x * 4.0 * n0));
+  // Verbatim from Stripe's surfaceColor(): the high frequency runs along uv.x (the
+  // ribbon's length) so the streaks read as fine lengthwise fibers; end-weighted by
+  // 1 - parabola(uv.x). With the baked folded() geometry our uv matches Stripe's, so
+  // this is no longer transposed.
+  float p = 1.0 - parabola(uv.x, paraPow);
+  float n0 = snoise(vec2(uv.x * 0.1, uv.y * 0.5));
+  float n1 = snoise(vec2(uv.x * (freq + freq * 0.5 * n0), uv.y * 4.0 * n0));
   n1 = mapLinear(n1, -1.0, 1.0, 0.0, 1.0);
   color += n1 * strength * (1.0 - color.b * colorAtten) * pdy * p;
   return color;
@@ -263,9 +236,8 @@ void main(){
   col = desaturate(col, 1.0 - uSaturation);
   col = hueShift(col, radians(uHueShift + uLayerHue));
 
-  // Stripe's volume cue: lift the flat (low-pdy) areas toward white → thickness.
-  // (Stripe uses 0.25 on a black matte; eased here since we composite on white.)
-  col += (1.0 - pdy) * 0.22;
+  // Stripe's volume cue (verbatim): lift the flat (low-pdy) areas toward white.
+  col += (1.0 - pdy) * 0.25;
 
   // Optional positionable lights (our feature) — additive & gentle, on top of the
   // Stripe base so the default still reads like Stripe. A finely-subdivided mesh
@@ -283,7 +255,7 @@ void main(){
       col += col * diff * lc * 0.16 + spec * lc * 0.10;
     }
   }
-  col *= mix(0.78, 1.12, clamp(uAmbient, 0.0, 1.0));   // ambient = overall level
+  col *= 0.55 + clamp(uAmbient, 0.0, 1.0);   // overall level; default 0.45 => x1.0 (neutral, matches Stripe)
 
   if (uTexture > 0.001) col *= 1.0 + (hash(vUv * 850.0) - 0.5) * uTexture * 0.25;
 
