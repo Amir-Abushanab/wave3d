@@ -57,7 +57,9 @@ export async function decodeConfigFromHash(hash: string): Promise<WaveConfig | n
     /* not a gzip token — try the legacy plain base64-JSON format */
   }
   try {
-    return JSON.parse(decodeURIComponent(escape(atob(m[1].replace(/-/g, "+").replace(/_/g, "/"))))) as WaveConfig;
+    return JSON.parse(
+      decodeURIComponent(escape(atob(m[1].replace(/-/g, "+").replace(/_/g, "/")))),
+    ) as WaveConfig;
   } catch {
     return null;
   }
@@ -79,23 +81,35 @@ export function pickConfigFile(): Promise<WaveConfig> {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "application/json,.json";
-    input.onchange = () => {
-      const file = input.files?.[0];
-      if (!file) {
-        reject(new Error("No file selected"));
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = () => {
-        try {
-          resolve(JSON.parse(String(reader.result)) as WaveConfig);
-        } catch (err) {
-          reject(err instanceof Error ? err : new Error("Invalid JSON"));
+    input.addEventListener(
+      "change",
+      () => {
+        const file = input.files?.[0];
+        if (!file) {
+          reject(new Error("No file selected"));
+          return;
         }
-      };
-      reader.onerror = () => reject(reader.error ?? new Error("Could not read file"));
-      reader.readAsText(file);
-    };
+        const reader = new FileReader();
+        reader.addEventListener(
+          "load",
+          () => {
+            try {
+              resolve(JSON.parse(String(reader.result)) as WaveConfig);
+            } catch (err) {
+              reject(err instanceof Error ? err : new Error("Invalid JSON"));
+            }
+          },
+          { once: true },
+        );
+        reader.addEventListener(
+          "error",
+          () => reject(reader.error ?? new Error("Could not read file")),
+          { once: true },
+        );
+        reader.readAsText(file);
+      },
+      { once: true },
+    );
     input.click();
   });
 }

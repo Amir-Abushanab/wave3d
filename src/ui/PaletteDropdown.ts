@@ -88,7 +88,8 @@ export class PaletteDropdown {
   };
 
   private toggle(): void {
-    this.open ? this.close() : this.openList();
+    if (this.open) this.close();
+    else this.openList();
   }
 
   private openList(): void {
@@ -111,7 +112,11 @@ export class PaletteDropdown {
     } else {
       const id = this.hooks.selectedId();
       const opt = this.hooks.options.find((o) => o.id === id);
-      this.trigger.append(swatch(id ? this.hooks.thumbFor(id) : null), name(opt?.label ?? "—"), caret());
+      this.trigger.append(
+        swatch(id ? this.hooks.thumbFor(id) : null),
+        name(opt?.label ?? "—"),
+        caret(),
+      );
     }
     if (this.open) this.buildList();
   }

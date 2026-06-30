@@ -61,7 +61,9 @@ export class WaveGeometry {
       } else if (v.x < FOLD_X) {
         // semicircular hinge: z sweeps +r → -r, x collapses to the bend
         v.z = Math.cos(THREE.MathUtils.mapLinear(v.x, -FOLD_X, FOLD_X, 0, Math.PI)) * r;
-        v.x = Math.cos(THREE.MathUtils.mapLinear(v.x, -FOLD_X, FOLD_X, -Math.PI / 2, Math.PI / 2)) * r - FOLD_X;
+        v.x =
+          Math.cos(THREE.MathUtils.mapLinear(v.x, -FOLD_X, FOLD_X, -Math.PI / 2, Math.PI / 2)) * r -
+          FOLD_X;
       } else {
         v.z -= r; // folded-over arm, mirrored back at -r
         v.x = -v.x;

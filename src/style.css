@@ -15,7 +15,12 @@ body {
   overflow: hidden;
   background: #07070b;
   color: #e8e8ee;
-  font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font:
+    13px/1.45 ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
 }
 
 /* Full-bleed preview stage; the renderer appends its canvas here. A checkerboard
@@ -30,7 +35,9 @@ body {
     linear-gradient(45deg, #2b2b34 25%, transparent 25%, transparent 75%, #2b2b34 75%),
     linear-gradient(45deg, #2b2b34 25%, transparent 25%, transparent 75%, #2b2b34 75%);
   background-size: 26px 26px;
-  background-position: 0 0, 13px 13px;
+  background-position:
+    0 0,
+    13px 13px;
 }
 
 #stage canvas {

@@ -16,6 +16,10 @@ function clamp01(x: number): number {
   return Math.max(0, Math.min(1, x));
 }
 
+function smoothstep(value: number): number {
+  return value * value * (3 - 2 * value);
+}
+
 /** "#rrggbb" → "rgba(r,g,b,a)" for canvas fills with alpha. */
 function hexToRgba(hex: string, alpha: number): string {
   const c = new THREE.Color(hex); // parses many formats; .r/.g/.b are linear…
@@ -105,7 +109,8 @@ export interface PaletteMapDef {
   build?: () => HTMLCanvasElement;
 }
 
-const mk = (pairs: Array<[string, number]>): ColorStop[] => pairs.map(([color, pos]) => ({ color, pos }));
+const mk = (pairs: Array<[string, number]>): ColorStop[] =>
+  pairs.map(([color, pos]) => ({ color, pos }));
 
 // ---- A genuine 2-D image map (procedural nebula): organic colour patches that vary in
 // BOTH axes via domain-warped value noise — the kind of thing flat stops can't make. ----
@@ -116,12 +121,11 @@ function valueNoise2D(seed: number): (x: number, y: number) => number {
     h = Math.imul(h ^ (h >>> 13), 1274126177);
     return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
   };
-  const sm = (t: number): number => t * t * (3 - 2 * t);
   return (x, y) => {
     const xi = Math.floor(x);
     const yi = Math.floor(y);
-    const u = sm(x - xi);
-    const v = sm(y - yi);
+    const u = smoothstep(x - xi);
+    const v = smoothstep(y - yi);
     const a = hash(xi, yi);
     const b = hash(xi + 1, yi);
     const c = hash(xi, yi + 1);
@@ -172,7 +176,11 @@ function buildNebulaCanvas(): HTMLCanvasElement {
         const [p0, c0] = COLORS[i - 1];
         const [p1, c1] = COLORS[i];
         const k = (t - p0) / (p1 - p0);
-        return [c0[0] + (c1[0] - c0[0]) * k, c0[1] + (c1[1] - c0[1]) * k, c0[2] + (c1[2] - c0[2]) * k];
+        return [
+          c0[0] + (c1[0] - c0[0]) * k,
+          c0[1] + (c1[1] - c0[1]) * k,
+          c0[2] + (c1[2] - c0[2]) * k,
+        ];
       }
     }
     return COLORS[COLORS.length - 1][1];
@@ -208,42 +216,74 @@ export const PALETTE_MAPS: Record<string, PaletteMapDef> = {
   sunset: {
     label: "Sunset",
     kind: "gradient",
-    stops: mk([["#3b1c6b", 0], ["#8b2fa0", 0.3], ["#e0457a", 0.56], ["#ff7a3d", 0.8], ["#ffd166", 1]]),
+    stops: mk([
+      ["#3b1c6b", 0],
+      ["#8b2fa0", 0.3],
+      ["#e0457a", 0.56],
+      ["#ff7a3d", 0.8],
+      ["#ffd166", 1],
+    ]),
     edgeColor: "#2a1a6b",
     edgeAmount: 0.3,
   },
   aurora: {
     label: "Aurora",
     kind: "gradient",
-    stops: mk([["#0b3d4f", 0], ["#1fb89e", 0.3], ["#5ee0a0", 0.52], ["#4d8ef0", 0.76], ["#9b5de5", 1]]),
+    stops: mk([
+      ["#0b3d4f", 0],
+      ["#1fb89e", 0.3],
+      ["#5ee0a0", 0.52],
+      ["#4d8ef0", 0.76],
+      ["#9b5de5", 1],
+    ]),
     edgeColor: "#0a2540",
     edgeAmount: 0.35,
   },
   ocean: {
     label: "Ocean",
     kind: "gradient",
-    stops: mk([["#0a1f4d", 0], ["#1f6fb8", 0.36], ["#2bd0d0", 0.66], ["#a8f0e2", 1]]),
+    stops: mk([
+      ["#0a1f4d", 0],
+      ["#1f6fb8", 0.36],
+      ["#2bd0d0", 0.66],
+      ["#a8f0e2", 1],
+    ]),
     edgeColor: "#061233",
     edgeAmount: 0.4,
   },
   ember: {
     label: "Ember",
     kind: "gradient",
-    stops: mk([["#2a0707", 0], ["#a81e1e", 0.34], ["#ff5a2e", 0.64], ["#ffd24a", 1]]),
+    stops: mk([
+      ["#2a0707", 0],
+      ["#a81e1e", 0.34],
+      ["#ff5a2e", 0.64],
+      ["#ffd24a", 1],
+    ]),
     edgeColor: "#150404",
     edgeAmount: 0.28,
   },
   iris: {
     label: "Iris",
     kind: "gradient",
-    stops: mk([["#2e1065", 0], ["#7c3aed", 0.34], ["#db2777", 0.64], ["#f5b8f0", 1]]),
+    stops: mk([
+      ["#2e1065", 0],
+      ["#7c3aed", 0.34],
+      ["#db2777", 0.64],
+      ["#f5b8f0", 1],
+    ]),
     edgeColor: "#1a0840",
     edgeAmount: 0.35,
   },
   mono: {
     label: "Mono",
     kind: "gradient",
-    stops: mk([["#16161e", 0], ["#6b7280", 0.4], ["#c2c8d2", 0.72], ["#f6f8fb", 1]]),
+    stops: mk([
+      ["#16161e", 0],
+      ["#6b7280", 0.4],
+      ["#c2c8d2", 0.72],
+      ["#f6f8fb", 1],
+    ]),
     edgeColor: "#0a0a12",
     edgeAmount: 0.2,
   },
@@ -252,7 +292,11 @@ export const PALETTE_MAPS: Record<string, PaletteMapDef> = {
 /** The canvas for a named map (its 2-D image, or its stops+edge gradient). */
 export function paletteMapCanvas(def: PaletteMapDef): HTMLCanvasElement {
   if (def.build) return def.build();
-  return buildPaletteCanvas({ stops: def.stops ?? [], edgeColor: def.edgeColor ?? "#8e9dff", edgeAmount: def.edgeAmount ?? 0 });
+  return buildPaletteCanvas({
+    stops: def.stops ?? [],
+    edgeColor: def.edgeColor ?? "#8e9dff",
+    edgeAmount: def.edgeAmount ?? 0,
+  });
 }
 
 /** Load an arbitrary image (URL or object-URL) as a palette texture — "bring your own map". */

@@ -19,7 +19,8 @@ if (p.get("pal")) config.paletteSource = p.get("pal") as string;
 if (p.get("palurl")) config.paletteImageUrl = p.get("palurl") as string; // load a palette image (URL) via TextureLoader instead of the named palette
 if (p.has("mh")) config.mirrorH = true;
 if (p.has("mv")) config.mirrorV = true;
-if (p.has("lightedit")) config.lights = [{ position: { x: 16, y: 18, z: 22 }, color: "#ffffff", intensity: 1 }];
+if (p.has("lightedit"))
+  config.lights = [{ position: { x: 16, y: 18, z: 22 }, color: "#ffffff", intensity: 1 }];
 const num = (k: string, set: (v: number) => void): void => {
   const v = p.get(k);
   if (v !== null) set(parseFloat(v));
@@ -30,7 +31,11 @@ num("rotZ", (v) => (config.rotation.z = v));
 num("sx", (v) => (config.scale.x = Math.abs(config.scale.x) * v)); // sign flips/mirrors X
 num("sz", (v) => (config.scale.z = v)); // fold depth — opens/closes the hairpin twist
 num("tw", (v) => {
-  config.twistFrequency = { x: config.twistFrequency.x * v, y: config.twistFrequency.y * v, z: config.twistFrequency.z * v };
+  config.twistFrequency = {
+    x: config.twistFrequency.x * v,
+    y: config.twistFrequency.y * v,
+    z: config.twistFrequency.z * v,
+  };
 }); // scale the shader twist (1.0 ≈ gentle 30°; higher turns the ribbon over)
 num("glow", (v) => (config.glowAmount = v));
 num("gpow", (v) => (config.glowPower = v));

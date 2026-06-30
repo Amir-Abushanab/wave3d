@@ -56,7 +56,10 @@ export interface LightConfig {
 }
 
 /** A default light; pass overrides for added fill lights. */
-export function createLight(position: Vec3 = { x: 300, y: 500, z: 800 }, intensity = 1): LightConfig {
+export function createLight(
+  position: Vec3 = { x: 300, y: 500, z: 800 },
+  intensity = 1,
+): LightConfig {
   return { position: { ...position }, color: "#ffffff", intensity };
 }
 
@@ -392,7 +395,8 @@ export function normalizePalette(config: WaveConfig): void {
 
 /** Backfill camera position/target for states saved before they existed. */
 export function ensureCamera(config: WaveConfig): void {
-  if (!config.cameraPosition) config.cameraPosition = { x: 0, y: 0, z: config.cameraDistance ?? 62 };
+  if (!config.cameraPosition)
+    config.cameraPosition = { x: 0, y: 0, z: config.cameraDistance ?? 62 };
   if (!config.cameraTarget) config.cameraTarget = { x: 0, y: 0, z: 0 };
   if (typeof config.cameraZoom !== "number") config.cameraZoom = 1;
 }
@@ -406,11 +410,23 @@ const RAD = 180 / Math.PI;
  *  surfaceColor fibers (600/0.2) and pdyLift 0, like the hero. camTarget/zoom frame the
  *  wave (we pan the look-at to centre each one). */
 function buildPreset(p: {
-  speed: number; contrast: number; sat: number; hueRad: number;
-  dispX: number; dispZ: number; dispAmt: number;
-  pos: [number, number, number]; rotRad: [number, number, number]; scale: [number, number, number];
-  twF: [number, number, number]; twP: [number, number, number]; glow: [number, number, number];
-  grain: number; blur: number; zoom: number; camTarget: [number, number];
+  speed: number;
+  contrast: number;
+  sat: number;
+  hueRad: number;
+  dispX: number;
+  dispZ: number;
+  dispAmt: number;
+  pos: [number, number, number];
+  rotRad: [number, number, number];
+  scale: [number, number, number];
+  twF: [number, number, number];
+  twP: [number, number, number];
+  glow: [number, number, number];
+  grain: number;
+  blur: number;
+  zoom: number;
+  camTarget: [number, number];
   noiseBands?: NoiseBand[];
   twistMotion?: boolean;
 }): WaveConfig {
@@ -447,31 +463,87 @@ export const PRESETS: Record<string, () => WaveConfig> = {
   // The app's default wave. Centred framing in the window-independent model.
   "Stripe Wave 2": () =>
     buildPreset({
-      speed: 0.04, contrast: 1, sat: 1, hueRad: -0.00159265,
-      dispX: 0.005831, dispZ: 0.016001, dispAmt: -7.821,
-      pos: [380, -301.7, -11.1], rotRad: [-0.44959, -0.11759, 1.874407], scale: [9, 8, 5],
-      twF: [-0.65, 0.41, -0.58], twP: [3.63, 0.7, 3.95], glow: [1.98, 0.806, 0.834],
-      grain: 1.1, blur: 0.02, zoom: 0.55, camTarget: [-420, -200], // user-tuned default framing
+      speed: 0.04,
+      contrast: 1,
+      sat: 1,
+      hueRad: -0.00159265,
+      dispX: 0.005831,
+      dispZ: 0.016001,
+      dispAmt: -7.821,
+      pos: [380, -301.7, -11.1],
+      rotRad: [-0.44959, -0.11759, 1.874407],
+      scale: [9, 8, 5],
+      twF: [-0.65, 0.41, -0.58],
+      twP: [3.63, 0.7, 3.95],
+      glow: [1.98, 0.806, 0.834],
+      grain: 1.1,
+      blur: 0.02,
+      zoom: 0.55,
+      camTarget: [-420, -200], // user-tuned default framing
     }),
   "Stripe Wave 3": () =>
     buildPreset({
-      speed: 0.08, contrast: 1, sat: 1, hueRad: -0.00159265,
-      dispX: 0.005831, dispZ: 0.016001, dispAmt: -7.821,
-      pos: [-200.7, -65.4, -11.1], rotRad: [-2.875593, 3.095927, -2.925927], scale: [3, 3, 3],
-      twF: [0.059, 0.32, -0.397], twP: [3.63, 0.44, 5.99], glow: [3.86, 0.923, 1],
-      grain: 1.2, blur: 0.02, zoom: 1.3, camTarget: [-104, 13], // centred; zoomed in (wide/flat wave)
+      speed: 0.08,
+      contrast: 1,
+      sat: 1,
+      hueRad: -0.00159265,
+      dispX: 0.005831,
+      dispZ: 0.016001,
+      dispAmt: -7.821,
+      pos: [-200.7, -65.4, -11.1],
+      rotRad: [-2.875593, 3.095927, -2.925927],
+      scale: [3, 3, 3],
+      twF: [0.059, 0.32, -0.397],
+      twP: [3.63, 0.44, 5.99],
+      glow: [3.86, 0.923, 1],
+      grain: 1.2,
+      blur: 0.02,
+      zoom: 1.3,
+      camTarget: [-104, 13], // centred; zoomed in (wide/flat wave)
     }),
   "Stripe Wave 4": () =>
     buildPreset({
-      speed: 0.0525, contrast: 0.969, sat: 1.383, hueRad: 0.0376991,
-      dispX: 0.005, dispZ: 0.0212, dispAmt: 6.68,
-      pos: [206.1, -438, -11.1], rotRad: [-0.666018, -0.031416, 0.779115], scale: [6.0501, 8.3983, 6.9854],
-      twF: [-0.424, 0.024, -1.312], twP: [1.81, 0.94, 4.76], glow: [1.55, 1.174, 0.972],
-      grain: 0.576, blur: 0, zoom: 0.9316, camTarget: [194, -402], // centred on the wave
+      speed: 0.0525,
+      contrast: 0.969,
+      sat: 1.383,
+      hueRad: 0.0376991,
+      dispX: 0.005,
+      dispZ: 0.0212,
+      dispAmt: 6.68,
+      pos: [206.1, -438, -11.1],
+      rotRad: [-0.666018, -0.031416, 0.779115],
+      scale: [6.0501, 8.3983, 6.9854],
+      twF: [-0.424, 0.024, -1.312],
+      twP: [1.81, 0.94, 4.76],
+      glow: [1.55, 1.174, 0.972],
+      grain: 0.576,
+      blur: 0,
+      zoom: 0.9316,
+      camTarget: [194, -402], // centred on the wave
       twistMotion: true, // variant vertex shader — animated twist-X wobble
       noiseBands: [
-        { startX: 0.856, endX: 1, startY: 0, endY: 0.913, feather: 0.5, strength: 0.346, frequency: 1018, colorAttenuation: 1, parabolaPower: 0 },
-        { startX: 0.038, endX: 0.538, startY: 0.105, endY: 1, feather: 0.3315, strength: 1, frequency: 190, colorAttenuation: 0, parabolaPower: 2.11 },
+        {
+          startX: 0.856,
+          endX: 1,
+          startY: 0,
+          endY: 0.913,
+          feather: 0.5,
+          strength: 0.346,
+          frequency: 1018,
+          colorAttenuation: 1,
+          parabolaPower: 0,
+        },
+        {
+          startX: 0.038,
+          endX: 0.538,
+          startY: 0.105,
+          endY: 1,
+          feather: 0.3315,
+          strength: 1,
+          frequency: 190,
+          colorAttenuation: 0,
+          parabolaPower: 2.11,
+        },
       ],
     }),
   // Three more presets, each a clone of a base preset + a few overrides: 2b/2c clone
@@ -632,9 +704,9 @@ export function randomizeFinish(c: WaveConfig): void {
   c.grain = r2(rand(0, 1.5));
   c.texture = r2(rand(0, 0.35));
   c.blur = r3(rand(0, 0.02));
-  c.volume = r2(rand(0.3, 0.8));        // rounded thickness
+  c.volume = r2(rand(0.3, 0.8)); // rounded thickness
   c.pdyLift = r2(rand(0.2, 0.9));
-  c.glowAmount = r2(rand(0.4, 1.0));   // pdy strength (where streaks appear)
+  c.glowAmount = r2(rand(0.4, 1.0)); // pdy strength (where streaks appear)
   c.glowPower = r2(rand(0.45, 0.8));
   c.glowRamp = r2(rand(0.8, 1.2));
   c.edgeFade = r2(rand(0, 0.08));

@@ -37,7 +37,8 @@ export async function generatePresetThumbnails(
 
   const host = document.createElement("div");
   // In layout (so clientWidth/Height are real) but parked off-screen and invisible.
-  host.style.cssText = "position:fixed;left:-10000px;top:0;width:240px;height:150px;opacity:0;pointer-events:none;";
+  host.style.cssText =
+    "position:fixed;left:-10000px;top:0;width:240px;height:150px;opacity:0;pointer-events:none;";
   document.body.appendChild(host);
 
   let renderer: WaveRenderer | null = null;
@@ -60,6 +61,7 @@ export async function generatePresetThumbnails(
         c.getContext("2d")?.drawImage(src, 0, 0);
         cache.set(name, c);
       }
+      // Rendering is intentionally sequential because every iteration reuses the same renderer.
       await new Promise((r) => setTimeout(r, 0)); // yield so the UI stays responsive
     }
   } catch (err) {

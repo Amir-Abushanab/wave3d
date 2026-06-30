@@ -1,28 +1,43 @@
 {
   "name": "wave-studio",
-  "private": true,
   "version": "0.1.0",
-  "type": "module",
+  "private": true,
   "description": "Open-source studio for authoring 3D gradient waves",
   "license": "MIT",
-  "packageManager": "pnpm@11.9.0",
+  "type": "module",
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
+    "hooks:install": "git config core.hooksPath .githooks",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "build:embed": "vite build --config vite.embed.config.ts",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint . --fix",
+    "format": "oxfmt .",
+    "format:check": "oxfmt . --check",
+    "depcruise": "dependency-cruiser src embed",
+    "depcruise:graph": "dependency-cruiser src embed --output-type dot | dot -Tsvg | depcruise-wrap-stream-in-html > dependency-graph.html",
+    "depcruise:graph:svg": "dependency-cruiser src embed --output-type dot | dot -Tsvg -o dependency-graph.svg",
+    "depcruise:graph:mermaid": "dependency-cruiser src embed --output-type mermaid --output-to dependency-graph.mmd",
+    "knip": "knip",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm depcruise && pnpm knip",
     "ncu": "pnpm dlx npm-check-updates"
   },
   "dependencies": {
     "three": "^0.185.0",
-    "tweakpane": "^4.0.5",
-    "@tweakpane/plugin-essentials": "^0.2.1"
+    "tweakpane": "^4.0.5"
   },
   "devDependencies": {
     "@tweakpane/core": "^2.0.5",
     "@types/three": "^0.185.0",
+    "dependency-cruiser": "^18.0.0",
+    "knip": "^6.23.0",
+    "oxfmt": "^0.56.0",
+    "oxlint": "^1.71.0",
     "typescript": "^6.0.3",
     "vite": "^8.1.0"
-  }
+  },
+  "packageManager": "pnpm@11.9.0"
 }

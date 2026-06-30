@@ -1,0 +1,18 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["src/preview.ts", "embed/index.ts"],
+  "project": ["src/**/*.ts", "embed/**/*.ts", "vite*.ts"],
+  "ignoreDependencies": ["@tweakpane/core"],
+  "ignoreBinaries": ["dot"],
+  "include": [
+    "files",
+    "dependencies",
+    "devDependencies",
+    "optionalPeerDependencies",
+    "unlisted",
+    "binaries",
+    "unresolved",
+    "duplicates",
+    "catalog"
+  ]
+}

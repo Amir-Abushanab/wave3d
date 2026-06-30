@@ -7,9 +7,22 @@ import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 // — which never enters edit mode — doesn't pay for them.
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { TransformControls } from "three/addons/controls/TransformControls.js";
-import { vertexShader, fragmentShader, lineFragmentShader, postVertexShader, postFragmentShader } from "./shaders";
+import {
+  vertexShader,
+  fragmentShader,
+  lineFragmentShader,
+  postVertexShader,
+  postFragmentShader,
+} from "./shaders";
 import { WaveGeometry } from "./WaveGeometry";
-import { buildPaletteTexture, paletteSignature, PALETTE_MAPS, paletteMapCanvas, canvasToTexture, loadPaletteImage } from "./palette";
+import {
+  buildPaletteTexture,
+  paletteSignature,
+  PALETTE_MAPS,
+  paletteMapCanvas,
+  canvasToTexture,
+  loadPaletteImage,
+} from "./palette";
 import { buildHeroPaletteTexture } from "./heroPalette";
 import { MAX_COLORS, MAX_LIGHTS, MAX_NOISE_BANDS, normalizePalette, ensureCamera } from "./config";
 import type { WaveConfig } from "./config";
@@ -44,6 +57,10 @@ function hexToLinearVec3(hex: string, target: THREE.Vector3): THREE.Vector3 {
   // turns red), so we read the components directly.
   const c = new THREE.Color(hex);
   return target.set(c.r, c.g, c.b);
+}
+
+function roundMillis(value: number): number {
+  return Math.round(value * 1000) / 1000;
 }
 
 /**
@@ -139,13 +156,21 @@ export class WaveRenderer {
     // Resilience: if the GPU drops the context (memory pressure, sleep/wake), don't
     // let the browser hard-crash the page — prevent the default and rebuild on restore.
     this.renderer.domElement.addEventListener("webglcontextlost", this.onContextLost, false);
-    this.renderer.domElement.addEventListener("webglcontextrestored", this.onContextRestored, false);
+    this.renderer.domElement.addEventListener(
+      "webglcontextrestored",
+      this.onContextRestored,
+      false,
+    );
 
     // Orthographic, framed in device pixels: resize() sets the frustum to the canvas size, and
     // the mesh is scaled up so the wave overflows the frame, leaving only the twist on screen.
     // Bounds (-1,1,1,-1) here are placeholders overwritten by the first resize(); near/far = 1..10000.
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 10000);
-    this.camera.position.set(config.cameraPosition.x, config.cameraPosition.y, config.cameraPosition.z);
+    this.camera.position.set(
+      config.cameraPosition.x,
+      config.cameraPosition.y,
+      config.cameraPosition.z,
+    );
     this.camera.zoom = config.cameraZoom ?? 1;
     this.camera.lookAt(config.cameraTarget.x, config.cameraTarget.y, config.cameraTarget.z);
     this.camera.updateProjectionMatrix();
@@ -659,7 +684,11 @@ export class WaveRenderer {
 
   private updateRunning(): void {
     const shouldAnimate =
-      this.started && this.visible && this.pageVisible && !this.config.paused && !this.reducedMotion;
+      this.started &&
+      this.visible &&
+      this.pageVisible &&
+      !this.config.paused &&
+      !this.reducedMotion;
 
     if (shouldAnimate && !this.running) {
       this.running = true;
@@ -859,7 +888,13 @@ export class WaveRenderer {
   }
 
   /** Read the camera as orbit values for the panel (angles in degrees). */
-  getCameraOrbit(): { azimuth: number; elevation: number; distance: number; panX: number; panY: number } {
+  getCameraOrbit(): {
+    azimuth: number;
+    elevation: number;
+    distance: number;
+    panX: number;
+    panY: number;
+  } {
     const t = this.camTarget();
     const sph = new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(t));
     return {
@@ -1003,8 +1038,16 @@ export class WaveRenderer {
 
     // A little camera (body + lens) that follows the main camera.
     const marker = new THREE.Group();
-    marker.add(new THREE.Mesh(new THREE.BoxGeometry(3.4, 2.4, 4.2), new THREE.MeshBasicMaterial({ color: 0x2a2f3d })));
-    const lens = new THREE.Mesh(new THREE.ConeGeometry(1.3, 2.4, 18), new THREE.MeshBasicMaterial({ color: 0x6ea8fe }));
+    marker.add(
+      new THREE.Mesh(
+        new THREE.BoxGeometry(3.4, 2.4, 4.2),
+        new THREE.MeshBasicMaterial({ color: 0x2a2f3d }),
+      ),
+    );
+    const lens = new THREE.Mesh(
+      new THREE.ConeGeometry(1.3, 2.4, 18),
+      new THREE.MeshBasicMaterial({ color: 0x6ea8fe }),
+    );
     lens.rotation.x = -Math.PI / 2; // cone points -Z (the camera's forward)
     lens.position.z = -2.7;
     marker.add(lens);
@@ -1032,7 +1075,10 @@ export class WaveRenderer {
   private syncMinimapLights(visible: boolean): void {
     const lights = this.config.lights ?? [];
     while (this.minimapLights.length < lights.length) {
-      const m = new THREE.Mesh(new THREE.SphereGeometry(2.2, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffd24a }));
+      const m = new THREE.Mesh(
+        new THREE.SphereGeometry(2.2, 16, 12),
+        new THREE.MeshBasicMaterial({ color: 0xffd24a }),
+      );
       m.visible = false;
       this.scene.add(m);
       this.minimapLights.push(m);
@@ -1104,8 +1150,16 @@ export class WaveRenderer {
     this.orbit.maxDistance = 600;
     // Left drag PANS (moves the view around); right drag ROTATES — swapped from the
     // OrbitControls default so the primary drag moves the scene rather than orbiting it.
-    this.orbit.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
-    this.orbit.target.set(this.config.cameraTarget.x, this.config.cameraTarget.y, this.config.cameraTarget.z);
+    this.orbit.mouseButtons = {
+      LEFT: THREE.MOUSE.PAN,
+      MIDDLE: THREE.MOUSE.DOLLY,
+      RIGHT: THREE.MOUSE.ROTATE,
+    };
+    this.orbit.target.set(
+      this.config.cameraTarget.x,
+      this.config.cameraTarget.y,
+      this.config.cameraTarget.z,
+    );
     this.orbit.update();
     this.orbit.addEventListener("change", this.onControlsChange);
     // Cursor feedback by drag type: left-drag pans → 4-way move arrows; right-drag rotates →
@@ -1150,9 +1204,12 @@ export class WaveRenderer {
 
   /** Persist the live camera (position/target/distance) into the config. */
   private writeCameraToConfig(): void {
-    const r = (n: number): number => Math.round(n * 1000) / 1000;
     const p = this.camera.position;
-    this.config.cameraPosition = { x: r(p.x), y: r(p.y), z: r(p.z) };
+    this.config.cameraPosition = {
+      x: roundMillis(p.x),
+      y: roundMillis(p.y),
+      z: roundMillis(p.z),
+    };
     // Capture the LIVE ortho zoom (mouse-scroll changes camera.zoom directly) back into
     // config.cameraZoom — the user multiplier — by inverting applyZoom's responsive COVER
     // factor. Without this, scroll-zoom changed the view but was never saved/exported, so a
@@ -1161,11 +1218,15 @@ export class WaveRenderer {
       (this.camera.right - this.camera.left) / FRAME_W,
       (this.camera.top - this.camera.bottom) / FRAME_H,
     );
-    if (cover > 0) this.config.cameraZoom = r(this.camera.zoom / cover);
+    if (cover > 0) this.config.cameraZoom = roundMillis(this.camera.zoom / cover);
     if (this.orbit) {
       const t = this.orbit.target;
-      this.config.cameraTarget = { x: r(t.x), y: r(t.y), z: r(t.z) };
-      this.config.cameraDistance = r(p.distanceTo(this.orbit.target));
+      this.config.cameraTarget = {
+        x: roundMillis(t.x),
+        y: roundMillis(t.y),
+        z: roundMillis(t.z),
+      };
+      this.config.cameraDistance = roundMillis(p.distanceTo(this.orbit.target));
     }
   }
 
@@ -1316,7 +1377,9 @@ export class WaveRenderer {
     this.capturing = true;
     this.camera.clearViewOffset(); // export the centered composition, not the studio-shifted view
     this.renderOnce();
-    const blob = await new Promise<Blob | null>((resolve) => this.canvas.toBlob(resolve, "image/png"));
+    const blob = await new Promise<Blob | null>((resolve) =>
+      this.canvas.toBlob(resolve, "image/png"),
+    );
     this.capturing = false;
     if (transparent !== prev) {
       this.config.transparentBackground = prev;

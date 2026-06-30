@@ -2,9 +2,17 @@ import "./style.css";
 import { WaveRenderer } from "./wave/WaveRenderer";
 import { randomizeConfig, PRESETS } from "./wave/config";
 import type { WaveConfig } from "./wave/config";
-import { ControlPanel } from "./ui/panel";
+import { ControlPanel } from "./ui/ControlPanel";
 import { generatePresetThumbnails } from "./ui/presetThumbs";
-import { exportConfigJSON, pickConfigFile, exportPNG, exportEmbed, VideoRecorder, decodeConfigFromHash, copyShareLink } from "./export/exporters";
+import {
+  exportConfigJSON,
+  pickConfigFile,
+  exportPNG,
+  exportEmbed,
+  VideoRecorder,
+  decodeConfigFromHash,
+  copyShareLink,
+} from "./export/exporters";
 
 const stage = document.getElementById("stage");
 const panelEl = document.getElementById("panel");
