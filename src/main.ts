@@ -1,9 +1,10 @@
 import "./style.css";
 import { WaveRenderer } from "./wave/WaveRenderer";
-import { createDefaultConfig, randomizeConfig, PRESETS } from "./wave/config";
+import { randomizeConfig, PRESETS } from "./wave/config";
 import type { WaveConfig } from "./wave/config";
 import { ControlPanel } from "./ui/panel";
-import { exportConfigJSON, pickConfigFile, exportPNG, exportEmbed, VideoRecorder } from "./export/exporters";
+import { generatePresetThumbnails } from "./ui/presetThumbs";
+import { exportConfigJSON, pickConfigFile, exportPNG, exportEmbed, VideoRecorder, decodeConfigFromHash, copyShareLink } from "./export/exporters";
 
 const stage = document.getElementById("stage");
 const panelEl = document.getElementById("panel");
@@ -31,7 +32,13 @@ window.addEventListener("unhandledrejection", (e) =>
   showError("Unhandled promise rejection", (e.reason as Error)?.stack || String(e.reason)),
 );
 
-let config: WaveConfig = createDefaultConfig();
+// The app's default wave (what loads on startup and on "Reset to default").
+const DEFAULT_PRESET = "Stripe Wave 2";
+const makeDefault = (): WaveConfig => PRESETS[DEFAULT_PRESET]();
+
+// A shared link (#w=…) overrides the default on load — applied async (gzip decode) below.
+const hasSharedLink = /[#&]w=/.test(location.hash);
+let config: WaveConfig = makeDefault();
 const renderer = new WaveRenderer(stage, config);
 renderer.start();
 // Studio only: mouse/trackpad orbit + zoom + pan (the embed stays a static view).
@@ -42,20 +49,23 @@ const recorder = new VideoRecorder();
 const presetOptions: Record<string, string> = { "—": "—" };
 for (const name of Object.keys(PRESETS)) presetOptions[name] = name;
 
-function applyConfig(next: WaveConfig): void {
+function applyConfig(next: WaveConfig, presetName = "—"): void {
   config = next;
   renderer.setConfig(config);
-  panel.setConfig(config);
+  panel.setConfig(config, presetName); // presetName labels the Global → preset dropdown
 }
 
 const panel = new ControlPanel(panelEl, renderer, config, {
   presetOptions,
+  // Shared-link load isn't a named preset → "—"; otherwise show the default's name.
+  defaultPreset: hasSharedLink ? "—" : DEFAULT_PRESET,
   onPreset: (name) => {
     const make = PRESETS[name];
-    if (make) applyConfig(make());
+    if (make) applyConfig(make(), name);
   },
   onRandomize: () => applyConfig(randomizeConfig(config)),
-  onReset: () => applyConfig(createDefaultConfig()),
+  onReset: () => applyConfig(makeDefault(), DEFAULT_PRESET),
+  onCopyLink: () => copyShareLink(config),
   onExportConfig: () => exportConfigJSON(config),
   onImportConfig: async () => {
     try {
@@ -79,6 +89,18 @@ const panel = new ControlPanel(panelEl, renderer, config, {
   },
 });
 
+// Apply a shared link (#w=…) once decoded (gzip). The default shows for the frame or two
+// the decode takes; then the shared wave swaps in (dropdown stays "—" = custom).
+if (hasSharedLink) {
+  void decodeConfigFromHash(location.hash).then((shared) => {
+    if (shared) applyConfig(shared, "—");
+  });
+}
+
+// Render each preset's thumbnail offscreen (once the main view has painted), then refresh the
+// preset picker to show them. Deferred so it never competes with the initial render.
+setTimeout(() => void generatePresetThumbnails(PRESETS, () => panel.refreshPresetThumbs()), 600);
+
 // Shift the studio view right so the wave isn't hidden behind the control panel.
 // (Desktop only — on mobile the panel is a full-width overlay, so we skip it.)
 function applyViewInset(): void {
@@ -97,7 +119,7 @@ window.addEventListener("resize", () => {
 // Camera-controls hint: shows briefly, fades on first interaction or after a few seconds.
 {
   const hint = document.createElement("div");
-  hint.textContent = "drag to orbit · scroll to zoom · right-drag to pan · arrow keys to rotate";
+  hint.textContent = "drag to move · scroll to zoom · right-drag or arrow keys to rotate";
   hint.style.cssText =
     "position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:20;" +
     "padding:7px 14px;border-radius:999px;white-space:nowrap;pointer-events:none;" +

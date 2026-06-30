@@ -1,10 +1,8 @@
 # Wave Studio
 
-An open-source, browser-based studio for authoring **Stripe-style 3D gradient waves** — the glossy, twisting *wave of light* (a strip swept along a curve, with the gradient running along its length and a satin sheen), not the older flat mesh gradient.
+An open-source, browser-based studio for authoring **3D gradient waves** — the glossy, twisting _wave of light_ (a strip swept along a curve, with the gradient running along its length and a satin sheen) seen across Stripe's designs.
 
-It’s an independent recreation of the kind of internal parametric wave tool Stripe’s design team uses: tweak every parameter live, then export the result as a **config**, a **drop-in embed**, a **PNG**, or a **WebM video**.
-
-> Why this exists: the old Stripe mesh gradient is reverse-engineered to death (minigl, whatamesh, NEAT, …), but none of those produce the newer 3D wave, and there was no open tool to author it. This fills that gap. Not affiliated with or endorsed by Stripe.
+Tweak every parameter live, then export the result as a **config**, a **drop-in embed**, a **PNG**, or a **WebM video**.
 
 ![Wave Studio](docs/screenshot.png)
 
@@ -19,6 +17,7 @@ Requires Node 18+ (developed on Node 24) and [pnpm](https://pnpm.io).
 
 ## Using the studio
 
+[TODO: update this]
 The control panel groups every parameter:
 
 - **Actions** — presets, randomize, reset, and all exports.
@@ -34,12 +33,12 @@ The control panel groups every parameter:
 
 All from the **Actions** folder:
 
-| Export | What you get |
-| --- | --- |
+| Export                        | What you get                                                                           |
+| ----------------------------- | -------------------------------------------------------------------------------------- |
 | **Save / Load state (.json)** | The full `WaveConfig`. This is the preset format — version it, share it, re-import it. |
-| **Export PNG** | A still of the current frame (transparent if “transparent bg” is on). |
-| **Record / stop (.webm)** | A video capture of the animation. |
-| **Export embed (.html)** | A self-contained page that renders this exact wave on any site. |
+| **Export PNG**                | A still of the current frame (transparent if “transparent bg” is on).                  |
+| **Record / stop (.webm)**     | A video capture of the animation.                                                      |
+| **Export embed (.html)**      | A self-contained page that renders this exact wave on any site.                        |
 
 ### Embedding on your own site
 
@@ -52,7 +51,9 @@ All from the **Actions** folder:
    <div id="wave" style="position:fixed; inset:0"></div>
    <script type="module">
      import { mountWave } from "./wave-studio-embed.js";
-     const config = { /* paste your exported wave.json here */ };
+     const config = {
+       /* paste your exported wave.json here */
+     };
      mountWave(document.getElementById("wave"), config);
    </script>
    ```
@@ -70,7 +71,7 @@ The renderer is built to be a well-behaved background:
 
 ## How it works
 
-Each strand is a wave swept along a smooth spine curve: the curve is sampled, frames are carried along it by parallel transport (no Frenet flips), the cross-section is twisted around the tangent, and the strip is extruded to a tapering width — rebuilt each frame in `WaveGeometry`. The fragment shader (technique reverse-engineered from Stripe's hero) colours it with a gradient along the length, overlays fine **stratified lines running across the wave** (`abs(sin(uv.y · lineAmount))`), adds a subtle sheen and rim glow, and feathers the edges and ends. A post pass then applies a **golden-angle soft-focus blur and dither grain**. Everything is driven by a single JSON-serializable `WaveConfig`, so the renderer, the panel, and every export read from the same source of truth.
+Each strand is a wave swept along a smooth spine curve: the curve is sampled, frames are carried along it by parallel transport (no Frenet flips), the cross-section is twisted around the tangent, and the strip is extruded to a tapering width — rebuilt each frame in `WaveGeometry`. The fragment shader colours it with a gradient along the length, overlays fine **stratified lines running across the wave** (`abs(sin(uv.y · lineAmount))`), adds a subtle sheen and rim glow, and feathers the edges and ends. A post pass then applies a **golden-angle soft-focus blur and dither grain**. Everything is driven by a single JSON-serializable `WaveConfig`, so the renderer, the panel, and every export read from the same source of truth.
 
 - `src/wave/` — config schema, `WaveGeometry`, shaders, and the framework-agnostic `WaveRenderer`.
 - `src/ui/` — the Tweakpane control panel.
@@ -83,4 +84,4 @@ Each strand is a wave swept along a smooth spine curve: the curve is sampled, fr
 
 ## License
 
-[MIT](./LICENSE). Inspired by Stripe’s design work; not affiliated with Stripe.
+[MIT](./LICENSE).

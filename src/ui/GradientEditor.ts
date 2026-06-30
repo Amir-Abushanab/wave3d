@@ -96,6 +96,12 @@ export class GradientEditor {
     this.paint();
   }
 
+  /** Grey out + block interaction when the stops don't drive the current palette source. */
+  setEnabled(on: boolean): void {
+    this.root.style.opacity = on ? "1" : "0.4";
+    this.root.style.pointerEvents = on ? "" : "none";
+  }
+
   private get stops(): ColorStop[] {
     return this.config.palette;
   }

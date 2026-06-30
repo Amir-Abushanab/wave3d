@@ -1,42 +1,54 @@
 import { MAX_COLORS, MAX_LIGHTS, MAX_NOISE_BANDS } from "./config";
 
 /**
- * Faithful port of Stripe's hero shaders (bundle 4925: vertex module #2,
- * fragment module #0). Vertex: a flat plane is Y-displaced by simplex noise, then
+ * The wave shaders. Vertex: a flat plane is Y-displaced by simplex noise, then
  * twisted by three axis-rotations `freq * expStep(uv, power)` where
  * `expStep(x,n) = exp2(-exp2(n)*pow(x,n))` is a falloff (rotation concentrated at
- * the uv=0 edge), with diagonal axes + an animated X wobble. Fragment: Stripe uses
- * NO normal-based lighting — "thickness" comes from `pdy`, a foreshorten/fold
+ * the uv=0 edge), with diagonal axes + an animated X wobble. Fragment: uses NO
+ * normal-based lighting — "thickness" comes from `pdy`, a foreshorten/fold
  * detector built from `dFdy(uv)`, used to lift flat areas toward white
  * (`col += (1-pdy)*0.25`) and to localise the striations. Striations are subtle
  * high-frequency simplex noise ADDED to the colour, colour-matched via (1-blue)
- * and end-weighted via a parabola — so they blend rather than stripe.
+ * and end-weighted via a parabola — so they blend rather than form hard lines.
  * Our additions: gradient stops/types for colour, and an optional additive light
- * layer (kept gentle so the default reads like Stripe).
+ * layer (kept gentle so the default look is preserved).
  */
 
+// Noise function: xxHash-seeded unit-vector gradients + a Gustavson simplex. It uses
+// GLSL ES 3.00 integer ops (floatBitsToUint, unsigned bit-shifts) — available with no
+// glslVersion change because three compiles non-raw ShaderMaterials as "#version 300 es"
+// already. `hash` returns a vec2 here — the cheap grain hash in the fragment is named
+// `grainHash` to avoid clashing with it.
 const simplex2d = /* glsl */ `
-vec3 permute3(vec3 x){ return mod(((x * 34.0) + 1.0) * x, 289.0); }
-float snoise(vec2 v){
-  const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
-  vec2 i = floor(v + dot(v, C.yy));
-  vec2 x0 = v - i + dot(i, C.xx);
-  vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
-  vec4 x12 = x0.xyxy + C.xxzz;
-  x12.xy -= i1;
-  i = mod(i, 289.0);
-  vec3 p = permute3(permute3(i.y + vec3(0.0, i1.y, 1.0)) + i.x + vec3(0.0, i1.x, 1.0));
-  vec3 m = max(0.5 - vec3(dot(x0, x0), dot(x12.xy, x12.xy), dot(x12.zw, x12.zw)), 0.0);
-  m = m * m; m = m * m;
-  vec3 x = 2.0 * fract(p * C.www) - 1.0;
-  vec3 h = abs(x) - 0.5;
-  vec3 ox = floor(x + 0.5);
-  vec3 a0 = x - ox;
-  m *= 1.79284291400159 - 0.85373472095314 * (a0 * a0 + h * h);
-  vec3 g;
-  g.x = a0.x * x0.x + h.x * x0.y;
-  g.yz = a0.yz * x12.xz + h.yz * x12.yw;
-  return 130.0 * dot(m, g);
+float xxhash(vec2 x){
+  uvec2 t = floatBitsToUint(x);
+  uint h = 0xc2b2ae3du * t.x + 0x165667b9u;
+  h = (h << 17u | h >> 15u) * 0x27d4eb2fu;
+  h += 0xc2b2ae3du * t.y;
+  h = (h << 17u | h >> 15u) * 0x27d4eb2fu;
+  h ^= h >> 15u;
+  h *= 0x85ebca77u;
+  h ^= h >> 13u;
+  h *= 0xc2b2ae3du;
+  h ^= h >> 16u;
+  return uintBitsToFloat(h >> 9u | 0x3f800000u) - 1.0;
+}
+vec2 hash(vec2 x){
+  float k = 6.283185307 * xxhash(x);
+  return vec2(cos(k), sin(k));
+}
+float simplexNoise(in vec2 p){
+  const float K1 = 0.366025404; // (sqrt(3)-1)/2
+  const float K2 = 0.211324865; // (3-sqrt(3))/6
+  vec2 i = floor(p + (p.x + p.y) * K1);
+  vec2 a = p - i + (i.x + i.y) * K2;
+  float m = step(a.y, a.x);
+  vec2 o = vec2(m, 1.0 - m);
+  vec2 b = a - o + K2;
+  vec2 c = a - 1.0 + 2.0 * K2;
+  vec3 h = max(0.5 - vec3(dot(a, a), dot(b, b), dot(c, c)), 0.0);
+  vec3 n = h * h * h * vec3(dot(a, hash(i + 0.0)), dot(b, hash(i + o)), dot(c, hash(i + 1.0)));
+  return dot(n, vec3(32.99)); // analytic factor (= 2916*sqrt(2)/125)
 }
 `;
 
@@ -50,13 +62,14 @@ uniform float uTwFreqX, uTwFreqY, uTwFreqZ, uTwPowX, uTwPowY, uTwPowZ;
 varying vec2 vUv;
 varying vec3 vWorldPos;
 varying vec3 vViewDir;
+varying vec4 vClipPosition; // = gl_Position, for the wireframe theme's depth fade
 
-// Stripe's expStep: a falloff from 1 (at x=0) toward 0, sharpness set by n. The
+// expStep: a falloff from 1 (at x=0) toward 0, sharpness set by n. The
 // max() guards pow(0, n) (= Infinity → NaN) so negative n is safe — negative n
 // just concentrates the twist toward the OTHER end instead.
 float expStep(float x, float n){ return exp2(-exp2(n) * pow(max(x, 1.0e-3), n)); }
 
-// Stripe's rotationMatrix (mat4), used row-vector style: pos = (vec4(pos,1) * R).xyz
+// rotationMatrix (mat4), used row-vector style: pos = (vec4(pos,1) * R).xyz
 mat4 rotationMatrix(vec3 axis, float angle){
   axis = normalize(axis);
   float s = sin(angle), c = cos(angle), oc = 1.0 - c;
@@ -72,28 +85,39 @@ void main(){
   vUv = uv;
   float t = uTime * uSpeed + uSeed;
 
-  // The geometry is already Stripe's baked folded() hairpin. On top of it we apply
-  // Stripe's vertex deformation verbatim: displace() lifts Y by simplex noise of
-  // the (x,z) position, then three axis-rotations twist the strip.
+  // The base geometry is already a baked hairpin fold. On top of it we deform the
+  // vertices: a displacement lifts Y by simplex noise of the (x,z) position, then
+  // three axis-rotations twist the strip.
   vec3 pos = position;
-  pos.y += uDispAmount * snoise(vec2(pos.x * uDispFreqX + t, pos.z * uDispFreqZ + t));
+  pos.y += uDispAmount * simplexNoise(vec2(pos.x * uDispFreqX + t, pos.z * uDispFreqZ + t));
 
-  // Stripe's three-axis twist (hero vertex, module 68467): expStep falloff sets how
+  // The X-twist frequency feeding rotB. Two modes: by default uTwFreqX is used
+  // directly; the variant (used by the Wave 4 preset) modulates it with
+  // simplex noise indexed along the ribbon (uv.y) so the twist breathes over time.
+  // We gate the wobble with a #define so the compiled program is unchanged when off.
+  float twistXFreq = uTwFreqX;
+#ifdef TWIST_MOTION
+  float twistXNoise = simplexNoise(vec2(vUv.y * 2.0, t));
+  twistXFreq = uTwFreqX - twistXNoise * 0.1;
+#endif
+
+  // Three-axis twist: expStep falloff sets how
   // sharply each rotation concentrates toward an edge. rotA keys off uv.x, rotB/rotC
   // off uv.y; axes (0.5,0,0.5) and (0,0.5,0.5) are normalised inside rotationMatrix.
   mat4 rotA = rotationMatrix(vec3(0.5, 0.0, 0.5), uTwFreqY * expStep(uv.x, uTwPowY));
-  mat4 rotB = rotationMatrix(vec3(0.0, 0.5, 0.5), uTwFreqX * expStep(uv.y, uTwPowX));
+  mat4 rotB = rotationMatrix(vec3(0.0, 0.5, 0.5), twistXFreq * expStep(uv.y, uTwPowX));
   mat4 rotC = rotationMatrix(vec3(0.5, 0.0, 0.5), uTwFreqZ * expStep(uv.y, uTwPowZ));
   pos = (vec4(pos, 1.0) * rotA).xyz;
   pos = (vec4(pos, 1.0) * rotB).xyz;
   pos = (vec4(pos, 1.0) * rotC).xyz;
 
-  // The scale / rotation / position transform lives on the mesh (modelMatrix), exactly
-  // like Stripe — so the orientation matches THREE's Euler-XYZ, not an in-shader order.
+  // The scale / rotation / position transform lives on the mesh (modelMatrix), so the
+  // orientation matches THREE's Euler-XYZ rather than an in-shader rotation order.
   vec4 world = modelMatrix * vec4(pos, 1.0);
   vWorldPos = world.xyz;
   vViewDir = cameraPosition - world.xyz;
   gl_Position = projectionMatrix * viewMatrix * world;
+  vClipPosition = gl_Position;
 }
 `;
 
@@ -111,6 +135,12 @@ uniform int uColorCount;
 uniform int uGradType;
 uniform float uGradAngle;
 uniform float uGradShift;
+uniform sampler2D uPalette;   // baked 2D palette texture
+uniform float uUsePalette;    // >0.5 = sample the texture; else procedural grad()
+uniform float uPaletteRaw;    // >0.5 = sample palette by raw (uv.x,uv.y), not gradCoord
+uniform float uDebug;         // dev: 1 = show pdy, 2 = show derivative normal
+uniform float uPdyLift;       // pdy white-lift strength (1 = full)
+uniform float uVolume;        // pose-robust normal-based volume/thickness strength
 uniform float uHueShift;
 uniform float uLayerHue;
 uniform float uContrast;
@@ -138,9 +168,10 @@ varying vec2 vUv;
 varying vec3 vWorldPos;
 varying vec3 vViewDir;
 
-float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+// Cheap value hash for the optional grain overlay (distinct from the simplex hash).
+float grainHash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 
-// ---- Stripe colour helpers (verbatim from the hero shader) ----
+// ---- Colour helpers ----
 vec3 contrastFn(vec3 v, float a){ return (v - 0.5) * a + 0.5; }
 vec3 desaturate(vec3 color, float factor){
   vec3 gray = vec3(dot(vec3(0.299, 0.587, 0.114), color));
@@ -174,25 +205,25 @@ vec3 grad(float u){
 
 // Map a surface uv to the 0–1 gradient coordinate per gradient type. uGradShift
 // adds a low-frequency simplex warp so the colour varies in 2D (along the length
-// as well as across the width) — approximating Stripe's 2D palette texture instead
+// as well as across the width) — a 2D palette feel instead
 // of flat 1-D bands.
 float gradCoord(vec2 uv){
-  float warp = uGradShift * snoise(uv * 1.6 + 4.0);
+  float warp = uGradShift * simplexNoise(uv * 1.6 + 4.0);
   if (uGradType == 1){ return clamp(length(uv - 0.5) * 2.0 + warp, 0.0, 1.0); }    // radial
   if (uGradType == 2){ return fract(atan(uv.y - 0.5, uv.x - 0.5) / (2.0 * PI) + 0.5 + warp); } // conic
   vec2 dir = vec2(sin(uGradAngle), cos(uGradAngle));                              // linear, angled
   return clamp(dot(uv - 0.5, dir) + 0.5 + warp, 0.0, 1.0);
 }
 
-// Stripe's striations: a subtle high-frequency simplex-noise grain ADDED to the
+// Striations: a subtle high-frequency simplex-noise grain ADDED to the
 // colour — colour-matched (weaker where blue is high), only near folds (pdy), and
-// concentrated toward the ends (parabola). Blends instead of striping.
+// concentrated toward the ends (parabola). Blends in rather than reading as hard lines.
 vec3 surfaceStreaks(vec2 uv, vec3 color, float pdy){
-  float strength = uFiberThickness;          // Stripe: 0.2
-  float freq = uFiberCount;                   // Stripe: 600
+  float strength = uFiberThickness;          // default 0.2
+  float freq = uFiberCount;                   // default 600
   float colorAtten = 0.9;
   float paraPow = 3.0;
-  // Noise bands (Stripe's USE_NOISE_BANDS): inside each rectangular uv region the
+  // Noise bands: inside each rectangular uv region the
   // fiber params are overridden, so the streaks vary per region instead of uniform.
   for (int i = 0; i < MAX_NOISE_BANDS; i++) {
     if (i >= uNumNoiseBands) break;
@@ -207,13 +238,11 @@ vec3 surfaceStreaks(vec2 uv, vec3 color, float pdy){
     colorAtten = mix(colorAtten, prm.w, blend);
     paraPow = mix(paraPow, uNoiseBandParaPow[i], blend);
   }
-  // Verbatim from Stripe's surfaceColor(): the high frequency runs along uv.x (the
-  // ribbon's length) so the streaks read as fine lengthwise fibers; end-weighted by
-  // 1 - parabola(uv.x). With the baked folded() geometry our uv matches Stripe's, so
-  // this is no longer transposed.
+  // The high frequency runs along uv.x (the ribbon's length) so the streaks read as
+  // fine lengthwise fibers; end-weighted by 1 - parabola(uv.x).
   float p = 1.0 - parabola(uv.x, paraPow);
-  float n0 = snoise(vec2(uv.x * 0.1, uv.y * 0.5));
-  float n1 = snoise(vec2(uv.x * (freq + freq * 0.5 * n0), uv.y * 4.0 * n0));
+  float n0 = simplexNoise(vec2(uv.x * 0.1, uv.y * 0.5));
+  float n1 = simplexNoise(vec2(uv.x * (freq + freq * 0.5 * n0), uv.y * 4.0 * n0));
   n1 = mapLinear(n1, -1.0, 1.0, 0.0, 1.0);
   color += n1 * strength * (1.0 - color.b * colorAtten) * pdy * p;
   return color;
@@ -222,25 +251,50 @@ vec3 surfaceStreaks(vec2 uv, vec3 color, float pdy){
 void main(){
   // pdy: a foreshortening / fold detector from the screen-space uv derivative.
   // It drives BOTH the volume shading and where the streaks appear — this is what
-  // gives Stripe's wave its thickness without any normal-based lighting.
+  // gives the wave its thickness without any normal-based lighting.
   float pdy = dFdy(vUv).y * uResolution.y * uGlowAmount;
   pdy = clamp(mapLinear(pdy, -1.0, 1.0, 0.0, 1.0), 0.0, 1.0);
   pdy = pow(pdy, uGlowPower);
   pdy = clamp(smoothstep(0.0, uGlowRamp, pdy), 0.0, 1.0);
 
-  // Colour from our gradient, then the noise streaks.
-  vec3 col = grad(gradCoord(vUv));
+  // Debug visualisations (dev): 1 = pdy volume term, 2 = derivative surface normal.
+  if (uDebug > 0.5) {
+    if (uDebug < 1.5) { gl_FragColor = vec4(vec3(pdy), 1.0); return; }
+    vec3 dn = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
+    gl_FragColor = vec4(dn * 0.5 + 0.5, 1.0); return;
+  }
+
+  // Colour: sample the baked 2D palette texture, or fall back to the procedural 1-D
+  // gradient. The raw palette is sampled by (uv.x, uv.y) directly; the
+  // stops-generated texture is sampled via gradCoord so its angle/type/warp still apply.
+  float gc = gradCoord(vUv);
+  vec2 puv = uPaletteRaw > 0.5
+    ? clamp(vUv, 0.0, 1.0)
+    : vec2(gc, clamp(vUv.y, 0.0, 1.0));
+  vec3 col = uUsePalette > 0.5 ? texture2D(uPalette, puv).rgb : grad(gc);
   col = surfaceStreaks(vUv, col, pdy);
 
   col = contrastFn(col, uContrast);
   col = desaturate(col, 1.0 - uSaturation);
   col = hueShift(col, radians(uHueShift + uLayerHue));
 
-  // Stripe's volume cue (verbatim): lift the flat (low-pdy) areas toward white.
-  col += (1.0 - pdy) * 0.25;
+  // Volume cue: lift the flat (low-pdy) areas toward white. This is
+  // pose-dependent (it keys off dFdy(uv.y)), so we keep it gentle and add a robust term.
+  col += (1.0 - pdy) * 0.25 * uPdyLift;
+
+  // Pose-robust "thickness": shade by the camera-facing ratio of the derivative surface
+  // normal so the ribbon reads as a rounded, grabbable solid from any angle. Grazing
+  // edges darken into shadow (defining the rounded form), the body keeps its full colour,
+  // and the most face-on sliver catches a soft highlight. uVolume = strength.
+  if (uVolume > 0.001) {
+    vec3 volN = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
+    float facing = abs(dot(volN, normalize(vViewDir)));   // 1 = facing camera, 0 = edge-on
+    col *= mix(1.0 - 0.6 * uVolume, 1.0, facing);          // deepen grazing edges → solid form
+    col += smoothstep(0.65, 1.0, facing) * uVolume * 0.18; // soft highlight on the facing body
+  }
 
   // Optional positionable lights (our feature) — additive & gentle, on top of the
-  // Stripe base so the default still reads like Stripe. A finely-subdivided mesh
+  // base shading so the default look is preserved. A finely-subdivided mesh
   // keeps this derivative normal smooth.
   if (uNumLights > 0) {
     vec3 N = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
@@ -255,9 +309,9 @@ void main(){
       col += col * diff * lc * 0.16 + spec * lc * 0.10;
     }
   }
-  col *= 0.55 + clamp(uAmbient, 0.0, 1.0);   // overall level; default 0.45 => x1.0 (neutral, matches Stripe)
+  col *= 0.55 + clamp(uAmbient, 0.0, 1.0);   // overall level; default 0.45 => x1.0 (neutral)
 
-  if (uTexture > 0.001) col *= 1.0 + (hash(vUv * 850.0) - 0.5) * uTexture * 0.25;
+  if (uTexture > 0.001) col *= 1.0 + (grainHash(vUv * 850.0) - 0.5) * uTexture * 0.25;
 
   // Soft long edges + optional viewport-edge fade.
   float ribEdge = smoothstep(0.0, 0.1, vUv.y) * (1.0 - smoothstep(0.9, 1.0, vUv.y));
@@ -271,6 +325,101 @@ void main(){
   }
 
   gl_FragColor = vec4(clamp(col, 0.0, 1.0), alpha);
+}
+`;
+
+// ---- Wireframe "thin-line" theme ----
+// The same wave geometry, but instead of a solid surface the colour is carved into fine
+// vertical lines (abs(sin(uv.x * lineAmount))) whose thickness scales with the screen-
+// space uv derivative, then mixed line<->background with a depth fade. Used by the dark
+// hero preset. hueShift takes degrees (radians() here) to match the light shader.
+export const lineFragmentShader = /* glsl */ `
+#define MAX_COLORS ${MAX_COLORS}
+#define PI 3.14159265359
+
+${simplex2d}
+
+uniform vec3 uColors[MAX_COLORS];
+uniform float uColorPos[MAX_COLORS];
+uniform int uColorCount;
+uniform int uGradType;
+uniform float uGradAngle;
+uniform float uGradShift;
+uniform sampler2D uPalette;
+uniform float uUsePalette;
+uniform float uPaletteRaw;
+uniform float uHueShift;
+uniform float uLayerHue;
+uniform float uContrast;
+uniform float uSaturation;
+uniform float uOpacity;
+uniform float uLineAmount;          // default 425
+uniform float uLineThickness;       // default 1
+uniform float uLineDerivativePower; // default 0.95
+uniform float uMaxWidth;            // default 1232
+uniform vec3 uClearColor;           // = page background colour (shown between the lines)
+
+varying vec2 vUv;
+varying vec4 vClipPosition;
+
+vec3 contrastFn(vec3 v, float a){ return (v - 0.5) * a + 0.5; }
+vec3 desaturate(vec3 color, float factor){
+  vec3 gray = vec3(dot(vec3(0.299, 0.587, 0.114), color));
+  return mix(color, gray, factor);
+}
+vec3 hueShift(vec3 color, float shift){
+  vec3 g = vec3(0.57735);
+  vec3 proj = g * dot(g, color);
+  vec3 U = color - proj;
+  vec3 W = cross(g, U);
+  return U * cos(shift) + W * sin(shift) + proj;
+}
+vec3 grad(float u){
+  u = clamp(u, 0.0, 1.0);
+  vec3 col = uColors[0];
+  for (int i = 0; i < MAX_COLORS - 1; i++){
+    if (i >= uColorCount - 1) break;
+    float p0 = uColorPos[i];
+    float p1 = uColorPos[i + 1];
+    if (u >= p0){
+      float t = clamp((u - p0) / max(p1 - p0, 1e-5), 0.0, 1.0);
+      col = mix(uColors[i], uColors[i + 1], t);
+    }
+  }
+  return col;
+}
+float gradCoord(vec2 uv){
+  float warp = uGradShift * simplexNoise(uv * 1.6 + 4.0);
+  if (uGradType == 1){ return clamp(length(uv - 0.5) * 2.0 + warp, 0.0, 1.0); }
+  if (uGradType == 2){ return fract(atan(uv.y - 0.5, uv.x - 0.5) / (2.0 * PI) + 0.5 + warp); }
+  vec2 dir = vec2(sin(uGradAngle), cos(uGradAngle));
+  return clamp(dot(uv - 0.5, dir) + 0.5 + warp, 0.0, 1.0);
+}
+
+void main(){
+  // Same 2D palette sample + colour ops as the solid theme.
+  float gc = gradCoord(vUv);
+  vec2 puv = uPaletteRaw > 0.5 ? clamp(vUv, 0.0, 1.0) : vec2(gc, clamp(vUv.y, 0.0, 1.0));
+  vec3 color = uUsePalette > 0.5 ? texture2D(uPalette, puv).rgb : grad(gc);
+
+  color = contrastFn(color, uContrast);
+  color = desaturate(color, 1.0 - uSaturation);
+  color = hueShift(color, radians(uHueShift + uLayerHue));
+
+  // Carve into fine vertical lines; thickness from the screen-space uv derivative.
+  vec2 dy = dFdy(vUv);
+  float lineThickness = uLineThickness * pow(abs(dy.x * uMaxWidth), uLineDerivativePower);
+  float a = abs(sin(vUv.x * uLineAmount));
+  a = smoothstep(lineThickness, 0.0, a);
+
+  // Depth fade: the wave recedes into the background colour with depth. Watch the
+  // argument order: clamp(0.0, 1.0, z*6) is a swapped-args trap — it clamps the
+  // constant 0.0 into [1.0, z*6], i.e. min(1.0, z*6), which (with our ortho clip.z
+  // range) collapses the whole wave to the background. The correct clamp(z*6, 0, 1)
+  // gives the proper subtle far-end fade and thin-line look.
+  float depthFade = clamp(vClipPosition.z * 6.0, 0.0, 1.0);
+  color = mix(uClearColor, color, a * (1.0 - depthFade));
+  gl_FragColor = vec4(color, uOpacity);
 }
 `;
 
@@ -295,7 +444,7 @@ varying vec2 vUv;
 
 float random2(vec2 st){ return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453); }
 
-// Stripe's angular (spin) blur: rotate the sample coord around the centre and
+// Angular (spin) blur: rotate the sample coord around the centre and
 // accumulate — a tangential smear that grows toward the edges. Carries alpha so a
 // transparent background survives the post pass.
 vec4 blurAngular(sampler2D tex, vec2 uv, float angle, int samples){
@@ -307,7 +456,7 @@ vec4 blurAngular(sampler2D tex, vec2 uv, float angle, int samples){
   for (int i = 0; i < 64; i++){
     if (i >= samples) break;
     total += texture2D(tex, coord + 0.5);
-    coord = rot * coord;
+    coord = coord * rot; // row-vector order (coord * rot) sets the spin direction
   }
   return total * dist;
 }
@@ -315,10 +464,11 @@ vec4 blurAngular(sampler2D tex, vec2 uv, float angle, int samples){
 void main(){
   vec4 sceneColor = texture2D(tDiffuse, vUv);
   vec4 blurColor = blurAngular(tDiffuse, vUv, uBlurAmount, uBlurSamples);
-  // Stripe weights the spin blur to the top & bottom, keeping a sharp middle band.
-  float sharp = clamp((smoothstep(0.0, 0.7, vUv.y) - smoothstep(0.2, 1.0, vUv.y)) * 1.8, 0.0, 1.0);
-  vec4 color = mix(blurColor, sceneColor, sharp);
-  color.rgb += mix(uGrainAmount, -uGrainAmount, random2(gl_FragCoord.xy * 0.01 + fract(uTime))) * (4.0 / 255.0);
+  // blurPower: keep a sharp band weighted to the middle, blurring toward top & bottom.
+  float blurPower = smoothstep(0.0, 0.7, vUv.y) - smoothstep(0.2, 1.0, vUv.y);
+  vec4 color = mix(blurColor, sceneColor, blurPower);
+  // Static film grain: keyed off gl_FragCoord only (no uTime), so it doesn't flicker.
+  color.rgb += mix(uGrainAmount, -uGrainAmount, random2(gl_FragCoord.xy * 0.01)) * (4.0 / 255.0);
   gl_FragColor = color;   // preserve alpha → transparent background works
 }
 `;

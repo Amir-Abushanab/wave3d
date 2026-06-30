@@ -7,12 +7,24 @@ import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 // — which never enters edit mode — doesn't pay for them.
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { TransformControls } from "three/addons/controls/TransformControls.js";
-import { vertexShader, fragmentShader, postVertexShader, postFragmentShader } from "./shaders";
+import { vertexShader, fragmentShader, lineFragmentShader, postVertexShader, postFragmentShader } from "./shaders";
 import { WaveGeometry } from "./WaveGeometry";
+import { buildPaletteTexture, paletteSignature, PALETTE_MAPS, paletteMapCanvas, canvasToTexture, loadPaletteImage } from "./palette";
+import { buildHeroPaletteTexture } from "./heroPalette";
 import { MAX_COLORS, MAX_LIGHTS, MAX_NOISE_BANDS, normalizePalette, ensureCamera } from "./config";
 import type { WaveConfig } from "./config";
 
-const BASE_SEGMENTS = 220;
+const BASE_SEGMENTS = 220; // base segment count along the ribbon; denser = smoother (scaled down per strand — see get segments)
+
+/** Reference frame (world units) the orthographic camera fills at cameraZoom 1. The wave is
+ *  framed by COVERING this FRAME_W × FRAME_H rectangle (centred on cameraTarget) into the canvas
+ *  — scaled to fill both dimensions, cropping the aspect overflow — so a given cameraZoom /
+ *  cameraTarget frames the wave the SAME at any canvas size or aspect (only the cropped margin
+ *  differs). FRAME_H = FRAME_W / (16/9) makes the reference a 16:9 rectangle; for canvases wider
+ *  than that the width binds, narrower ones zoom in to fill instead of
+ *  showing empty bands. This is what makes a saved preset reproduce on anyone's screen. */
+const FRAME_W = 1333;
+const FRAME_H = 750;
 
 export interface WaveRendererOptions {
   /** Honor prefers-reduced-motion by freezing animation. Default true. */
@@ -35,14 +47,14 @@ function hexToLinearVec3(hex: string, target: THREE.Vector3): THREE.Vector3 {
 }
 
 /**
- * Renders a "wave of light" wave from a {@link WaveConfig}. Framework-agnostic:
+ * Renders a gradient "wave of light" from a {@link WaveConfig}. Framework-agnostic:
  * it needs only a DOM container and a config. The studio mutates the config in
  * place and calls `refresh()` / `rebuild()`.
  */
 export class WaveRenderer {
   readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
-  private readonly camera: THREE.PerspectiveCamera;
+  private readonly camera: THREE.OrthographicCamera;
   private readonly group = new THREE.Group();
   private readonly composer: EffectComposer;
   private readonly postPass: ShaderPass;
@@ -51,6 +63,27 @@ export class WaveRenderer {
 
   private config: WaveConfig;
   private strands: Strand[] = [];
+
+  /** Baked 2D palette texture (shared across strands) + its rebuild signature.
+   *  Either the hero DataTexture LUT or a stops-generated CanvasTexture. */
+  private paletteTexture?: THREE.Texture;
+  private paletteSig = "";
+  /** Set while the panel drives the camera, so orbit's 'change' doesn't re-refresh the
+   *  panel mid-drag (the panel already knows the new value). */
+  private suppressCameraChange = false;
+  /** Authored default camera pose, for "Reset camera". */
+  private readonly homeCamPos = new THREE.Vector3();
+  private readonly homeCamTarget = new THREE.Vector3();
+
+  // --- Camera-rig minimap (corner inset: the wave + a little camera/light marker) ---
+  private cameraRigOn = false;
+  private cameraRigCollapsed = false;
+  private minimapCamera?: THREE.PerspectiveCamera;
+  private cameraHelper?: THREE.CameraHelper;
+  private camMarker?: THREE.Group;
+  /** Gold markers in the minimap, one per config light (positions/colours tracked live). */
+  private minimapLights: THREE.Mesh[] = [];
+  private minimapBtn?: HTMLButtonElement;
 
   private readonly clock = new THREE.Clock();
   private time = 0;
@@ -61,6 +94,8 @@ export class WaveRenderer {
   private visible = true;
   private pageVisible = true;
   private reducedMotion = false;
+  /** Intro ramp: eases animation time 0→1 over ~1s on load (when config.introRamp). */
+  private introTimeRamp = 0;
 
   private readonly resizeObserver: ResizeObserver;
   private readonly intersectionObserver: IntersectionObserver;
@@ -82,9 +117,6 @@ export class WaveRenderer {
   /** Set by the panel: fired after orbit moves the camera so sliders can refresh. */
   onCameraChanged?: () => void;
 
-  /** Studio-only horizontal view inset (px) so the wave clears a left panel. */
-  private panelInsetLeft = 0;
-
   constructor(container: HTMLElement, config: WaveConfig, options: WaveRendererOptions = {}) {
     this.container = container;
     normalizePalette(config);
@@ -93,9 +125,11 @@ export class WaveRenderer {
     this.respectReducedMotion = options.respectReducedMotion ?? true;
 
     this.renderer = new THREE.WebGLRenderer({
+      // antialias smooths edges; preserveDrawingBuffer keeps the drawing buffer readable so we
+      // can export PNG/WebM. Both cost a little performance, but this authoring tool needs them.
       antialias: true,
       alpha: true,
-      preserveDrawingBuffer: true, // for PNG / video capture
+      preserveDrawingBuffer: true,
       powerPreference: "high-performance",
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -107,11 +141,18 @@ export class WaveRenderer {
     this.renderer.domElement.addEventListener("webglcontextlost", this.onContextLost, false);
     this.renderer.domElement.addEventListener("webglcontextrestored", this.onContextRestored, false);
 
-    // Telephoto (fov 30) from far ≈ Stripe's near-orthographic, distant-camera look:
-    // fills the frame while keeping perspective distortion low.
-    this.camera = new THREE.PerspectiveCamera(30, 1, 0.5, 4000);
+    // Orthographic, framed in device pixels: resize() sets the frustum to the canvas size, and
+    // the mesh is scaled up so the wave overflows the frame, leaving only the twist on screen.
+    // Bounds (-1,1,1,-1) here are placeholders overwritten by the first resize(); near/far = 1..10000.
+    this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 10000);
     this.camera.position.set(config.cameraPosition.x, config.cameraPosition.y, config.cameraPosition.z);
+    this.camera.zoom = config.cameraZoom ?? 1;
     this.camera.lookAt(config.cameraTarget.x, config.cameraTarget.y, config.cameraTarget.z);
+    this.camera.updateProjectionMatrix();
+    // Remember the authored default pose so "Reset camera" returns to it (orbit mutates
+    // config.cameraPosition, so we can't read it back from config later).
+    this.homeCamPos.copy(this.camera.position);
+    this.homeCamTarget.set(config.cameraTarget.x, config.cameraTarget.y, config.cameraTarget.z);
     this.scene.add(this.group);
 
     this.composer = new EffectComposer(this.renderer);
@@ -121,7 +162,7 @@ export class WaveRenderer {
         tDiffuse: { value: null },
         uResolution: { value: new THREE.Vector2(1, 1) },
         uBlurAmount: { value: config.blur },
-        uBlurSamples: { value: 12 },
+        uBlurSamples: { value: 6 },
         uGrainAmount: { value: config.grain },
         uTime: { value: 0 },
       },
@@ -203,6 +244,12 @@ export class WaveRenderer {
       uGradType: { value: 0 },
       uGradAngle: { value: 0 },
       uGradShift: { value: 0.15 },
+      uPalette: { value: null },
+      uUsePalette: { value: 1 },
+      uPaletteRaw: { value: 1 },
+      uDebug: { value: 0 },
+      uPdyLift: { value: 1 },
+      uVolume: { value: 0.35 },
       uHueShift: { value: 0 },
       uLayerHue: { value: 0 },
       uContrast: { value: 1 },
@@ -210,7 +257,6 @@ export class WaveRenderer {
       uFiberCount: { value: 90 },
       uFiberThickness: { value: 0.25 },
       uTexture: { value: 0 },
-      uBezelPower: { value: 0.3 },
       uGlowAmount: { value: 0.15 },
       uGlowPower: { value: 2.0 },
       uGlowRamp: { value: 1.0 },
@@ -226,6 +272,12 @@ export class WaveRenderer {
       uNoiseBandBounds: { value: bandBounds },
       uNoiseBandParams: { value: bandParams },
       uNoiseBandParaPow: { value: bandParaPow },
+      // Wireframe thin-line theme (used only by lineFragmentShader)
+      uLineAmount: { value: 425 },
+      uLineThickness: { value: 1 },
+      uLineDerivativePower: { value: 0.95 },
+      uMaxWidth: { value: 1232 },
+      uClearColor: { value: new THREE.Vector3(1, 1, 1) },
     };
   }
 
@@ -233,17 +285,49 @@ export class WaveRenderer {
     const wave = new WaveGeometry(this.segments);
     const material = new THREE.ShaderMaterial({
       uniforms: this.makeUniforms(),
+      // TWIST_MOTION selects the variant vertex shader (an animated twist-X wobble) over the
+      // standard one. Toggled live in refresh().
+      defines: this.config.twistMotion ? { TWIST_MOTION: "" } : {},
       vertexShader,
-      fragmentShader,
+      // solid theme = surfaceColor shader; wireframe theme = thin-line shader.
+      // Swapped live in refresh() when the theme changes.
+      fragmentShader: this.config.theme === "wireframe" ? lineFragmentShader : fragmentShader,
       transparent: true,
       depthTest: true,
       depthWrite: true,
       side: THREE.DoubleSide,
     });
+    // Blending (incl. the squaring blend) is set from config.blendMode — see applyBlendMode —
+    // so it survives refresh() instead of being a dead constructor flag.
+    this.applyBlendMode(material);
     const mesh = new THREE.Mesh(wave.geometry, material);
     mesh.frustumCulled = false;
     this.group.add(mesh);
     this.strands.push({ mesh, material, wave });
+  }
+
+  /**
+   * Apply config.blendMode to a material. "squared" (the default) is the hero blend:
+   * CustomBlending with AddEquation, src = SrcColorFactor, dst = ZeroFactor, so the
+   * framebuffer result is fragColor² — the squaring deepens the colours into the vivid
+   * hero look (without it the wave reads pastel). "additive"/"normal" are authoring
+   * overrides. Returns true if material.blending changed (caller flags needsUpdate).
+   */
+  private applyBlendMode(material: THREE.ShaderMaterial): boolean {
+    const blending =
+      this.config.blendMode === "additive"
+        ? THREE.AdditiveBlending
+        : this.config.blendMode === "normal"
+          ? THREE.NormalBlending
+          : THREE.CustomBlending; // "squared" (default)
+    if (material.blending === blending) return false;
+    material.blending = blending;
+    if (blending === THREE.CustomBlending) {
+      material.blendEquation = THREE.AddEquation;
+      material.blendSrc = THREE.SrcColorFactor;
+      material.blendDst = THREE.ZeroFactor;
+    }
+    return true;
   }
 
   private disposeStrands(): void {
@@ -293,15 +377,26 @@ export class WaveRenderer {
       this.camera.lookAt(tg.x, tg.y, tg.z);
     }
 
-    const blending = this.config.blendMode === "additive" ? THREE.AdditiveBlending : THREE.NormalBlending;
     const stops = [...this.config.palette].sort((a, b) => a.pos - b.pos);
     const colorCount = Math.max(1, Math.min(stops.length, MAX_COLORS));
 
     this.strands.forEach((strand, i) => {
       const layer = this.config.layers[i] ?? this.config.layers[this.config.layers.length - 1];
       const u = strand.material.uniforms;
-      if (strand.material.blending !== blending) {
-        strand.material.blending = blending;
+      if (this.applyBlendMode(strand.material)) strand.material.needsUpdate = true;
+      // Switch between the standard and variant (animated-twist) vertex shaders by
+      // adding/removing the TWIST_MOTION define and forcing a program recompile.
+      const wantMotion = !!this.config.twistMotion;
+      const hasMotion = "TWIST_MOTION" in (strand.material.defines ?? {});
+      if (wantMotion !== hasMotion) {
+        strand.material.defines = wantMotion ? { TWIST_MOTION: "" } : {};
+        strand.material.needsUpdate = true;
+      }
+      // Swap the fragment shader when the theme changes: solid surfaceColor <-> wireframe
+      // thin-line. Three recompiles the program on needsUpdate.
+      const wantFrag = this.config.theme === "wireframe" ? lineFragmentShader : fragmentShader;
+      if (strand.material.fragmentShader !== wantFrag) {
+        strand.material.fragmentShader = wantFrag;
         strand.material.needsUpdate = true;
       }
 
@@ -320,13 +415,21 @@ export class WaveRenderer {
       u.uHueShift.value = this.config.hueShift;
       u.uContrast.value = this.config.colorContrast;
       u.uSaturation.value = this.config.colorSaturation;
+      // Wireframe thin-line theme params (used only by lineFragmentShader). uClearColor is the
+      // between-line colour = the page background, fed in linear space like the palette.
+      u.uLineAmount.value = this.config.lineAmount ?? 425;
+      u.uLineThickness.value = this.config.lineThickness ?? 1;
+      u.uLineDerivativePower.value = this.config.lineDerivativePower ?? 0.95;
+      u.uMaxWidth.value = this.config.maxWidth ?? 1232;
+      hexToLinearVec3(this.config.background, u.uClearColor.value as THREE.Vector3);
       u.uFiberCount.value = this.config.fiberCount;
       u.uFiberThickness.value = this.config.fiberThickness;
       u.uTexture.value = this.config.texture;
-      u.uBezelPower.value = this.config.bezelPower;
       u.uGlowAmount.value = this.config.glowAmount;
       u.uGlowPower.value = this.config.glowPower;
       u.uGlowRamp.value = this.config.glowRamp;
+      u.uPdyLift.value = this.config.pdyLift ?? 1;
+      u.uVolume.value = this.config.volume ?? 0.35;
       u.uEdgeFade.value = this.config.edgeFade;
       // Lights
       const lights = this.config.lights ?? [];
@@ -371,8 +474,8 @@ export class WaveRenderer {
       u.uTwPowX.value = this.config.twistPower.x;
       u.uTwPowY.value = this.config.twistPower.y;
       u.uTwPowZ.value = this.config.twistPower.z;
-      // Mesh transform (scale / rotation / position) — applied via modelMatrix, exactly
-      // like Stripe (THREE Euler XYZ), so the on-screen orientation matches the hero.
+      // Mesh transform (scale / rotation / position) — applied via modelMatrix using THREE's
+      // Euler XYZ order, so the on-screen orientation matches the authored hero view.
       strand.mesh.scale.set(this.config.scale.x, this.config.scale.y, this.config.scale.z);
       strand.mesh.rotation.set(
         THREE.MathUtils.degToRad(this.config.rotation.x),
@@ -389,8 +492,64 @@ export class WaveRenderer {
       u.uOpacity.value = layer.opacity;
     });
 
+    this.updatePaletteTexture();
+
+    // Whole-wave mirror (world-space flip ≈ screen flip for the near-frontal camera).
+    this.group.scale.set(this.config.mirrorH ? -1 : 1, this.config.mirrorV ? -1 : 1, 1);
+
     if (this.lightEditMode) this.syncLightHelpers();
     if (!this.running) this.renderOnce();
+  }
+
+  /**
+   * Rebuild the baked 2D palette texture when the stops / edge tint change, and point
+   * every strand's sampler at it. Cheap (256×64 canvas), and guarded by a signature so
+   * it only re-uploads when the palette actually changes — not on every refresh().
+   */
+  private updatePaletteTexture(): void {
+    // The 2D palette texture can come from: a custom image (paletteImageUrl), the baked
+    // hero LUT ("hero"), our editable stops ("stops"), or a built-in map name.
+    const url = this.config.paletteImageUrl;
+    const source = this.config.paletteSource ?? "hero";
+    let sig: string;
+    let build: () => THREE.Texture;
+    if (url) {
+      sig = "url|" + url;
+      build = () => loadPaletteImage(url);
+    } else if (source === "stops") {
+      const opts = {
+        stops: this.config.palette,
+        edgeColor: this.config.paletteEdgeColor ?? "#8e9dff",
+        edgeAmount: this.config.paletteEdgeAmount ?? 0.3,
+      };
+      sig = "stops|" + paletteSignature(opts);
+      build = () => buildPaletteTexture(opts);
+    } else if (PALETTE_MAPS[source]) {
+      const def = PALETTE_MAPS[source];
+      sig = "map|" + source;
+      build = () => canvasToTexture(paletteMapCanvas(def));
+    } else {
+      sig = "hero";
+      build = () => buildHeroPaletteTexture();
+    }
+    if (sig !== this.paletteSig || !this.paletteTexture) {
+      this.paletteTexture?.dispose();
+      this.paletteTexture = build();
+      this.paletteSig = sig;
+    }
+    // Texture maps are 2D images sampled directly by (uv.x, uv.y).
+    const use = this.config.usePaletteTexture === false ? 0 : 1;
+    for (const s of this.strands) {
+      s.material.uniforms.uPalette.value = this.paletteTexture;
+      s.material.uniforms.uUsePalette.value = use;
+      s.material.uniforms.uPaletteRaw.value = 1;
+    }
+  }
+
+  /** Dev: 0 = normal, 1 = visualise pdy volume term, 2 = visualise derivative normal. */
+  setDebug(v: number): void {
+    for (const s of this.strands) s.material.uniforms.uDebug.value = v;
+    this.renderOnce();
   }
 
   /** Rebuild geometry + strands (call when strandCount or quality changes). */
@@ -413,6 +572,7 @@ export class WaveRenderer {
     const u = this.postPass.uniforms;
     u.uBlurAmount.value = this.config.blur;
     u.uGrainAmount.value = this.config.grain;
+    u.uBlurSamples.value = Math.round(this.config.blurSamples ?? 6);
   }
 
   private onResize = (): void => {
@@ -427,6 +587,9 @@ export class WaveRenderer {
 
   private onContextRestored = (): void => {
     this.disposeStrands(); // old GPU resources are invalid on a fresh context
+    this.paletteTexture?.dispose(); // force the palette texture to rebuild too
+    this.paletteTexture = undefined;
+    this.paletteSig = "";
     this.buildStrands();
     this.resize();
     this.updateRunning();
@@ -446,34 +609,32 @@ export class WaveRenderer {
     for (const s of this.strands) {
       (s.material.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
     }
-    this.camera.aspect = w / h;
+    // The responsive ortho framing: the frustum = the canvas in DEVICE pixels (1 world unit =
+    // 1px at zoom 1). Combined with the ×10 mesh scale, the wave overflows the frame.
+    this.camera.left = -dw / 2;
+    this.camera.right = dw / 2;
+    this.camera.top = dh / 2;
+    this.camera.bottom = -dh / 2;
+    this.applyZoom(); // responsive ortho zoom (maps FRAME_W world units onto the canvas)
     this.applyViewOffset();
+    if (this.cameraRigOn) this.positionMinimapBtn();
     if (!this.running) this.renderOnce();
   }
 
   /**
-   * Studio-only: shift + scale the camera frustum so the centered scene appears
-   * within the area to the RIGHT of a left-hand panel `px` wide (the config and
-   * exports are untouched — see capturePNG, which clears this).
+   * No-op kept for API compatibility (main.ts still calls it on resize). The studio used to
+   * shift+scale the scene into the area right of the panel, but that made framing depend on
+   * window/panel width and differ from the panel-less embed. Now the scene is always centred in
+   * the full canvas (the panel just floats over its left edge), so a saved preset reproduces the
+   * same view in the studio, the preview, and the exported embed.
    */
-  setViewInsetLeft(px: number): void {
-    this.panelInsetLeft = Math.max(0, px);
+  setViewInsetLeft(_px: number): void {
     this.applyViewOffset();
     if (!this.running) this.renderOnce();
   }
 
   private applyViewOffset(): void {
-    const w = Math.max(1, this.container.clientWidth);
-    const h = Math.max(1, this.container.clientHeight);
-    const inset = this.panelInsetLeft;
-    if (inset > 8 && inset < w * 0.6) {
-      // Zoom out by k so the full view fits the visible (w - inset) width, then
-      // offset so the scene centre lands in the middle of that visible region.
-      const k = w / (w - inset);
-      this.camera.setViewOffset(k * w, k * h, (k * w) / 2 - (inset + w) / 2, ((k - 1) * h) / 2, w, h);
-    } else {
-      this.camera.clearViewOffset();
-    }
+    this.camera.clearViewOffset();
   }
 
   start(): void {
@@ -509,22 +670,31 @@ export class WaveRenderer {
       this.running = false;
       cancelAnimationFrame(this.rafId);
     }
-    if (!this.running) this.renderOnce();
+    // When not animating (paused / reduced-motion / static export) show the FULL frame, not a
+    // frozen mid-ease, by forcing introTimeRamp = 1.
+    if (!this.running) {
+      this.introTimeRamp = 1;
+      this.renderOnce();
+    }
   }
 
   private loop = (): void => {
     if (!this.running) return;
     this.time += this.clock.getDelta();
+    if (this.introTimeRamp < 1) this.introTimeRamp = Math.min(1, this.introTimeRamp + 0.016); // ~1s to full at 60fps
     this.renderOnce();
     this.rafId = requestAnimationFrame(this.loop);
   };
 
-  /** Advance the per-frame clock uniforms (geometry itself is static). */
+  /** Advance the per-frame clock uniforms (geometry itself is static). Time model:
+   *  time = elapsed·introTimeRamp + timeOffset — the ramp eases the animation in on load. */
   private updateTime(): void {
+    const ramp = this.config.introRamp === false ? 1 : this.introTimeRamp;
+    const t = this.time * ramp + (this.config.timeOffset ?? 0);
     for (const strand of this.strands) {
-      strand.material.uniforms.uTime.value = this.time;
+      strand.material.uniforms.uTime.value = t;
     }
-    this.postPass.uniforms.uTime.value = this.time;
+    this.postPass.uniforms.uTime.value = t;
   }
 
   /** Render exactly one frame at the current time. */
@@ -538,9 +708,11 @@ export class WaveRenderer {
         h.scale.setScalar(Math.max(0.1, this.camera.position.distanceTo(h.position) * 0.09));
       }
       this.renderer.autoClear = false;
+      this.renderer.setRenderTarget(null); // draw to the screen, not a leftover composer buffer
       this.renderer.render(this.overlay, this.camera);
       this.renderer.autoClear = true;
     }
+    this.renderMinimap();
   }
 
   /** Re-evaluate play/pause after `config.paused` changes. */
@@ -579,7 +751,7 @@ export class WaveRenderer {
   /** Turn on mouse/trackpad orbit + zoom + pan + arrow-key orbit (studio only). */
   async enableOrbit(): Promise<void> {
     this.mainOrbitOn = true;
-    this.renderer.domElement.style.cursor = "grab"; // draggable affordance (studio only)
+    this.renderer.domElement.style.cursor = "move"; // 4-way move arrows: left-drag pans the view
     window.addEventListener("keydown", this.onKeyDown);
     await this.ensureOrbit();
     if (this.orbit && !this.lightEditMode) this.orbit.enabled = true;
@@ -610,13 +782,54 @@ export class WaveRenderer {
 
   /** Reset the camera to the straight-on hero framing at the configured distance. */
   resetView(): void {
-    this.camera.position.set(0, 0, this.config.cameraDistance);
+    this.camera.position.copy(this.homeCamPos);
     this.camera.up.set(0, 1, 0);
-    this.camera.lookAt(0, 0, 0);
+    this.camera.lookAt(this.homeCamTarget);
     if (this.orbit) {
-      this.orbit.target.set(0, 0, 0);
+      this.orbit.target.copy(this.homeCamTarget);
       this.orbit.update();
     }
+    this.writeCameraToConfig();
+    this.onCameraChanged?.();
+    this.applyViewOffset();
+    if (!this.running) this.renderOnce();
+  }
+
+  /** Dolly/aim the camera so the whole wave fills the viewport (keeps the view angle).
+   *  Fits the geometry box's actual *projected* screen extent — tighter than a bounding
+   *  sphere for a flat, diagonal ribbon. */
+  fitToView(): void {
+    const box = new THREE.Box3();
+    for (const s of this.strands) {
+      s.mesh.updateWorldMatrix(true, false);
+      if (!s.mesh.geometry.boundingBox) s.mesh.geometry.computeBoundingBox();
+      const bb = s.mesh.geometry.boundingBox;
+      if (bb) box.union(bb.clone().applyMatrix4(s.mesh.matrixWorld));
+    }
+    if (box.isEmpty()) return;
+
+    const center = box.getCenter(new THREE.Vector3());
+
+    // Aim at the centre, then measure how much of the viewport the box spans (in NDC).
+    if (this.orbit) this.orbit.target.copy(center);
+    this.camera.up.set(0, 1, 0);
+    this.camera.lookAt(center);
+    this.camera.updateMatrixWorld(true);
+    const c = box.min,
+      m = box.max;
+    let frac = 0;
+    const v = new THREE.Vector3();
+    for (let i = 0; i < 8; i++) {
+      v.set(i & 1 ? m.x : c.x, i & 2 ? m.y : c.y, i & 4 ? m.z : c.z).project(this.camera);
+      frac = Math.max(frac, Math.abs(v.x), Math.abs(v.y)); // |ndc| 0→1 = half-viewport
+    }
+    // Overfill slightly (>1): the folded geometry's bounding box has empty diagonal
+    // corners, so filling past the box edges lets the actual ribbon fill the frame.
+    // Ortho: framing is the zoom, not the distance.
+    const target = 1.18;
+    this.config.cameraZoom = ((this.config.cameraZoom ?? 1) * target) / Math.max(0.001, frac);
+    this.applyZoom();
+    if (this.orbit) this.orbit.update();
     this.writeCameraToConfig();
     this.onCameraChanged?.();
     this.applyViewOffset();
@@ -638,6 +851,246 @@ export class WaveRenderer {
     if (!this.running) this.renderOnce();
   }
 
+  /** The current look-at target (orbit's if present, else from config). */
+  private camTarget(): THREE.Vector3 {
+    if (this.orbit) return this.orbit.target;
+    const t = this.config.cameraTarget;
+    return new THREE.Vector3(t.x, t.y, t.z);
+  }
+
+  /** Read the camera as orbit values for the panel (angles in degrees). */
+  getCameraOrbit(): { azimuth: number; elevation: number; distance: number; panX: number; panY: number } {
+    const t = this.camTarget();
+    const sph = new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(t));
+    return {
+      azimuth: THREE.MathUtils.radToDeg(sph.theta),
+      elevation: 90 - THREE.MathUtils.radToDeg(sph.phi),
+      distance: sph.radius,
+      panX: t.x,
+      panY: t.y,
+    };
+  }
+
+  /** Place the camera at azimuth/elevation (degrees) + distance around the target. */
+  setCameraOrbit(azimuthDeg: number, elevationDeg: number, distance: number): void {
+    const target = this.camTarget();
+    const sph = new THREE.Spherical(
+      Math.max(0.01, distance),
+      THREE.MathUtils.degToRad(90 - elevationDeg),
+      THREE.MathUtils.degToRad(azimuthDeg),
+    );
+    sph.makeSafe();
+    this.suppressCameraChange = true;
+    this.camera.position.copy(target).add(new THREE.Vector3().setFromSpherical(sph));
+    this.camera.up.set(0, 1, 0);
+    this.camera.lookAt(target);
+    if (this.orbit) this.orbit.update();
+    this.suppressCameraChange = false;
+    this.writeCameraToConfig();
+    this.applyViewOffset();
+    if (!this.running) this.renderOnce();
+  }
+
+  /** Roll the camera around its view axis (degrees) — tilts the composition without
+   *  moving the camera. Applied after positioning; reset by any orbit interaction. */
+  rollView(deg: number): void {
+    this.camera.rotateZ(THREE.MathUtils.degToRad(deg));
+    this.camera.updateMatrixWorld();
+    if (!this.running) this.renderOnce();
+  }
+
+  /** Pan: move the look-at target (and camera with it) to (x, y) in world units. */
+  setCameraTarget(x: number, y: number): void {
+    const target = this.camTarget();
+    const delta = new THREE.Vector3(x - target.x, y - target.y, 0);
+    this.suppressCameraChange = true;
+    this.camera.position.add(delta);
+    if (this.orbit) this.orbit.target.add(delta);
+    else this.config.cameraTarget = { x, y, z: target.z };
+    this.camera.lookAt(this.camTarget());
+    if (this.orbit) this.orbit.update();
+    this.suppressCameraChange = false;
+    this.writeCameraToConfig();
+    this.applyViewOffset();
+    if (!this.running) this.renderOnce();
+  }
+
+  /** Ortho zoom MULTIPLIER (replaces fov). 1 = the responsive base framing (the hero crop). */
+  getFov(): number {
+    return this.config.cameraZoom ?? 1;
+  }
+
+  setFov(zoom: number): void {
+    this.config.cameraZoom = THREE.MathUtils.clamp(zoom, 0.1, 6);
+    this.applyZoom();
+    this.applyViewOffset();
+    if (!this.running) this.renderOnce();
+  }
+
+  /** Jump the camera to the config's authored framing (cameraPosition / cameraTarget /
+   *  cameraZoom). Unlike refresh()'s camera block — which is skipped while orbit owns the
+   *  camera so it doesn't fight the user — this is for whole-config swaps (preset / reset /
+   *  randomize / import), where the new config's framing SHOULD take over. It also moves the
+   *  orbit target so subsequent orbiting pivots correctly, and syncs the panel proxy. */
+  private applyCameraFromConfig(): void {
+    if (this.lightEditMode) return; // light-edit owns the camera; don't fight it
+    const p = this.config.cameraPosition;
+    const tg = this.config.cameraTarget;
+    this.suppressCameraChange = true;
+    this.camera.position.set(p.x, p.y, p.z);
+    this.camera.up.set(0, 1, 0);
+    this.camera.lookAt(tg.x, tg.y, tg.z);
+    if (this.orbit) {
+      this.orbit.target.set(tg.x, tg.y, tg.z);
+      this.orbit.update();
+    }
+    this.applyZoom();
+    this.suppressCameraChange = false;
+    this.applyViewOffset();
+    this.onCameraChanged?.(); // keep the panel's camera sliders in sync
+    if (!this.running) this.renderOnce();
+  }
+
+  /** Responsive ortho zoom: COVER the FRAME_W × FRAME_H reference frame onto the canvas so the
+   *  wave frames the same at any size/aspect/dpr (only the cropped margin differs), times the
+   *  user's cameraZoom. `max(...)` = cover (fill both axes, crop overflow); `min(...)` would be
+   *  contain (fit with letterbox bands). Cover keeps the wave filling the frame on every screen. */
+  private applyZoom(): void {
+    const dw = this.camera.right - this.camera.left; // device px (set in resize)
+    const dh = this.camera.top - this.camera.bottom;
+    this.camera.zoom = Math.max(dw / FRAME_W, dh / FRAME_H) * (this.config.cameraZoom ?? 1);
+    this.camera.updateProjectionMatrix();
+  }
+
+  /** Toggle the corner camera-rig minimap (studio aid; off in the embed). */
+  setCameraRig(on: boolean): void {
+    this.cameraRigOn = on;
+    if (on) this.ensureMinimap();
+    if (this.minimapBtn) this.minimapBtn.style.display = on ? "" : "none";
+    if (on) this.positionMinimapBtn();
+    if (!this.running) this.renderOnce();
+  }
+
+  /** Corner rectangle (logical px) for the minimap viewport. */
+  private minimapRect(): { x: number; y: number; size: number; pad: number } {
+    const sz = this.renderer.getSize(new THREE.Vector2());
+    const size = Math.round(Math.min(sz.x, sz.y) * 0.27);
+    const pad = Math.round(size * 0.06);
+    return { x: sz.x - size - pad, y: pad, size, pad };
+  }
+
+  /** Place the collapse button at the minimap's top-right (or bottom corner when collapsed). */
+  private positionMinimapBtn(): void {
+    const b = this.minimapBtn;
+    if (!b) return;
+    const { size, pad } = this.minimapRect();
+    b.style.right = pad + "px";
+    b.style.bottom = (this.cameraRigCollapsed ? pad : pad + size - 22) + "px";
+    b.textContent = this.cameraRigCollapsed ? "▴ camera" : "▾ camera";
+  }
+
+  /** Build the minimap's fixed 3rd-person camera + the camera/light markers (once). */
+  private ensureMinimap(): void {
+    if (this.minimapCamera) return;
+    this.minimapCamera = new THREE.PerspectiveCamera(42, 1, 1, 4000);
+    this.minimapCamera.position.set(62, 46, 82);
+    this.minimapCamera.lookAt(0, 0, 0);
+
+    // Frustum of the MAIN camera (shows position + direction); hidden in the main view.
+    this.cameraHelper = new THREE.CameraHelper(this.camera);
+    this.cameraHelper.visible = false;
+    this.scene.add(this.cameraHelper);
+
+    // A little camera (body + lens) that follows the main camera.
+    const marker = new THREE.Group();
+    marker.add(new THREE.Mesh(new THREE.BoxGeometry(3.4, 2.4, 4.2), new THREE.MeshBasicMaterial({ color: 0x2a2f3d })));
+    const lens = new THREE.Mesh(new THREE.ConeGeometry(1.3, 2.4, 18), new THREE.MeshBasicMaterial({ color: 0x6ea8fe }));
+    lens.rotation.x = -Math.PI / 2; // cone points -Z (the camera's forward)
+    lens.position.z = -2.7;
+    marker.add(lens);
+    marker.visible = false;
+    this.scene.add(marker);
+    this.camMarker = marker;
+
+    // Collapse/expand toggle overlaid on the minimap corner.
+    const btn = document.createElement("button");
+    btn.style.cssText =
+      "position:absolute;z-index:30;padding:2px 8px;border-radius:5px;cursor:pointer;" +
+      "font:11px ui-sans-serif,system-ui,-apple-system,sans-serif;color:#cdd0d6;" +
+      "background:rgba(18,18,26,0.85);border:1px solid rgba(255,255,255,0.16);";
+    btn.addEventListener("click", () => {
+      this.cameraRigCollapsed = !this.cameraRigCollapsed;
+      this.positionMinimapBtn();
+      this.renderOnce();
+    });
+    this.container.appendChild(btn);
+    this.minimapBtn = btn;
+    this.positionMinimapBtn();
+  }
+
+  /** Reconcile the minimap's light markers with config.lights (count, position, colour). */
+  private syncMinimapLights(visible: boolean): void {
+    const lights = this.config.lights ?? [];
+    while (this.minimapLights.length < lights.length) {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(2.2, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffd24a }));
+      m.visible = false;
+      this.scene.add(m);
+      this.minimapLights.push(m);
+    }
+    while (this.minimapLights.length > lights.length) {
+      const m = this.minimapLights.pop();
+      if (!m) break;
+      this.scene.remove(m);
+      m.geometry.dispose();
+      (m.material as THREE.Material).dispose();
+    }
+    lights.forEach((l, i) => {
+      const m = this.minimapLights[i];
+      m.position.set(l.position.x, l.position.y, l.position.z);
+      (m.material as THREE.MeshBasicMaterial).color.set(l.color); // track the light's colour
+      m.visible = visible;
+    });
+  }
+
+  /** Draw the camera-rig minimap into a corner viewport (called after the main render). */
+  private renderMinimap(): void {
+    if (!this.cameraRigOn || this.cameraRigCollapsed || !this.mainOrbitOn || this.capturing) return;
+    if (!this.minimapCamera || !this.cameraHelper) return;
+    // setViewport/setScissor take LOGICAL (CSS) pixels — three applies pixelRatio itself.
+    const { x, y, size } = this.minimapRect();
+
+    this.cameraHelper.update();
+    this.cameraHelper.visible = true;
+    if (this.camMarker) {
+      this.camMarker.position.copy(this.camera.position);
+      this.camMarker.quaternion.copy(this.camera.quaternion);
+      this.camMarker.visible = true;
+    }
+    this.syncMinimapLights(true);
+
+    const r = this.renderer;
+    const prevColor = new THREE.Color();
+    r.getClearColor(prevColor);
+    const prevAlpha = r.getClearAlpha();
+    r.autoClear = false;
+    r.setRenderTarget(null); // draw to the screen — NOT a leftover composer buffer
+    r.setScissorTest(true);
+    r.setViewport(x, y, size, size);
+    r.setScissor(x, y, size, size);
+    r.setClearColor(0x12121a, 0.92);
+    r.clear(true, true);
+    r.render(this.scene, this.minimapCamera);
+    r.setScissorTest(false);
+    const full = this.renderer.getSize(new THREE.Vector2());
+    r.setViewport(0, 0, full.x, full.y);
+    r.setClearColor(prevColor, prevAlpha);
+    r.autoClear = true;
+
+    this.cameraHelper.visible = false;
+    if (this.camMarker) this.camMarker.visible = false;
+    for (const m of this.minimapLights) m.visible = false;
+  }
+
   private async ensureOrbit(): Promise<void> {
     if (this.orbit) return;
     const { OrbitControls } = await import("three/addons/controls/OrbitControls.js");
@@ -649,15 +1102,21 @@ export class WaveRenderer {
     this.orbit.zoomToCursor = true;
     this.orbit.minDistance = 12;
     this.orbit.maxDistance = 600;
+    // Left drag PANS (moves the view around); right drag ROTATES — swapped from the
+    // OrbitControls default so the primary drag moves the scene rather than orbiting it.
+    this.orbit.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
     this.orbit.target.set(this.config.cameraTarget.x, this.config.cameraTarget.y, this.config.cameraTarget.z);
     this.orbit.update();
     this.orbit.addEventListener("change", this.onControlsChange);
-    // Grab cursor affordance: closed hand while dragging the view.
-    this.orbit.addEventListener("start", () => {
-      if (this.mainOrbitOn) this.renderer.domElement.style.cursor = "grabbing";
+    // Cursor feedback by drag type: left-drag pans → 4-way move arrows; right-drag rotates →
+    // grab/closed-hand. Idle stays on the move arrows (the primary drag pans). OrbitControls
+    // doesn't expose the button, so we read it from pointerdown directly.
+    const el = this.renderer.domElement;
+    el.addEventListener("pointerdown", (e) => {
+      if (this.mainOrbitOn) el.style.cursor = e.button === 2 ? "grabbing" : "move";
     });
-    this.orbit.addEventListener("end", () => {
-      if (this.mainOrbitOn) this.renderer.domElement.style.cursor = "grab";
+    window.addEventListener("pointerup", () => {
+      if (this.mainOrbitOn) el.style.cursor = "move";
     });
   }
 
@@ -684,7 +1143,7 @@ export class WaveRenderer {
     // (Not while light-editing — that orbit is a transient working view.)
     if (this.orbit && this.orbit.enabled && !this.lightEditMode) {
       this.writeCameraToConfig();
-      this.onCameraChanged?.();
+      if (!this.suppressCameraChange) this.onCameraChanged?.();
     }
     if (!this.running) this.renderOnce();
   };
@@ -694,6 +1153,15 @@ export class WaveRenderer {
     const r = (n: number): number => Math.round(n * 1000) / 1000;
     const p = this.camera.position;
     this.config.cameraPosition = { x: r(p.x), y: r(p.y), z: r(p.z) };
+    // Capture the LIVE ortho zoom (mouse-scroll changes camera.zoom directly) back into
+    // config.cameraZoom — the user multiplier — by inverting applyZoom's responsive COVER
+    // factor. Without this, scroll-zoom changed the view but was never saved/exported, so a
+    // framing tuned at a scrolled zoom didn't reproduce (its pan made sense only at that zoom).
+    const cover = Math.max(
+      (this.camera.right - this.camera.left) / FRAME_W,
+      (this.camera.top - this.camera.bottom) / FRAME_H,
+    );
+    if (cover > 0) this.config.cameraZoom = r(this.camera.zoom / cover);
     if (this.orbit) {
       const t = this.orbit.target;
       this.config.cameraTarget = { x: r(t.x), y: r(t.y), z: r(t.z) };
@@ -790,12 +1258,13 @@ export class WaveRenderer {
     }
     const sphere = box.getBoundingSphere(new THREE.Sphere());
     const radius = Math.max(sphere.radius, 2);
-    const fov = (this.camera.fov * Math.PI) / 180;
-    const dist = (radius / Math.sin(fov / 2)) * 1.15;
     const dir = new THREE.Vector3(0.45, 0.35, 1).normalize();
-    this.camera.position.copy(sphere.center).addScaledVector(dir, dist);
+    this.camera.position.copy(sphere.center).addScaledVector(dir, radius * 3 + 200);
     this.camera.up.set(0, 1, 0);
     this.camera.lookAt(sphere.center);
+    // Ortho: frame by zoom (frustum is in px), not distance.
+    this.camera.zoom = (this.camera.right - this.camera.left) / Math.max(1, radius * 2.6);
+    this.camera.updateProjectionMatrix();
     if (this.orbit) {
       this.orbit.target.copy(sphere.center);
       this.orbit.update();
@@ -879,6 +1348,10 @@ export class WaveRenderer {
     this.config = config;
     if (structural) this.rebuild();
     else this.refresh();
+    // A whole new config (preset/reset/randomize/import) carries its own authored framing —
+    // apply it even in the studio, where refresh() leaves the camera to orbit. Without this,
+    // selecting a preset updated the wave but kept the previous camera (wrong framing).
+    this.applyCameraFromConfig();
   }
 
   dispose(): void {
@@ -895,7 +1368,13 @@ export class WaveRenderer {
     this.transform?.detach();
     this.transform?.dispose();
     this.orbit?.dispose();
+    this.paletteTexture?.dispose();
+    this.minimapBtn?.remove();
     this.clearLightHelpers();
+    for (const m of this.minimapLights) {
+      m.geometry.dispose();
+      (m.material as THREE.Material).dispose();
+    }
     for (const s of this.strands) {
       s.material.dispose();
       s.wave.dispose();

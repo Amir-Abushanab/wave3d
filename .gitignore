@@ -5,3 +5,4 @@ dist-embed/
 .DS_Store
 .vite/
 *.log
+scratchpad/
