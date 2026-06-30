@@ -38,8 +38,9 @@ export interface LayerConfig {
 }
 
 // "squared" = the hero material blend: SrcColor × Zero (framebuffer = fragColor²), which
-// deepens the colours — the faithful default. "normal"/"additive" are authoring overrides.
-export type BlendMode = "squared" | "normal" | "additive";
+// deepens the colours — the faithful default. "normal"/"additive"/"multiply" are authoring
+// overrides ("multiply" darkens where strands/background overlap).
+export type BlendMode = "squared" | "normal" | "additive" | "multiply";
 
 /** How the palette is mapped across the surface. */
 export type GradientType = "linear" | "radial" | "conic";
@@ -583,7 +584,7 @@ export const PRESETS: Record<string, () => WaveConfig> = {
     c.transparentBackground = false;
     return c;
   },
-  "Neon Dark": () => {
+  "Neon Dark Multistrand": () => {
     const c = createDefaultConfig();
     c.theme = "wireframe"; // line shader on the near-black background — neon wireframe look
     c.background = "#05060c";

@@ -89,6 +89,88 @@ body {
   backdrop-filter: blur(10px);
 }
 
+#output-resize-handle {
+  position: absolute;
+  z-index: 6;
+  inset-inline-end: 0;
+  inset-block-end: 0;
+  display: grid;
+  place-items: end;
+  box-sizing: border-box;
+  inline-size: 36px;
+  block-size: 36px;
+  padding: 0 6px 6px 0;
+  border: 0;
+  border-radius: 7px 0 0;
+  background: linear-gradient(135deg, transparent 45%, rgba(12, 12, 18, 0.72));
+  color: rgba(255, 255, 255, 0.78);
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+#output-resize-handle span {
+  inline-size: 12px;
+  block-size: 12px;
+  border-inline-end: 2px solid currentColor;
+  border-block-end: 2px solid currentColor;
+}
+
+#output-resize-handle:hover {
+  color: #fff;
+  background: linear-gradient(135deg, transparent 38%, rgba(29, 30, 42, 0.92));
+}
+
+#output-resize-handle:focus-visible {
+  outline: 2px solid #9dbbff;
+  outline-offset: -3px;
+}
+
+#stage.is-resizing {
+  border-color: #9dbbff;
+}
+
+.wv-output-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  box-sizing: border-box;
+  margin: 6px 4px;
+  padding: 7px 8px;
+  border: 1px solid rgba(244, 183, 64, 0.42);
+  border-inline-start-width: 3px;
+  border-radius: 5px;
+  background: rgba(116, 76, 12, 0.28);
+  color: #ffd98a;
+  font-size: 0.6875rem;
+  line-height: 1.35;
+}
+
+.wv-output-warning[hidden] {
+  display: none;
+}
+
+/* Boxed grouping for the recording controls (format picker + Record button) so they read
+   as one unit. */
+.wv-rec-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 4px 4px;
+  padding: 5px 7px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.wv-rec-cap {
+  margin: 0;
+  padding: 1px 1px 2px;
+  font-size: 0.5625rem;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  color: rgba(255, 255, 255, 0.5);
+}
+
 /* Control panel column. */
 #panel {
   position: fixed;

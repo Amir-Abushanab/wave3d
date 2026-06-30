@@ -3,23 +3,33 @@ import { WaveRenderer } from "./wave/WaveRenderer";
 import { randomizeConfig, PRESETS } from "./wave/config";
 import type { WaveConfig } from "./wave/config";
 import { ControlPanel } from "./ui/ControlPanel";
+import { OutputResizeHandle } from "./ui/OutputResizeHandle";
+import { RecordingOverlay } from "./ui/RecordingOverlay";
 import { generatePresetThumbnails } from "./ui/presetThumbs";
 import {
   exportConfigJSON,
   pickConfigFile,
   exportPNG,
   exportEmbed,
-  VideoRecorder,
+  Recorder,
   decodeConfigFromHash,
   copyShareLink,
 } from "./export/exporters";
-import { aspectRatioLabel, DEFAULT_EXPORT_SIZE } from "./output/formats";
+import { aspectRatioLabel, DEFAULT_EXPORT_SIZE, exportGpuWarning } from "./output/formats";
 
 const stage = document.getElementById("stage");
 const panelEl = document.getElementById("panel");
 const captureSizeEl = document.getElementById("capture-size");
-if (!stage || !panelEl || !captureSizeEl) {
-  throw new Error("Missing #stage, #panel, or #capture-size element");
+const workspace = document.getElementById("workspace");
+const resizeHandleEl = document.getElementById("output-resize-handle");
+if (
+  !stage ||
+  !panelEl ||
+  !captureSizeEl ||
+  !workspace ||
+  !(resizeHandleEl instanceof HTMLButtonElement)
+) {
+  throw new Error("Missing studio workspace elements");
 }
 
 // Surface uncaught errors visibly so problems in the wild can be reported.
@@ -54,15 +64,26 @@ let config: WaveConfig = makeDefault();
 const renderer = new WaveRenderer(stage, config);
 const exportSize = { ...DEFAULT_EXPORT_SIZE };
 
-function applyExportSize(): void {
+function updateExportPresentation(refitPreview: boolean): void {
   const width = Math.round(exportSize.width);
   const height = Math.round(exportSize.height);
   exportSize.width = width;
   exportSize.height = height;
+  if (refitPreview) {
+    stage!.style.removeProperty("inline-size");
+    stage!.style.removeProperty("block-size");
+  }
   stage!.style.setProperty("--capture-aspect", String(width / height));
+  const gpuWarning = exportGpuWarning(width, height);
   captureSizeEl!.textContent =
     `EXPORT AREA · ${width} × ${height} px · ${aspectRatioLabel(width, height)}` +
-    " · PNG / VIDEO / EMBED";
+    " · PNG / VIDEO / EMBED" +
+    (gpuWarning ? ` · ⚠ ${gpuWarning.short.toUpperCase()}` : "");
+}
+
+function applyExportSize(): void {
+  updateExportPresentation(true);
+  const { width, height } = exportSize;
   renderer.setOutputSize(width, height);
 }
 
@@ -71,7 +92,8 @@ renderer.start();
 // Studio only: mouse/trackpad orbit + zoom + pan (the embed stays a static view).
 void renderer.enableOrbit();
 
-const recorder = new VideoRecorder();
+const recorder = new Recorder();
+const recordingOverlay = new RecordingOverlay(stage);
 
 const presetOptions: Record<string, string> = { "—": "—" };
 for (const name of Object.keys(PRESETS)) presetOptions[name] = name;
@@ -106,17 +128,36 @@ const panel = new ControlPanel(panelEl, renderer, config, {
   onExportPNG: () => {
     void exportPNG(renderer, exportSize, config.transparentBackground);
   },
-  onExportEmbed: () => exportEmbed(config, exportSize),
-  onToggleRecord: () => {
+  onExportEmbed: () => {
+    void exportEmbed(config, exportSize);
+  },
+  onToggleRecord: (format) => {
     if (recorder.recording) {
       recorder.stop();
+      recordingOverlay.stop();
       panel.setRecording(false);
     } else {
-      recorder.start(renderer);
+      // GIF is composited onto an opaque background (no 1-bit transparency); use the wave's
+      // own background, or white when it's transparent.
+      const gifBg = config.transparentBackground ? "#ffffff" : config.background;
+      recorder.start(renderer, format, gifBg);
+      recordingOverlay.start();
       panel.setRecording(true);
     }
   },
 });
+
+const outputResizer = new OutputResizeHandle(workspace, stage, resizeHandleEl, exportSize, {
+  onDragStart: () => captureSizeEl.setAttribute("aria-live", "off"),
+  onPreviewChange: () => updateExportPresentation(false),
+  onCommit: (refitPreview) => {
+    updateExportPresentation(refitPreview);
+    captureSizeEl.setAttribute("aria-live", "polite");
+    renderer.setOutputSize(exportSize.width, exportSize.height);
+    panel.refreshOutputSize();
+  },
+});
+window.addEventListener("resize", () => outputResizer.fitPreview());
 
 // Apply a shared link (#w=…) once decoded (gzip). The default shows for the frame or two
 // the decode takes; then the shared wave swaps in (dropdown stays "—" = custom).

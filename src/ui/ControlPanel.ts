@@ -25,8 +25,14 @@ import { GradientEditor } from "./GradientEditor";
 import { PaletteDropdown } from "./PaletteDropdown";
 import type { PaletteOption } from "./PaletteDropdown";
 import { getPresetThumb } from "./presetThumbs";
-import { applyExportPreset, CUSTOM_EXPORT_PRESET, EXPORT_PRESETS } from "../output/formats";
-import type { ExportSize } from "../output/formats";
+import {
+  applyExportPreset,
+  canRecordFormat,
+  CUSTOM_EXPORT_PRESET,
+  EXPORT_PRESETS,
+  exportGpuWarning,
+} from "../output/formats";
+import type { ExportSize, RecordFormat } from "../output/formats";
 
 function roundTenths(value: number): number {
   return Math.round(value * 10) / 10;
@@ -44,7 +50,7 @@ export interface PanelHooks {
   onExportPNG?: () => void;
   onExportEmbed?: () => void;
   onCopyLink?: () => Promise<boolean> | void;
-  onToggleRecord?: () => void;
+  onToggleRecord?: (format: RecordFormat) => void;
   exportSize?: ExportSize;
   onExportSizeChange?: () => void;
 }
@@ -60,18 +66,21 @@ export class ControlPanel {
   private pane!: Pane;
   private gradientEditor?: GradientEditor;
   private paletteDropdown?: PaletteDropdown;
-  private readonly state = { recording: false };
+  private readonly state = { recording: false, recordFormat: "webm" as RecordFormat };
   /** Remembered expanded/collapsed state of top-level folders, by title, so a
    *  panel rebuild (e.g. on strand-count change) doesn't reset them. */
   private foldState: Record<string, boolean> = {};
   private folders: Array<{ title: string; api: FolderApi }> = [];
   private searchQuery = "";
+  private syncingOutput = false;
   /** Name of the last-applied preset, shown in the Global → preset dropdown. Persists
    *  across panel rebuilds (every preset apply rebuilds the panel), and reverts to "—"
    *  when the user manually edits any control — so the label stays honest and the same
    *  preset can be re-selected. */
   private selectedPreset = "—";
   private presetDropdown?: PaletteDropdown;
+  /** The Output → record button, so its label can flip Record ⇄ Stop while recording. */
+  private recordBtn?: ReturnType<FolderApi["addButton"]>;
 
   constructor(
     private readonly container: HTMLElement,
@@ -104,7 +113,49 @@ export class ControlPanel {
 
   setRecording(on: boolean): void {
     this.state.recording = on;
-    this.pane.refresh();
+    // The on-stage overlay (see RecordingOverlay) is the primary indicator; here we just
+    // flip the button's label between Record and Stop and re-apply its inline icon.
+    if (this.recordBtn) this.recordBtn.title = this.recordTitle();
+    this.applyIcons();
+  }
+
+  /** Label for the record button: "⏹ Stop recording" while recording, else
+   *  "🎬 Record (.<fmt>)" for the chosen container. */
+  private recordTitle(): string {
+    return this.state.recording ? "⏹ Stop recording" : `🎬 Record (.${this.state.recordFormat})`;
+  }
+
+  /** Wrap a set of Tweakpane row elements in a labelled, bordered box so they read as one
+   *  unit (used to group the recording format picker + Record button). */
+  private groupRows(caption: string, rows: HTMLElement[]): void {
+    if (rows.length === 0) return;
+    const box = document.createElement("div");
+    box.className = "wv-rec-group";
+    const cap = document.createElement("div");
+    cap.className = "wv-rec-cap";
+    cap.textContent = caption;
+    rows[0].parentElement?.insertBefore(box, rows[0]);
+    box.appendChild(cap);
+    for (const row of rows) box.appendChild(row);
+  }
+
+  refreshOutputSize(): void {
+    this.syncingOutput = true;
+    try {
+      this.pane.refresh();
+    } finally {
+      this.syncingOutput = false;
+    }
+    this.updateOutputWarning();
+  }
+
+  private updateOutputWarning(): void {
+    const outputSize = this.hooks.exportSize;
+    const warning = this.container.querySelector<HTMLElement>(".wv-output-warning");
+    if (!outputSize || !warning) return;
+    const gpuWarning = exportGpuWarning(outputSize.width, outputSize.height);
+    warning.hidden = !gpuWarning;
+    warning.textContent = gpuWarning ? `⚠ ${gpuWarning.detail}` : "";
   }
 
   disposeEditor(): void {
@@ -260,45 +311,68 @@ export class ControlPanel {
     const outputSize = this.hooks.exportSize;
     if (outputSize) {
       const output = mkFolder("Output", true);
-      let syncingOutput = false;
+      const warning = document.createElement("div");
+      warning.className = "wv-output-warning";
+      warning.setAttribute("role", "status");
       const formatOptions: Record<string, string> = { Custom: CUSTOM_EXPORT_PRESET };
       for (const [id, preset] of Object.entries(EXPORT_PRESETS)) {
-        formatOptions[`${preset.label} · ${preset.width}×${preset.height}`] = id;
+        const gpuWarning = exportGpuWarning(preset.width, preset.height);
+        const gpuLabel = gpuWarning ? ` · ⚠ ${gpuWarning.short}` : "";
+        formatOptions[`${preset.label} · ${preset.width}×${preset.height}${gpuLabel}`] = id;
       }
       output
         .addBinding(outputSize, "preset", { label: "format", options: formatOptions })
         .on("change", (ev) => {
-          if (syncingOutput) return;
-          syncingOutput = true;
+          if (this.syncingOutput) return;
+          this.syncingOutput = true;
           try {
             applyExportPreset(outputSize, String(ev.value));
             pane.refresh();
           } finally {
-            syncingOutput = false;
+            this.syncingOutput = false;
           }
+          this.updateOutputWarning();
           this.hooks.onExportSizeChange?.();
         });
       const setCustomSize = (last: boolean): void => {
-        if (syncingOutput) return;
+        if (this.syncingOutput) return;
         outputSize.preset = CUSTOM_EXPORT_PRESET;
         if (!last) return;
         pane.refresh();
+        this.updateOutputWarning();
         this.hooks.onExportSizeChange?.();
       };
       output
-        .addBinding(outputSize, "width", { min: 64, max: 4096, step: 1, label: "width px" })
+        .addBinding(outputSize, "width", { min: 64, max: 8192, step: 1, label: "width px" })
         .on("change", (ev) => setCustomSize(ev.last));
       output
-        .addBinding(outputSize, "height", { min: 64, max: 4096, step: 1, label: "height px" })
+        .addBinding(outputSize, "height", { min: 64, max: 8192, step: 1, label: "height px" })
         .on("change", (ev) => setCustomSize(ev.last));
+      const outputContent =
+        (output.element.querySelector(".tp-fldv_c") as HTMLElement | null) ?? output.element;
+      outputContent.appendChild(warning);
+      this.updateOutputWarning();
       output.addButton({ title: "📷 Export PNG" }).on("click", () => this.hooks.onExportPNG?.());
       output
         .addButton({ title: "🔗 Export embed (.html)" })
         .on("click", () => this.hooks.onExportEmbed?.());
-      output
-        .addButton({ title: "🎬 Record / stop (.webm)" })
-        .on("click", () => this.hooks.onToggleRecord?.());
-      output.addBinding(this.state, "recording", { readonly: true, label: "recording" });
+      // Recording controls, boxed into one group. Format picker: WebM always; MP4 if the
+      // browser can record it (Chromium/Safari — Firefox is WebM-only); GIF always (we encode
+      // frames ourselves). The recorder falls back to WebM if a MediaRecorder container fails.
+      const videoOptions: Record<string, string> = { WebM: "webm" };
+      if (canRecordFormat("mp4")) videoOptions["MP4 (H.264)"] = "mp4";
+      videoOptions["GIF"] = "gif";
+      const formatBinding = output
+        .addBinding(this.state, "recordFormat", { label: "format", options: videoOptions })
+        .on("change", () => {
+          if (this.recordBtn && !this.state.recording) {
+            this.recordBtn.title = this.recordTitle();
+            this.applyIcons();
+          }
+        });
+      this.recordBtn = output.addButton({ title: this.recordTitle() });
+      this.recordBtn.on("click", () => this.hooks.onToggleRecord?.(this.state.recordFormat));
+      this.groupRows("RECORD", [formatBinding.element, this.recordBtn.element]);
     }
 
     // ---- Actions ----
@@ -342,7 +416,7 @@ export class ControlPanel {
     g.addBinding(cfg, "transparentBackground", { label: "transparent" }).on("change", refresh);
     g.addBinding(cfg, "blendMode", {
       label: "blend",
-      options: { Squared: "squared", Normal: "normal", Additive: "additive" },
+      options: { Squared: "squared", Normal: "normal", Additive: "additive", Multiply: "multiply" },
     }).on("change", refresh);
     // Structural changes rebuild geometry/strands — only act on the FINAL value of a
     // drag (ev.last), never on every intermediate event, or the rapid rebuilds of the
@@ -398,9 +472,16 @@ export class ControlPanel {
     });
     this.renderer.setCameraRig(cfg.showCameraRig);
 
-    // ---- Gradient (draggable stops: drag to reorder + set transition speed) ----
-    const gradF = mkFolder("Gradient", true);
-    randomBtn(gradF, randomizeGradient, () => this.gradientEditor?.refresh());
+    // ---- Color & Gradient (palette/stops + hue/contrast/saturation grading) ----
+    const gradF = mkFolder("Color & Gradient", true);
+    randomBtn(
+      gradF,
+      (c) => {
+        randomizeGradient(c);
+        randomizeColor(c);
+      },
+      () => this.gradientEditor?.refresh(),
+    );
     const gradContent =
       (gradF.element.querySelector(".tp-fldv_c") as HTMLElement | null) ?? gradF.element;
     this.gradientEditor = new GradientEditor(gradContent, cfg, {
@@ -507,14 +588,11 @@ export class ControlPanel {
     };
     updatePaletteControls();
 
-    // ---- Color (hue / contrast / saturation grading) ----
-    const col = mkFolder("Color", true);
-    randomBtn(col, randomizeColor);
-    // Hue is cyclic; allow negatives (most presets use small negative shifts) —
-    // a min of 0 clipped them. Matches the per-strand hue range.
-    col.addBinding(cfg, "hueShift", { min: -180, max: 180, step: 1 }).on("change", refresh);
-    col.addBinding(cfg, "colorContrast", { min: 0, max: 2, step: 0.01 }).on("change", refresh);
-    col.addBinding(cfg, "colorSaturation", { min: 0, max: 2, step: 0.01 }).on("change", refresh);
+    // Colour grading shares this section. Hue is cyclic; allow negatives (most presets use
+    // small negative shifts) — a min of 0 clipped them. Matches the per-strand hue range.
+    gradF.addBinding(cfg, "hueShift", { min: -180, max: 180, step: 1 }).on("change", refresh);
+    gradF.addBinding(cfg, "colorContrast", { min: 0, max: 2, step: 0.01 }).on("change", refresh);
+    gradF.addBinding(cfg, "colorSaturation", { min: 0, max: 2, step: 0.01 }).on("change", refresh);
 
     // ---- Finish (surface texture + volume/glow, plus the render-mode theme) ----
     const fin = mkFolder("Finish", true);
@@ -742,6 +820,9 @@ export class ControlPanel {
       "🎬": svg(
         '<circle cx="8" cy="8" r="5"/><circle cx="8" cy="8" r="2.1" fill="currentColor" stroke="none"/>',
       ),
+      "⏹": svg(
+        '<rect x="3.5" y="3.5" width="9" height="9" rx="1.6" fill="currentColor" stroke="none"/>',
+      ),
     };
     const STYLE_ID = "wv-icon-style";
     if (!document.getElementById(STYLE_ID)) {
@@ -772,10 +853,9 @@ export class ControlPanel {
       Camera: svg(
         '<rect x="1.9" y="4.9" width="12.2" height="8.2" rx="1.2"/><circle cx="8" cy="9" r="2.2"/><path d="M5.7 4.9 6.7 3.1h2.6l1 1.8"/>',
       ),
-      Gradient: svg(
+      "Color & Gradient": svg(
         '<rect x="2.2" y="3.6" width="11.6" height="8.8" rx="1.4"/><path d="m2.6 12 5-5 3 2.4 2.8-3"/>',
       ),
-      Color: svg('<path d="M8 1.9C5.2 5 3.4 7 3.4 9.2a4.6 4.6 0 0 0 9.2 0C12.6 7 10.8 5 8 1.9Z"/>'),
       "Noise Bands": svg('<path d="M3 13V8M6.5 13V3.8M10 13V6.4M13.5 13V9.6"/>'),
       Displacement: svg('<path d="M1.8 8c2-4.2 4.2-4.2 6.2 0s4.2 4.2 6.2 0"/>'),
       Transform: svg(
@@ -786,7 +866,9 @@ export class ControlPanel {
       Lights: svg(
         '<circle cx="8" cy="8" r="2.9"/><path d="M8 1.6v1.7M8 12.7v1.7M1.6 8h1.7M12.7 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M3.6 12.4l1.2-1.2M11.2 4.8l1.2-1.2"/>',
       ),
-      Strands: svg('<path d="M2 5h12M2 8h12M2 11h12"/>'),
+      Strands: svg(
+        '<path d="M5.5 2c3 2 3 4 0 6s-3 4 0 6"/><path d="M10.5 2c-3 2-3 4 0 6s3 4 0 6"/>',
+      ),
     };
     this.container.querySelectorAll(".tp-fldv_t").forEach((el) => {
       const txt = (el.textContent ?? "").trim();

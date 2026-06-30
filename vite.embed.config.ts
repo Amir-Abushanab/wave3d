@@ -14,8 +14,8 @@ export default defineConfig({
       fileName: () => "wave-studio-embed.js",
       formats: ["es"],
     },
-    rollupOptions: {
-      output: { inlineDynamicImports: true },
+    rolldownOptions: {
+      output: { codeSplitting: false },
     },
   },
 });

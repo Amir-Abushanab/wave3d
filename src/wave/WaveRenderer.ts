@@ -338,16 +338,18 @@ export class WaveRenderer {
    * Apply config.blendMode to a material. "squared" (the default) is the hero blend:
    * CustomBlending with AddEquation, src = SrcColorFactor, dst = ZeroFactor, so the
    * framebuffer result is fragColor² — the squaring deepens the colours into the vivid
-   * hero look (without it the wave reads pastel). "additive"/"normal" are authoring
-   * overrides. Returns true if material.blending changed (caller flags needsUpdate).
+   * hero look (without it the wave reads pastel). "additive"/"normal"/"multiply" are
+   * authoring overrides. Returns true if material.blending changed (caller flags needsUpdate).
    */
   private applyBlendMode(material: THREE.ShaderMaterial): boolean {
     const blending =
       this.config.blendMode === "additive"
         ? THREE.AdditiveBlending
-        : this.config.blendMode === "normal"
-          ? THREE.NormalBlending
-          : THREE.CustomBlending; // "squared" (default)
+        : this.config.blendMode === "multiply"
+          ? THREE.MultiplyBlending
+          : this.config.blendMode === "normal"
+            ? THREE.NormalBlending
+            : THREE.CustomBlending; // "squared" (default)
     if (material.blending === blending) return false;
     material.blending = blending;
     if (blending === THREE.CustomBlending) {
@@ -503,8 +505,14 @@ export class WaveRenderer {
       u.uTwPowY.value = this.config.twistPower.y;
       u.uTwPowZ.value = this.config.twistPower.z;
       // Mesh transform (scale / rotation / position) — applied via modelMatrix using THREE's
-      // Euler XYZ order, so the on-screen orientation matches the authored hero view.
-      strand.mesh.scale.set(this.config.scale.x, this.config.scale.y, this.config.scale.z);
+      // Euler XYZ order, so the on-screen orientation matches the authored hero view. The
+      // per-strand widthMul scales the ribbon's cross-width (the Y axis after the geometry's
+      // fold rotations), so stacked strands can be individually narrowed/widened.
+      strand.mesh.scale.set(
+        this.config.scale.x,
+        this.config.scale.y * layer.widthMul,
+        this.config.scale.z,
+      );
       strand.mesh.rotation.set(
         THREE.MathUtils.degToRad(this.config.rotation.x),
         THREE.MathUtils.degToRad(this.config.rotation.y),
@@ -658,8 +666,8 @@ export class WaveRenderer {
   /** Set an exact output buffer while CSS scales the canvas into the on-screen export frame. */
   setOutputSize(width: number, height: number): void {
     this.outputSize = {
-      width: THREE.MathUtils.clamp(Math.round(width), 64, 4096),
-      height: THREE.MathUtils.clamp(Math.round(height), 64, 4096),
+      width: THREE.MathUtils.clamp(Math.round(width), 64, 8192),
+      height: THREE.MathUtils.clamp(Math.round(height), 64, 8192),
     };
     this.resize();
   }

@@ -1,6 +1,8 @@
 import type { WaveConfig } from "../wave/config";
 import type { WaveRenderer } from "../wave/WaveRenderer";
-import type { ExportSize } from "../output/formats";
+import { pickVideoMime } from "../output/formats";
+import type { ExportSize, RecordFormat, VideoFormat } from "../output/formats";
+import { GIFEncoder, quantize, applyPalette } from "gifenc";
 
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
@@ -128,9 +130,18 @@ export async function exportPNG(
 
 // ---- Embeddable component ----
 
+function serializeForInlineScript(value: unknown): string {
+  return JSON.stringify(value).replaceAll("<", "\\u003c");
+}
+
 /** A self-contained HTML page that renders this exact wave from config. */
-export function generateEmbedHTML(config: WaveConfig, size: ExportSize): string {
-  const json = JSON.stringify(config, null, 2);
+export function generateEmbedHTML(
+  config: WaveConfig,
+  size: ExportSize,
+  runtimeSource: string,
+): string {
+  const json = serializeForInlineScript(config);
+  const runtime = serializeForInlineScript(runtimeSource);
   const bg = config.transparentBackground ? "transparent" : config.background;
   return `<!doctype html>
 <html lang="en">
@@ -150,20 +161,32 @@ export function generateEmbedHTML(config: WaveConfig, size: ExportSize): string 
   <body>
     <div id="wave"></div>
     <script type="module">
-      // 1. In the wave-studio project run:  pnpm build:embed
-      // 2. Put the generated dist-embed/wave-studio-embed.js next to this file.
-      import { mountWave } from "./wave-studio-embed.js";
+      const runtimeSource = ${runtime};
+      const runtimeUrl = URL.createObjectURL(
+        new Blob([runtimeSource], { type: "text/javascript" }),
+      );
       const config = ${json};
-      mountWave(document.getElementById("wave"), config);
+      try {
+        const { mountWave } = await import(runtimeUrl);
+        mountWave(document.getElementById("wave"), config);
+      } finally {
+        URL.revokeObjectURL(runtimeUrl);
+      }
     </script>
   </body>
 </html>
 `;
 }
 
-export function exportEmbed(config: WaveConfig, size: ExportSize): void {
+export async function exportEmbed(config: WaveConfig, size: ExportSize): Promise<void> {
+  const runtimeUrl = new URL("./wave-studio-embed.js", document.baseURI);
+  const response = await fetch(runtimeUrl);
+  if (!response.ok) {
+    throw new Error(`Could not load the embed runtime (${response.status})`);
+  }
+  const runtimeSource = await response.text();
   downloadText(
-    generateEmbedHTML(config, size),
+    generateEmbedHTML(config, size, runtimeSource),
     `wave-embed-${size.width}x${size.height}.html`,
     "text/html",
   );
@@ -179,20 +202,20 @@ export class VideoRecorder {
     return this.recorder?.state === "recording";
   }
 
-  start(renderer: WaveRenderer, fps = 60): void {
+  /** Record the canvas to a downloadable clip. `format` picks the container (WebM/MP4);
+   *  an unsupported container falls back to WebM so recording always works. */
+  start(renderer: WaveRenderer, format: VideoFormat = "webm", fps = 60): void {
     if (this.recording) return;
     const stream = renderer.captureStream(fps);
-    const mime =
-      ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"].find((m) =>
-        MediaRecorder.isTypeSupported(m),
-      ) ?? "video/webm";
+    const { mime, ext } = pickVideoMime(format);
     this.chunks = [];
     this.recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12_000_000 });
     this.recorder.ondataavailable = (e) => {
       if (e.data.size > 0) this.chunks.push(e.data);
     };
     this.recorder.onstop = () => {
-      downloadBlob(new Blob(this.chunks, { type: "video/webm" }), "wave.webm");
+      const type = ext === "mp4" ? "video/mp4" : "video/webm";
+      downloadBlob(new Blob(this.chunks, { type }), `wave.${ext}`);
       this.recorder = null;
     };
     this.recorder.start();
@@ -200,5 +223,87 @@ export class VideoRecorder {
 
   stop(): void {
     this.recorder?.stop();
+  }
+}
+
+// ---- GIF ----
+
+// Unlike WebM/MP4 (native MediaRecorder), GIF needs us to grab frames on a timer, quantize
+// each to 256 colours, and encode with gifenc. Frames are downscaled (long edge ≤ MAX_GIF_EDGE)
+// and composited onto an opaque background so the output stays small and avoids GIF's harsh
+// 1-bit transparency.
+const GIF_FPS = 12;
+const MAX_GIF_EDGE = 640;
+
+export class GifRecorder {
+  private encoder: ReturnType<typeof GIFEncoder> | null = null;
+  private timer = 0;
+  private readonly scratch = document.createElement("canvas");
+  private readonly ctx = this.scratch.getContext("2d", {
+    willReadFrequently: true,
+  }) as CanvasRenderingContext2D;
+  private background = "#ffffff";
+
+  get recording(): boolean {
+    return this.encoder !== null;
+  }
+
+  start(renderer: WaveRenderer, background = "#ffffff"): void {
+    if (this.recording) return;
+    const src = renderer.canvas;
+    const scale = Math.min(1, MAX_GIF_EDGE / Math.max(src.width, src.height));
+    this.scratch.width = Math.max(1, Math.round(src.width * scale));
+    this.scratch.height = Math.max(1, Math.round(src.height * scale));
+    this.background = background;
+    this.encoder = GIFEncoder();
+    const delay = Math.round(1000 / GIF_FPS);
+    const grab = (): void => {
+      const enc = this.encoder;
+      if (!enc) return;
+      const w = this.scratch.width;
+      const h = this.scratch.height;
+      this.ctx.fillStyle = this.background; // opaque bg → no 1-bit transparency fringe
+      this.ctx.fillRect(0, 0, w, h);
+      this.ctx.drawImage(src, 0, 0, w, h);
+      const { data } = this.ctx.getImageData(0, 0, w, h);
+      const palette = quantize(data, 256);
+      const index = applyPalette(data, palette);
+      enc.writeFrame(index, w, h, { palette, delay });
+    };
+    grab(); // first frame immediately, then on a fixed cadence
+    this.timer = window.setInterval(grab, delay);
+  }
+
+  stop(): void {
+    const enc = this.encoder;
+    if (!enc) return;
+    clearInterval(this.timer);
+    this.timer = 0;
+    this.encoder = null;
+    enc.finish();
+    downloadBlob(new Blob([enc.bytes()], { type: "image/gif" }), "wave.gif");
+  }
+}
+
+/**
+ * Unified recording facade: routes WebM/MP4 to the MediaRecorder-based VideoRecorder and GIF
+ * to the frame-capture GifRecorder, so callers toggle one object regardless of format.
+ */
+export class Recorder {
+  private readonly video = new VideoRecorder();
+  private readonly gif = new GifRecorder();
+
+  get recording(): boolean {
+    return this.video.recording || this.gif.recording;
+  }
+
+  start(renderer: WaveRenderer, format: RecordFormat, gifBackground = "#ffffff"): void {
+    if (format === "gif") this.gif.start(renderer, gifBackground);
+    else this.video.start(renderer, format);
+  }
+
+  stop(): void {
+    if (this.gif.recording) this.gif.stop();
+    else this.video.stop();
   }
 }

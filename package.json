@@ -8,8 +8,9 @@
   "scripts": {
     "prepare": "git config core.hooksPath .githooks",
     "hooks:install": "git config core.hooksPath .githooks",
+    "predev": "pnpm build:embed",
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "pnpm build:embed && tsc --noEmit && vite build",
     "build:embed": "vite build --config vite.embed.config.ts",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
@@ -26,6 +27,7 @@
     "ncu": "pnpm dlx npm-check-updates"
   },
   "dependencies": {
+    "gifenc": "^1.0.3",
     "three": "^0.185.0",
     "tweakpane": "^4.0.5"
   },

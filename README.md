@@ -38,11 +38,12 @@ Visual exports live in **Output**; state and sharing tools remain in **Actions**
 | **Save / Load state (.json)** | The full `WaveConfig`. This is the preset format — version it, share it, re-import it. |
 | **Export PNG**                | An exact-size still of the bordered export frame (transparent if enabled).             |
 | **Record / stop (.webm)**     | A video capture at the selected output dimensions.                                     |
-| **Export embed (.html)**      | A responsive page locked to the selected output aspect ratio.                          |
+| **Export embed (.html)**      | A standalone responsive page with the complete wave runtime included.                  |
 
 Choose a social, website, or video preset in **Output**, or enter a custom width and height.
 The bordered preview is the shared capture area for PNG, video, and embed exports; editor
-controls and the size badge are never included.
+controls and the size badge are never included. The exported HTML is self-contained and does not
+need a neighboring JavaScript file.
 
 ### Embedding on your own site
 
@@ -50,7 +51,7 @@ controls and the size badge are never included.
    ```bash
    pnpm build:embed      # → dist-embed/wave-studio-embed.js  (Three.js bundled in, ~137 kB gzip)
    ```
-2. Use **Export embed (.html)** in the studio, drop the generated `wave-embed.html` and `wave-studio-embed.js` together, or wire it up yourself:
+2. Use **Export embed (.html)** in the studio for a standalone file, or wire the runtime up yourself:
    ```html
    <div id="wave" style="position:fixed; inset:0"></div>
    <script type="module">
