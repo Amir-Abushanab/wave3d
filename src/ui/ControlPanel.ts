@@ -25,6 +25,8 @@ import { GradientEditor } from "./GradientEditor";
 import { PaletteDropdown } from "./PaletteDropdown";
 import type { PaletteOption } from "./PaletteDropdown";
 import { getPresetThumb } from "./presetThumbs";
+import { applyExportPreset, CUSTOM_EXPORT_PRESET, EXPORT_PRESETS } from "../output/formats";
+import type { ExportSize } from "../output/formats";
 
 function roundTenths(value: number): number {
   return Math.round(value * 10) / 10;
@@ -43,6 +45,8 @@ export interface PanelHooks {
   onExportEmbed?: () => void;
   onCopyLink?: () => Promise<boolean> | void;
   onToggleRecord?: () => void;
+  exportSize?: ExportSize;
+  onExportSizeChange?: () => void;
 }
 
 /**
@@ -252,6 +256,51 @@ export class ControlPanel {
       });
     };
 
+    // ---- Output ----
+    const outputSize = this.hooks.exportSize;
+    if (outputSize) {
+      const output = mkFolder("Output", true);
+      let syncingOutput = false;
+      const formatOptions: Record<string, string> = { Custom: CUSTOM_EXPORT_PRESET };
+      for (const [id, preset] of Object.entries(EXPORT_PRESETS)) {
+        formatOptions[`${preset.label} · ${preset.width}×${preset.height}`] = id;
+      }
+      output
+        .addBinding(outputSize, "preset", { label: "format", options: formatOptions })
+        .on("change", (ev) => {
+          if (syncingOutput) return;
+          syncingOutput = true;
+          try {
+            applyExportPreset(outputSize, String(ev.value));
+            pane.refresh();
+          } finally {
+            syncingOutput = false;
+          }
+          this.hooks.onExportSizeChange?.();
+        });
+      const setCustomSize = (last: boolean): void => {
+        if (syncingOutput) return;
+        outputSize.preset = CUSTOM_EXPORT_PRESET;
+        if (!last) return;
+        pane.refresh();
+        this.hooks.onExportSizeChange?.();
+      };
+      output
+        .addBinding(outputSize, "width", { min: 64, max: 4096, step: 1, label: "width px" })
+        .on("change", (ev) => setCustomSize(ev.last));
+      output
+        .addBinding(outputSize, "height", { min: 64, max: 4096, step: 1, label: "height px" })
+        .on("change", (ev) => setCustomSize(ev.last));
+      output.addButton({ title: "📷 Export PNG" }).on("click", () => this.hooks.onExportPNG?.());
+      output
+        .addButton({ title: "🔗 Export embed (.html)" })
+        .on("click", () => this.hooks.onExportEmbed?.());
+      output
+        .addButton({ title: "🎬 Record / stop (.webm)" })
+        .on("click", () => this.hooks.onToggleRecord?.());
+      output.addBinding(this.state, "recording", { readonly: true, label: "recording" });
+    }
+
     // ---- Actions ----
     const actions = mkFolder("Actions", true);
     actions.addButton({ title: "🎲 Randomize All" }).on("click", () => this.hooks.onRandomize?.());
@@ -262,20 +311,12 @@ export class ControlPanel {
     actions
       .addButton({ title: "📂 Load state (.json)" })
       .on("click", () => this.hooks.onImportConfig?.());
-    actions.addButton({ title: "📷 Export PNG" }).on("click", () => this.hooks.onExportPNG?.());
-    actions
-      .addButton({ title: "🔗 Export embed (.html)" })
-      .on("click", () => this.hooks.onExportEmbed?.());
     const linkBtn = actions.addButton({ title: "🔗 Copy share link" });
     linkBtn.on("click", async () => {
       const ok = await this.hooks.onCopyLink?.();
       linkBtn.title = ok === false ? "✓ URL updated (copy it)" : "✓ Link copied!";
       setTimeout(() => (linkBtn.title = "🔗 Copy share link"), 1600);
     });
-    actions
-      .addButton({ title: "🎬 Record / stop (.webm)" })
-      .on("click", () => this.hooks.onToggleRecord?.());
-    actions.addBinding(this.state, "recording", { readonly: true, label: "recording" });
 
     // ---- Global ----
     const g = mkFolder("Global", true);
@@ -723,6 +764,7 @@ export class ControlPanel {
 
     // Section (folder) header icons.
     const FOLDERS: Record<string, string> = {
+      Output: svg('<path d="M2 3.2h12v9.6H2z"/><path d="M5.2 12.8v1.5M10.8 12.8v1.5M4 14.3h8"/>'),
       Actions: svg('<path d="M8.5 1.6 3 9h3.4L7 14.4 13 7H9.6z"/>'),
       Global: svg(
         '<circle cx="8" cy="8" r="2.1"/><path d="M8 1.7v1.7M8 12.6v1.7M1.7 8h1.7M12.6 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M3.6 12.4l1.2-1.2M11.2 4.8l1.2-1.2"/>',

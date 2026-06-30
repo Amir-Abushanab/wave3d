@@ -11,7 +11,11 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <main id="stage" aria-label="Wave preview"></main>
+    <section id="workspace" aria-label="Export preview workspace">
+      <main id="stage" aria-label="Wave export preview">
+        <output id="capture-size" aria-live="polite"></output>
+      </main>
+    </section>
     <aside id="panel" aria-label="Wave controls"></aside>
     <script type="module" src="/src/main.ts"></script>
   </body>

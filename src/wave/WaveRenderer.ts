@@ -129,6 +129,9 @@ export class WaveRenderer {
   private lightEditMode = false;
   private selectedLight = 0;
   private capturing = false;
+  /** Fixed backing-buffer dimensions used by the studio's visible export frame. Embeds leave
+   *  this unset and continue to resize responsively with their container and device DPR. */
+  private outputSize?: { width: number; height: number };
   /** Set by the panel: fired after a gizmo drag/selection so sliders can refresh. */
   onLightsChanged?: (selected: number) => void;
   /** Set by the panel: fired after orbit moves the camera so sliders can refresh. */
@@ -621,11 +624,17 @@ export class WaveRenderer {
   };
 
   resize(): void {
-    const w = Math.max(1, this.container.clientWidth);
-    const h = Math.max(1, this.container.clientHeight);
-    const dpr = Math.min(window.devicePixelRatio || 1, this.config.dprMax);
+    const w = this.outputSize?.width ?? Math.max(1, this.container.clientWidth);
+    const h = this.outputSize?.height ?? Math.max(1, this.container.clientHeight);
+    const dpr = this.outputSize ? 1 : Math.min(window.devicePixelRatio || 1, this.config.dprMax);
     this.renderer.setPixelRatio(dpr);
-    this.renderer.setSize(w, h, true);
+    this.renderer.setSize(w, h, !this.outputSize);
+    if (this.outputSize) {
+      // setSize(..., false) preserves the exact backing buffer without writing fixed CSS
+      // pixel dimensions. Keep the canvas stretched to the visible aspect-ratio frame.
+      this.renderer.domElement.style.width = "100%";
+      this.renderer.domElement.style.height = "100%";
+    }
     this.composer.setPixelRatio(dpr);
     this.composer.setSize(w, h);
     const dw = w * dpr;
@@ -646,16 +655,13 @@ export class WaveRenderer {
     if (!this.running) this.renderOnce();
   }
 
-  /**
-   * No-op kept for API compatibility (main.ts still calls it on resize). The studio used to
-   * shift+scale the scene into the area right of the panel, but that made framing depend on
-   * window/panel width and differ from the panel-less embed. Now the scene is always centred in
-   * the full canvas (the panel just floats over its left edge), so a saved preset reproduces the
-   * same view in the studio, the preview, and the exported embed.
-   */
-  setViewInsetLeft(_px: number): void {
-    this.applyViewOffset();
-    if (!this.running) this.renderOnce();
+  /** Set an exact output buffer while CSS scales the canvas into the on-screen export frame. */
+  setOutputSize(width: number, height: number): void {
+    this.outputSize = {
+      width: THREE.MathUtils.clamp(Math.round(width), 64, 4096),
+      height: THREE.MathUtils.clamp(Math.round(height), 64, 4096),
+    };
+    this.resize();
   }
 
   private applyViewOffset(): void {

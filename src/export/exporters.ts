@@ -1,5 +1,6 @@
 import type { WaveConfig } from "../wave/config";
 import type { WaveRenderer } from "../wave/WaveRenderer";
+import type { ExportSize } from "../output/formats";
 
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
@@ -116,15 +117,19 @@ export function pickConfigFile(): Promise<WaveConfig> {
 
 // ---- Image ----
 
-export async function exportPNG(renderer: WaveRenderer, transparent = false): Promise<void> {
+export async function exportPNG(
+  renderer: WaveRenderer,
+  size: ExportSize,
+  transparent = false,
+): Promise<void> {
   const blob = await renderer.capturePNG(transparent);
-  downloadBlob(blob, "wave.png");
+  downloadBlob(blob, `wave-${size.width}x${size.height}.png`);
 }
 
 // ---- Embeddable component ----
 
 /** A self-contained HTML page that renders this exact wave from config. */
-export function generateEmbedHTML(config: WaveConfig): string {
+export function generateEmbedHTML(config: WaveConfig, size: ExportSize): string {
   const json = JSON.stringify(config, null, 2);
   const bg = config.transparentBackground ? "transparent" : config.background;
   return `<!doctype html>
@@ -134,8 +139,12 @@ export function generateEmbedHTML(config: WaveConfig): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Wave</title>
     <style>
-      html, body { margin: 0; height: 100%; background: ${bg}; }
-      #wave { position: fixed; inset: 0; }
+      html, body { margin: 0; min-height: 100%; background: ${bg}; }
+      body { display: grid; place-items: center; }
+      #wave {
+        width: min(100vw, calc(100vh * ${size.width} / ${size.height}), ${size.width}px);
+        aspect-ratio: ${size.width} / ${size.height};
+      }
     </style>
   </head>
   <body>
@@ -152,8 +161,12 @@ export function generateEmbedHTML(config: WaveConfig): string {
 `;
 }
 
-export function exportEmbed(config: WaveConfig): void {
-  downloadText(generateEmbedHTML(config), "wave-embed.html", "text/html");
+export function exportEmbed(config: WaveConfig, size: ExportSize): void {
+  downloadText(
+    generateEmbedHTML(config, size),
+    `wave-embed-${size.width}x${size.height}.html`,
+    "text/html",
+  );
 }
 
 // ---- Video ----

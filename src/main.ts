@@ -13,10 +13,14 @@ import {
   decodeConfigFromHash,
   copyShareLink,
 } from "./export/exporters";
+import { aspectRatioLabel, DEFAULT_EXPORT_SIZE } from "./output/formats";
 
 const stage = document.getElementById("stage");
 const panelEl = document.getElementById("panel");
-if (!stage || !panelEl) throw new Error("Missing #stage or #panel element");
+const captureSizeEl = document.getElementById("capture-size");
+if (!stage || !panelEl || !captureSizeEl) {
+  throw new Error("Missing #stage, #panel, or #capture-size element");
+}
 
 // Surface uncaught errors visibly so problems in the wild can be reported.
 function showError(title: string, detail: string): void {
@@ -48,6 +52,21 @@ const makeDefault = (): WaveConfig => PRESETS[DEFAULT_PRESET]();
 const hasSharedLink = /[#&]w=/.test(location.hash);
 let config: WaveConfig = makeDefault();
 const renderer = new WaveRenderer(stage, config);
+const exportSize = { ...DEFAULT_EXPORT_SIZE };
+
+function applyExportSize(): void {
+  const width = Math.round(exportSize.width);
+  const height = Math.round(exportSize.height);
+  exportSize.width = width;
+  exportSize.height = height;
+  stage!.style.setProperty("--capture-aspect", String(width / height));
+  captureSizeEl!.textContent =
+    `EXPORT AREA · ${width} × ${height} px · ${aspectRatioLabel(width, height)}` +
+    " · PNG / VIDEO / EMBED";
+  renderer.setOutputSize(width, height);
+}
+
+applyExportSize();
 renderer.start();
 // Studio only: mouse/trackpad orbit + zoom + pan (the embed stays a static view).
 void renderer.enableOrbit();
@@ -82,10 +101,12 @@ const panel = new ControlPanel(panelEl, renderer, config, {
       console.error("Import failed:", err);
     }
   },
+  exportSize,
+  onExportSizeChange: applyExportSize,
   onExportPNG: () => {
-    void exportPNG(renderer, config.transparentBackground);
+    void exportPNG(renderer, exportSize, config.transparentBackground);
   },
-  onExportEmbed: () => exportEmbed(config),
+  onExportEmbed: () => exportEmbed(config, exportSize),
   onToggleRecord: () => {
     if (recorder.recording) {
       recorder.stop();
@@ -108,21 +129,6 @@ if (hasSharedLink) {
 // Render each preset's thumbnail offscreen (once the main view has painted), then refresh the
 // preset picker to show them. Deferred so it never competes with the initial render.
 setTimeout(() => void generatePresetThumbnails(PRESETS, () => panel.refreshPresetThumbs()), 600);
-
-// Shift the studio view right so the wave isn't hidden behind the control panel.
-// (Desktop only — on mobile the panel is a full-width overlay, so we skip it.)
-function applyViewInset(): void {
-  if (!panelEl) return;
-  const rect = panelEl.getBoundingClientRect();
-  const inset = rect.right < window.innerWidth * 0.6 ? rect.right + 10 : 0;
-  renderer.setViewInsetLeft(inset);
-}
-applyViewInset();
-
-window.addEventListener("resize", () => {
-  renderer.resize();
-  applyViewInset();
-});
 
 // Camera-controls hint: shows briefly, fades on first interaction or after a few seconds.
 {

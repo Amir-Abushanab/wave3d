@@ -31,14 +31,18 @@ The control panel groups every parameter:
 
 ## Exports
 
-All from the **Actions** folder:
+Visual exports live in **Output**; state and sharing tools remain in **Actions**:
 
 | Export                        | What you get                                                                           |
 | ----------------------------- | -------------------------------------------------------------------------------------- |
 | **Save / Load state (.json)** | The full `WaveConfig`. This is the preset format — version it, share it, re-import it. |
-| **Export PNG**                | A still of the current frame (transparent if “transparent bg” is on).                  |
-| **Record / stop (.webm)**     | A video capture of the animation.                                                      |
-| **Export embed (.html)**      | A self-contained page that renders this exact wave on any site.                        |
+| **Export PNG**                | An exact-size still of the bordered export frame (transparent if enabled).             |
+| **Record / stop (.webm)**     | A video capture at the selected output dimensions.                                     |
+| **Export embed (.html)**      | A responsive page locked to the selected output aspect ratio.                          |
+
+Choose a social, website, or video preset in **Output**, or enter a custom width and height.
+The bordered preview is the shared capture area for PNG, video, and embed exports; editor
+controls and the size badge are never included.
 
 ### Embedding on your own site
 

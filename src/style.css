@@ -2,10 +2,8 @@
   color-scheme: dark;
   --panel-width: 332px;
   --edge: 14px;
-}
-
-* {
-  box-sizing: border-box;
+  --capture-aspect: 1.7777778;
+  --preview-height: calc(100dvh - var(--edge) * 2);
 }
 
 html,
@@ -23,13 +21,29 @@ body {
     sans-serif;
 }
 
-/* Full-bleed preview stage; the renderer appends its canvas here. A checkerboard
-   shows through wherever the wave background is transparent (like image editors).
-   When the background is opaque the canvas simply covers it. */
-#stage {
+/* The workspace reserves a real preview area beside the controls. The bordered stage is
+   the exact aspect ratio shared by PNG, video, and embed exports. */
+#workspace {
   position: fixed;
   inset: 0;
   z-index: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: var(--edge);
+  padding-inline-start: calc(var(--panel-width) + var(--edge) * 2);
+  overflow: hidden;
+  background: radial-gradient(circle at 72% 42%, rgba(77, 83, 112, 0.16), transparent 42%), #09090e;
+}
+
+#stage {
+  position: relative;
+  flex: none;
+  inline-size: min(100%, calc(var(--preview-height) * var(--capture-aspect)));
+  aspect-ratio: var(--capture-aspect);
+  box-sizing: border-box;
+  overflow: hidden;
   background-color: #1b1b21;
   background-image:
     linear-gradient(45deg, #2b2b34 25%, transparent 25%, transparent 75%, #2b2b34 75%),
@@ -38,12 +52,41 @@ body {
   background-position:
     0 0,
     13px 13px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 3px;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.8),
+    0 24px 70px rgba(0, 0, 0, 0.42);
 }
 
 #stage canvas {
+  position: relative;
+  z-index: 0;
   display: block;
   width: 100%;
   height: 100%;
+}
+
+#capture-size {
+  position: absolute;
+  z-index: 5;
+  inset-block-start: 10px;
+  inset-inline-start: 10px;
+  max-inline-size: calc(100% - 20px);
+  box-sizing: border-box;
+  padding: 6px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  background: rgba(12, 12, 18, 0.78);
+  color: #f1f2f6;
+  font:
+    600 0.6875rem/1.2 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  letter-spacing: 0.01em;
+  pointer-events: none;
+  backdrop-filter: blur(10px);
 }
 
 /* Control panel column. */
@@ -53,6 +96,7 @@ body {
   left: var(--edge);
   width: var(--panel-width);
   max-height: calc(100dvh - var(--edge) * 2);
+  box-sizing: border-box;
   overflow-y: auto;
   overflow-x: hidden;
   z-index: 10;
@@ -84,12 +128,23 @@ body {
   --tp-base-background-color: rgba(20, 20, 28, 0.82);
   --tp-base-shadow-color: rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
 }
 
 @media (max-width: 760px) {
   :root {
     --panel-width: calc(100vw - var(--edge) * 2);
+    --preview-height: calc(56dvh - var(--edge) * 2);
+  }
+
+  #workspace {
+    padding-inline-start: var(--edge);
+    padding-block-end: calc(44dvh + var(--edge));
+  }
+
+  #panel {
+    inset-block-start: auto;
+    inset-block-end: var(--edge);
+    max-height: 42dvh;
   }
 }
 
