@@ -401,7 +401,3 @@ body {
     max-height: 42dvh;
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  /* Renderer also reduces motion at the JS level; this is a belt-and-braces hint. */
-}

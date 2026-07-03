@@ -198,12 +198,19 @@ type Wave = {
   palette: WavePalette;
 };
 
+// Parse scratch: refresh() converts ~25 hex colours per wave per call (i.e. per slider input),
+// so reuse one Color instead of allocating each time.
+const HEX_SCRATCH = new THREE.Color();
+
+// The minimap's fixed 3/4 vantage direction.
+const MINIMAP_VANTAGE = new THREE.Vector3(0.85, 0.6, 1).normalize();
+
 function hexToLinearVec3(hex: string, target: THREE.Vector3): THREE.Vector3 {
   // three's ColorManagement (on by default in r169) already converts the sRGB hex to
-  // LINEAR when constructing the Color — its .r/.g/.b are linear. Calling
+  // LINEAR when parsing the hex — its .r/.g/.b are linear. Calling
   // convertSRGBToLinear() again would double-linearize (crushing greens → everything
   // turns red), so we read the components directly.
-  const c = new THREE.Color(hex);
+  const c = HEX_SCRATCH.set(hex);
   return target.set(c.r, c.g, c.b);
 }
 
@@ -256,6 +263,17 @@ export class WaveRenderer {
   private readonly clipSphere = new THREE.Sphere();
   private readonly clipTmpA = new THREE.Vector3();
   private readonly clipTmpB = new THREE.Vector3();
+
+  // Same for the minimap, which renders every frame while the camera rig is open.
+  private readonly miniBox = new THREE.Box3();
+  private readonly miniSphere = new THREE.Sphere();
+  private readonly miniTmpA = new THREE.Vector3();
+  private readonly miniTmpB = new THREE.Vector3();
+  private readonly miniPrevColor = new THREE.Color();
+  private readonly miniSize = new THREE.Vector2();
+  // Per-wave blend/transparent stash for the minimap's forced-opaque draw (index-parallel to waves).
+  private readonly miniBlendPrev: THREE.Blending[] = [];
+  private readonly miniTransPrev: boolean[] = [];
 
   // --- Camera-rig minimap (corner inset: the wave + a little camera/light marker) ---
   private cameraRigOn = false;
@@ -1155,7 +1173,6 @@ export class WaveRenderer {
     this.camera.top = dh / 2;
     this.camera.bottom = -dh / 2;
     this.applyZoom(); // responsive ortho zoom (maps FRAME_W world units onto the canvas)
-    this.applyViewOffset();
     this.applyBackground();
     if (this.cameraRigOn) this.positionMinimapBtn();
     if (!this.running) this.renderOnce();
@@ -1168,10 +1185,6 @@ export class WaveRenderer {
       height: THREE.MathUtils.clamp(Math.round(height), 64, 8192),
     };
     this.resize();
-  }
-
-  private applyViewOffset(): void {
-    this.camera.clearViewOffset();
   }
 
   start(): void {
@@ -1441,7 +1454,6 @@ export class WaveRenderer {
     }
     this.writeCameraToConfig();
     this.onCameraChanged?.();
-    this.applyViewOffset();
     if (!this.running) this.renderOnce();
   }
 
@@ -1482,7 +1494,6 @@ export class WaveRenderer {
     if (this.orbit) this.orbit.update();
     this.writeCameraToConfig();
     this.onCameraChanged?.();
-    this.applyViewOffset();
     if (!this.running) this.renderOnce();
   }
 
@@ -1497,7 +1508,6 @@ export class WaveRenderer {
       this.camera.position.z = d;
     }
     this.writeCameraToConfig();
-    this.applyViewOffset();
     if (!this.running) this.renderOnce();
   }
 
@@ -1543,7 +1553,6 @@ export class WaveRenderer {
     if (this.orbit) this.orbit.update();
     this.suppressCameraChange = false;
     this.writeCameraToConfig();
-    this.applyViewOffset();
     if (!this.running) this.renderOnce();
   }
 
@@ -1567,19 +1576,17 @@ export class WaveRenderer {
     if (this.orbit) this.orbit.update();
     this.suppressCameraChange = false;
     this.writeCameraToConfig();
-    this.applyViewOffset();
     if (!this.running) this.renderOnce();
   }
 
-  /** Ortho zoom MULTIPLIER (replaces fov). 1 = the responsive base framing (the hero crop). */
-  getFov(): number {
+  /** Ortho zoom MULTIPLIER (the camera has no real fov). 1 = the responsive base framing (the hero crop). */
+  getZoom(): number {
     return this.config.cameraZoom ?? 1;
   }
 
-  setFov(zoom: number): void {
+  setZoom(zoom: number): void {
     this.config.cameraZoom = THREE.MathUtils.clamp(zoom, 0.1, 6);
     this.applyZoom();
-    this.applyViewOffset();
     if (!this.running) this.renderOnce();
   }
 
@@ -1602,7 +1609,6 @@ export class WaveRenderer {
     }
     this.applyZoom();
     this.suppressCameraChange = false;
-    this.applyViewOffset();
     this.onCameraChanged?.(); // keep the panel's camera sliders in sync
     if (!this.running) this.renderOnce();
   }
@@ -1798,30 +1804,30 @@ export class WaveRenderer {
     const cam = this.minimapCamera;
     const marker = this.camMarker;
     if (!cam || !marker) return;
-    const box = new THREE.Box3().setFromObject(this.group);
+    const box = this.miniBox.setFromObject(this.group);
     if (box.isEmpty()) return; // geometry not built yet
     for (const l of this.rigLights()) {
-      box.expandByPoint(new THREE.Vector3(l.position.x, l.position.y, l.position.z));
+      box.expandByPoint(this.miniTmpA.set(l.position.x, l.position.y, l.position.z));
     }
-    const subject = box.getBoundingSphere(new THREE.Sphere());
+    const subject = box.getBoundingSphere(this.miniSphere);
     const radius = Math.max(subject.radius, 1);
 
     // Point the little camera at the wave from its real view direction, kept a sane distance
     // away (using the ortho camera's actual z would push it thousands of units off and dwarf
     // the wave).
-    const viewDir = this.camera.getWorldDirection(new THREE.Vector3()); // points toward the wave
-    const markerPos = subject.center.clone().addScaledVector(viewDir, -radius * 1.5);
+    const viewDir = this.camera.getWorldDirection(this.miniTmpA); // points toward the wave
+    const markerPos = this.miniTmpB.copy(subject.center).addScaledVector(viewDir, -radius * 1.5);
     marker.position.copy(markerPos);
     marker.quaternion.copy(this.camera.quaternion);
     marker.scale.setScalar(radius * 0.05);
     for (const m of this.minimapLights) m.scale.setScalar(radius * 0.045);
 
-    // Frame the whole rig (wave + proxy) from a fixed 3/4 vantage.
+    // Frame the whole rig (wave + proxy) from a fixed 3/4 vantage. (`rig` reuses the sphere
+    // behind `subject`, which has no readers past this point.)
     box.expandByPoint(markerPos);
-    const rig = box.getBoundingSphere(new THREE.Sphere());
+    const rig = box.getBoundingSphere(this.miniSphere);
     const frameR = Math.max(rig.radius, 1);
-    const dir = new THREE.Vector3(0.85, 0.6, 1).normalize();
-    cam.position.copy(rig.center).addScaledVector(dir, frameR * 2.9);
+    cam.position.copy(rig.center).addScaledVector(MINIMAP_VANTAGE, frameR * 2.9);
     cam.near = Math.max(1, frameR * 0.02);
     cam.far = frameR * 10;
     cam.up.set(0, 1, 0);
@@ -1841,7 +1847,7 @@ export class WaveRenderer {
     this.frameMinimap();
 
     const r = this.renderer;
-    const prevColor = new THREE.Color();
+    const prevColor = this.miniPrevColor;
     r.getClearColor(prevColor);
     const prevAlpha = r.getClearAlpha();
     r.autoClear = false;
@@ -1858,23 +1864,22 @@ export class WaveRenderer {
     // The wave's own blend mode (additive for the neon / Spider-Man presets) makes it vanish on
     // the dark minimap backdrop; force opaque normal blending just for this draw so the shape
     // always reads. The main render already happened, so we restore immediately after.
-    const waveBlend = this.waves.map((s) => ({
-      m: s.material,
-      blending: s.material.blending,
-      transparent: s.material.transparent,
-    }));
-    for (const s of this.waves) {
-      s.material.blending = THREE.NormalBlending;
-      s.material.transparent = false;
+    for (let i = 0; i < this.waves.length; i++) {
+      const m = this.waves[i].material;
+      this.miniBlendPrev[i] = m.blending;
+      this.miniTransPrev[i] = m.transparent;
+      m.blending = THREE.NormalBlending;
+      m.transparent = false;
     }
     r.render(this.scene, this.minimapCamera);
-    for (const b of waveBlend) {
-      b.m.blending = b.blending;
-      b.m.transparent = b.transparent;
+    for (let i = 0; i < this.waves.length; i++) {
+      const m = this.waves[i].material;
+      m.blending = this.miniBlendPrev[i];
+      m.transparent = this.miniTransPrev[i];
     }
     this.scene.background = prevBg;
     r.setScissorTest(false);
-    const full = this.renderer.getSize(new THREE.Vector2());
+    const full = this.renderer.getSize(this.miniSize);
     r.setViewport(0, 0, full.x, full.y);
     r.setClearColor(prevColor, prevAlpha);
     r.autoClear = true;
@@ -1911,14 +1916,19 @@ export class WaveRenderer {
     // Cursor feedback by drag type: left-drag pans → 4-way move arrows; right-drag rotates →
     // grab/closed-hand. Idle stays on the move arrows (the primary drag pans). OrbitControls
     // doesn't expose the button, so we read it from pointerdown directly.
-    const el = this.renderer.domElement;
-    el.addEventListener("pointerdown", (e) => {
-      if (this.mainOrbitOn) el.style.cursor = e.button === 2 ? "grabbing" : "move";
-    });
-    window.addEventListener("pointerup", () => {
-      if (this.mainOrbitOn) el.style.cursor = "move";
-    });
+    this.renderer.domElement.addEventListener("pointerdown", this.onCursorDown);
+    window.addEventListener("pointerup", this.onCursorUp);
   }
+
+  private onCursorDown = (e: PointerEvent): void => {
+    if (this.mainOrbitOn) {
+      this.renderer.domElement.style.cursor = e.button === 2 ? "grabbing" : "move";
+    }
+  };
+
+  private onCursorUp = (): void => {
+    if (this.mainOrbitOn) this.renderer.domElement.style.cursor = "move";
+  };
 
   private async ensureGizmo(): Promise<void> {
     await this.ensureOrbit();
@@ -2308,7 +2318,6 @@ export class WaveRenderer {
     let blob: Blob | null = null;
     try {
       this.capturing = true;
-      this.camera.clearViewOffset(); // export the centered composition, not the studio-shifted view
       this.renderOnce();
       blob = await new Promise<Blob | null>((resolve) =>
         this.canvas.toBlob(resolve, mime, quality),
@@ -2319,7 +2328,6 @@ export class WaveRenderer {
         this.config.transparentBackground = prev;
         this.applyBackground();
       }
-      this.applyViewOffset(); // restore the studio view
       this.renderOnce();
     }
     if (!blob || blob.type !== mime) throw new Error(`Failed to capture ${mime}`);
@@ -2362,6 +2370,8 @@ export class WaveRenderer {
     this.renderer.domElement.removeEventListener("webglcontextlost", this.onContextLost);
     this.renderer.domElement.removeEventListener("webglcontextrestored", this.onContextRestored);
     this.renderer.domElement.removeEventListener("pointerdown", this.onPointerDown);
+    this.renderer.domElement.removeEventListener("pointerdown", this.onCursorDown);
+    window.removeEventListener("pointerup", this.onCursorUp);
     this.transform?.detach();
     this.transform?.dispose();
     this.orbit?.dispose();

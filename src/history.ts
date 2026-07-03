@@ -15,6 +15,8 @@ interface Entry {
   id: number;
   /** History-owned clone; the big media-URL strings are shared by reference (see historyClone). */
   config: StudioConfig;
+  /** Cached fingerprint of `config`, so the no-op guard never re-serializes stored entries. */
+  fingerprint: string;
   /** Human label shown in the history list (e.g. "hue shift", "Randomize All", "Stripe Hero"). */
   label: string;
   /** Preset-dropdown label to restore when this entry is applied (independent of `label`). */
@@ -217,7 +219,7 @@ export class History {
     this.cancelTimer();
     this.dirty = false;
     const cur = this.entries[this.cursor] as Entry | undefined;
-    if (cur && fingerprint(live) === fingerprint(cur.config) && mediaRefsEqual(live, cur.config)) {
+    if (cur && fingerprint(live) === cur.fingerprint && mediaRefsEqual(live, cur.config)) {
       return false;
     }
     const finalLabel = label ?? (cur ? diffLabel(cur.config, live) : "edit");
@@ -292,7 +294,15 @@ export class History {
   }
 
   private makeEntry(config: StudioConfig, label: string, presetName: string): Entry {
-    return { id: this.nextId++, config: historyClone(config), label, presetName, time: Date.now() };
+    const clone = historyClone(config);
+    return {
+      id: this.nextId++,
+      config: clone,
+      fingerprint: fingerprint(clone),
+      label,
+      presetName,
+      time: Date.now(),
+    };
   }
 
   private cancelTimer(): void {

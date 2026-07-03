@@ -347,7 +347,7 @@ export class ControlPanel {
       camP.distance = o.distance;
       camP.panX = roundTenths(o.panX);
       camP.panY = roundTenths(o.panY);
-      camP.zoom = Math.round(this.renderer.getFov() * 100) / 100;
+      camP.zoom = Math.round(this.renderer.getZoom() * 100) / 100;
     };
     syncCam();
     const syncPanel = (): void => {
@@ -852,7 +852,7 @@ export class ControlPanel {
     camF
       .addBinding(camP, "zoom", { min: 0.1, max: 6, step: 0.05, label: "zoom" })
       .on("change", () => {
-        if (!syncing) this.renderer.setFov(camP.zoom);
+        if (!syncing) this.renderer.setZoom(camP.zoom);
       });
     camF
       .addBinding(camP, "panX", { min: -2000, max: 2000, step: 10, label: "pan X" })

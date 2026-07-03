@@ -224,7 +224,6 @@ export interface SceneConfig {
   /** Noise phase offset — scrubs the noise pattern to pick a still frame. */
   timeOffset?: number;
   introRamp?: boolean;
-  fov: number;
   showCameraRig: boolean;
   cameraDistance: number;
   cameraZoom: number;
@@ -381,7 +380,6 @@ export function createDefaultConfig(): StudioConfig {
     paused: false,
     timeOffset: 0, // noise phase (scrub to pick a still)
     introRamp: true, // ease the animation in over ~1s on load (skipped in dev; see WaveRenderer.updateTime)
-    fov: 44, // vestigial (camera is orthographic; cameraZoom is the framing knob)
     showCameraRig: false,
     // The hero camera: ORTHOGRAPHIC at (100,0,5000) looking at the origin. The mesh is ×10 so
     // the wave overflows the frame and only the twist shows. cameraZoom is a user multiplier on
@@ -402,7 +400,7 @@ export function createDefaultConfig(): StudioConfig {
   };
 }
 
-export function cloneConfig(config: StudioConfig): StudioConfig {
+function cloneConfig(config: StudioConfig): StudioConfig {
   return structuredClone(config);
 }
 
@@ -582,7 +580,6 @@ export function ensureSceneDefaults(config: StudioConfig): void {
   if (typeof config.grain !== "number") config.grain = 1.1;
   if (typeof config.blur !== "number") config.blur = 0.02;
   if (typeof config.blurSamples !== "number") config.blurSamples = 6;
-  if (typeof config.fov !== "number") config.fov = 44;
   if (typeof config.showCameraRig !== "boolean") config.showCameraRig = false;
   if (typeof config.paused !== "boolean") config.paused = false;
   if (typeof config.mirrorH !== "boolean") config.mirrorH = false;
