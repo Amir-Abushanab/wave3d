@@ -1,15 +1,18 @@
 import "./style.css";
 import { WaveRenderer } from "./wave/WaveRenderer";
-import { randomizeConfig, PRESETS } from "./wave/config";
-import type { WaveConfig } from "./wave/config";
+import { randomizeConfig, ensureStudioConfig, PRESETS } from "./wave/config";
+import type { StudioConfig } from "./wave/config";
 import { ControlPanel } from "./ui/ControlPanel";
 import { OutputResizeHandle } from "./ui/OutputResizeHandle";
 import { RecordingOverlay } from "./ui/RecordingOverlay";
+import { HistoryControls } from "./ui/HistoryControls";
+import { HistoryThumbnailer } from "./ui/historyThumbs";
+import { History } from "./history";
 import { generatePresetThumbnails } from "./ui/presetThumbs";
 import {
   exportConfigJSON,
   pickConfigFile,
-  exportPNG,
+  exportImage,
   exportEmbed,
   Recorder,
   decodeConfigFromHash,
@@ -21,14 +24,10 @@ const stage = document.getElementById("stage");
 const panelEl = document.getElementById("panel");
 const captureSizeEl = document.getElementById("capture-size");
 const workspace = document.getElementById("workspace");
-const resizeHandleEl = document.getElementById("output-resize-handle");
-if (
-  !stage ||
-  !panelEl ||
-  !captureSizeEl ||
-  !workspace ||
-  !(resizeHandleEl instanceof HTMLButtonElement)
-) {
+const resizeHandleEls = Array.from(
+  document.querySelectorAll<HTMLButtonElement>(".output-resize-handle"),
+);
+if (!stage || !panelEl || !captureSizeEl || !workspace || resizeHandleEls.length !== 4) {
   throw new Error("Missing studio workspace elements");
 }
 
@@ -47,20 +46,29 @@ function showError(title: string, detail: string): void {
   }
   el.textContent = `⚠ ${title}  (double-click to dismiss)\n${detail}`;
 }
-window.addEventListener("error", (e) =>
-  showError(e.message, (e.error as Error)?.stack || `${e.filename}:${e.lineno}`),
-);
-window.addEventListener("unhandledrejection", (e) =>
-  showError("Unhandled promise rejection", (e.reason as Error)?.stack || String(e.reason)),
-);
+// True only on the very first module execution. In dev, the import.meta.hot block at the bottom
+// re-runs this module in place on each edit; firstBoot-guarded setup (global error handlers, the
+// camera hint) then runs once rather than stacking on every save. hot.data persists across HMR
+// updates by design; in production import.meta.hot is undefined, so firstBoot is always true.
+const firstBoot = !import.meta.hot?.data.booted;
+if (import.meta.hot) import.meta.hot.data.booted = true;
+
+if (firstBoot) {
+  window.addEventListener("error", (e) =>
+    showError(e.message, (e.error as Error)?.stack || `${e.filename}:${e.lineno}`),
+  );
+  window.addEventListener("unhandledrejection", (e) =>
+    showError("Unhandled promise rejection", (e.reason as Error)?.stack || String(e.reason)),
+  );
+}
 
 // The app's default wave (what loads on startup and on "Reset to default").
-const DEFAULT_PRESET = "Stripe Wave 2";
-const makeDefault = (): WaveConfig => PRESETS[DEFAULT_PRESET]();
+const DEFAULT_PRESET = "Stripe Hero";
+const makeDefault = (): StudioConfig => PRESETS[DEFAULT_PRESET]();
 
 // A shared link (#w=…) overrides the default on load — applied async (gzip decode) below.
 const hasSharedLink = /[#&]w=/.test(location.hash);
-let config: WaveConfig = makeDefault();
+let config: StudioConfig = makeDefault();
 const renderer = new WaveRenderer(stage, config);
 const exportSize = { ...DEFAULT_EXPORT_SIZE };
 
@@ -77,7 +85,7 @@ function updateExportPresentation(refitPreview: boolean): void {
   const gpuWarning = exportGpuWarning(width, height);
   captureSizeEl!.textContent =
     `EXPORT AREA · ${width} × ${height} px · ${aspectRatioLabel(width, height)}` +
-    " · PNG / VIDEO / EMBED" +
+    " · IMAGE / VIDEO / EMBED" +
     (gpuWarning ? ` · ⚠ ${gpuWarning.short.toUpperCase()}` : "");
 }
 
@@ -98,35 +106,56 @@ const recordingOverlay = new RecordingOverlay(stage);
 const presetOptions: Record<string, string> = { "—": "—" };
 for (const name of Object.keys(PRESETS)) presetOptions[name] = name;
 
-function applyConfig(next: WaveConfig, presetName = "—"): void {
-  config = next;
+// ---- Undo / redo history ----
+// Each committed edit snapshots the whole StudioConfig; restoring reuses applyConfig below.
+// `applying` suppresses edit-capture while WE swap the config (preset/reset/undo/redo) — notably
+// renderer.setConfig fires onCameraChanged synchronously, which would otherwise look like an edit.
+const applying = { on: false };
+const history = new History({
+  getLive: () => config,
+  getLabel: () => panel.getPresetLabel(),
+  onChange: () => historyControls.update(history.getState()),
+});
+const onEdit = (): void => {
+  if (!applying.on) history.markDirty();
+};
+
+function applyConfig(next: StudioConfig, presetName = "—", record = true, label?: string): void {
+  // Normalize once, up front, so this module, the renderer, and the panel all share the same
+  // canonical config object.
+  if (record) history.flush(); // commit any pending manual edit as its own step first
+  applying.on = true;
+  config = ensureStudioConfig(next);
   renderer.setConfig(config);
   panel.setConfig(config, presetName); // presetName labels the Global → preset dropdown
+  applying.on = false;
+  if (record) history.commit(config, presetName, label);
 }
 
 const panel = new ControlPanel(panelEl, renderer, config, {
   presetOptions,
   // Shared-link load isn't a named preset → "—"; otherwise show the default's name.
   defaultPreset: hasSharedLink ? "—" : DEFAULT_PRESET,
+  onEdit,
   onPreset: (name) => {
     const make = PRESETS[name];
-    if (make) applyConfig(make(), name);
+    if (make) applyConfig(make(), name, true, name);
   },
-  onRandomize: () => applyConfig(randomizeConfig(config)),
-  onReset: () => applyConfig(makeDefault(), DEFAULT_PRESET),
+  onRandomize: () => applyConfig(randomizeConfig(config), "—", true, "Randomize All"),
+  onReset: () => applyConfig(makeDefault(), DEFAULT_PRESET, true, "Reset"),
   onCopyLink: () => copyShareLink(config),
   onExportConfig: () => exportConfigJSON(config),
   onImportConfig: async () => {
     try {
-      applyConfig(await pickConfigFile());
+      applyConfig(await pickConfigFile(), "—", true, "Imported");
     } catch (err) {
       console.error("Import failed:", err);
     }
   },
   exportSize,
   onExportSizeChange: applyExportSize,
-  onExportPNG: () => {
-    void exportPNG(renderer, exportSize, config.transparentBackground);
+  onExportImage: (format, quality) => {
+    void exportImage(renderer, exportSize, format, config.transparentBackground, quality);
   },
   onExportEmbed: () => {
     void exportEmbed(config, exportSize);
@@ -147,7 +176,7 @@ const panel = new ControlPanel(panelEl, renderer, config, {
   },
 });
 
-const outputResizer = new OutputResizeHandle(workspace, stage, resizeHandleEl, exportSize, {
+const outputResizer = new OutputResizeHandle(workspace, stage, resizeHandleEls, exportSize, {
   onDragStart: () => captureSizeEl.setAttribute("aria-live", "off"),
   onPreviewChange: () => updateExportPresentation(false),
   onCommit: (refitPreview) => {
@@ -157,13 +186,65 @@ const outputResizer = new OutputResizeHandle(workspace, stage, resizeHandleEl, e
     panel.refreshOutputSize();
   },
 });
-window.addEventListener("resize", () => outputResizer.fitPreview());
+const onWindowResize = (): void => outputResizer.fitPreview();
+window.addEventListener("resize", onWindowResize);
+
+// Undo/redo: floating controls (bottom-left) + keyboard shortcuts. Restores go through applyConfig
+// with record=false so they don't re-enter history.
+function doUndo(): void {
+  history.flush();
+  const r = history.undo();
+  if (r) applyConfig(r.config, r.presetName, false);
+}
+function doRedo(): void {
+  history.flush();
+  const r = history.redo();
+  if (r) applyConfig(r.config, r.presetName, false);
+}
+function doJump(id: number): void {
+  history.flush();
+  const r = history.jumpToId(id);
+  if (r) applyConfig(r.config, r.presetName, false);
+}
+const historyThumbnailer = new HistoryThumbnailer((id) => history.getConfigById(id));
+const historyControls = new HistoryControls(workspace, {
+  onUndo: doUndo,
+  onRedo: doRedo,
+  onJump: doJump,
+  thumb: historyThumbnailer,
+});
+// Seed the baseline now that the panel + controls exist (a shared link re-seeds it below).
+history.reset(config, hasSharedLink ? "—" : DEFAULT_PRESET);
+
+const onHistoryKey = (e: KeyboardEvent): void => {
+  if (!(e.metaKey || e.ctrlKey)) return;
+  const k = e.key.toLowerCase();
+  if (k !== "z" && k !== "y") return;
+  const t = e.target as HTMLElement | null;
+  // While typing in a field, let the browser's native text-undo win.
+  if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+  e.preventDefault();
+  if (k === "y" || e.shiftKey) doRedo();
+  else doUndo();
+};
+// End-of-gesture commit: flush a pending edit when a pointer drag releases → one entry per gesture.
+// CAPTURE phase because the gradient/mesh editors stopPropagation() on pointerup; queueMicrotask
+// defers past the editor's own handler so we snapshot its final value.
+const onHistoryPointerUp = (): void => {
+  if (history.isDirty()) queueMicrotask(() => history.flush());
+};
+window.addEventListener("keydown", onHistoryKey, true);
+window.addEventListener("pointerup", onHistoryPointerUp, true);
+window.addEventListener("pointercancel", onHistoryPointerUp, true);
 
 // Apply a shared link (#w=…) once decoded (gzip). The default shows for the frame or two
 // the decode takes; then the shared wave swaps in (dropdown stays "—" = custom).
 if (hasSharedLink) {
   void decodeConfigFromHash(location.hash).then((shared) => {
-    if (shared) applyConfig(shared, "—");
+    if (shared) {
+      applyConfig(shared, "—", false);
+      history.reset(config, "—", "Shared link"); // the shared wave becomes the clean baseline
+    }
   });
 }
 
@@ -172,7 +253,8 @@ if (hasSharedLink) {
 setTimeout(() => void generatePresetThumbnails(PRESETS, () => panel.refreshPresetThumbs()), 600);
 
 // Camera-controls hint: shows briefly, fades on first interaction or after a few seconds.
-{
+// firstBoot-only so it doesn't flash back on every dev hot-reload.
+if (firstBoot) {
   const hint = document.createElement("div");
   hint.textContent = "drag to move · scroll to zoom · right-drag or arrow keys to rotate";
   hint.style.cssText =
@@ -211,10 +293,37 @@ setTimeout(() => void generatePresetThumbnails(PRESETS, () => panel.refreshPrese
   setTimeout(dismiss, 5000);
 }
 
-// Exposed for debugging.
-(window as unknown as { wave: unknown }).wave = {
-  renderer,
-  get config() {
-    return config;
-  },
-};
+// Exposed for debugging — dev only, so it's stripped from the production build.
+if (import.meta.env.DEV) {
+  (window as unknown as { wave: unknown }).wave = {
+    renderer,
+    history,
+    thumbnailer: historyThumbnailer,
+    get config() {
+      return config;
+    },
+  };
+}
+
+// Dev-only HMR. Nothing in the module graph opts into HMR, so Vite would otherwise full-reload on
+// every edit — the flash + reset that made saves feel heavy. Self-accepting re-runs this entry in
+// place instead; dispose() tears the old app down first so a reload can't stack a second render
+// loop (which would literally speed the animation up), duplicate the canvas/panel, or double up
+// the corner-drag handlers. import.meta.hot is undefined in production, so this is tree-shaken out.
+if (import.meta.hot) {
+  import.meta.hot.accept();
+  import.meta.hot.dispose(() => {
+    window.removeEventListener("resize", onWindowResize);
+    window.removeEventListener("keydown", onHistoryKey, true);
+    window.removeEventListener("pointerup", onHistoryPointerUp, true);
+    window.removeEventListener("pointercancel", onHistoryPointerUp, true);
+    if (recorder.recording) recorder.stop();
+    recordingOverlay.stop();
+    outputResizer.dispose();
+    historyControls.dispose();
+    historyThumbnailer.dispose();
+    history.dispose();
+    panel.dispose();
+    renderer.dispose();
+  });
+}

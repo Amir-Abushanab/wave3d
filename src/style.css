@@ -22,7 +22,7 @@ body {
 }
 
 /* The workspace reserves a real preview area beside the controls. The bordered stage is
-   the exact aspect ratio shared by PNG, video, and embed exports. */
+   the exact aspect ratio shared by image, video, and embed exports. */
 #workspace {
   position: fixed;
   inset: 0;
@@ -71,8 +71,8 @@ body {
   position: absolute;
   z-index: 5;
   inset-block-start: 10px;
-  inset-inline-start: 10px;
-  max-inline-size: calc(100% - 20px);
+  inset-inline-start: 50%;
+  max-inline-size: calc(100% - 88px);
   box-sizing: border-box;
   padding: 6px 9px;
   border: 1px solid rgba(255, 255, 255, 0.16);
@@ -86,41 +86,90 @@ body {
     monospace;
   letter-spacing: 0.01em;
   pointer-events: none;
+  transform: translateX(-50%);
   backdrop-filter: blur(10px);
 }
 
-#output-resize-handle {
+.output-resize-handle {
   position: absolute;
   z-index: 6;
-  inset-inline-end: 0;
-  inset-block-end: 0;
   display: grid;
-  place-items: end;
   box-sizing: border-box;
   inline-size: 36px;
   block-size: 36px;
-  padding: 0 6px 6px 0;
   border: 0;
-  border-radius: 7px 0 0;
-  background: linear-gradient(135deg, transparent 45%, rgba(12, 12, 18, 0.72));
+  background: rgba(12, 12, 18, 0.48);
   color: rgba(255, 255, 255, 0.78);
-  cursor: nwse-resize;
   touch-action: none;
 }
 
-#output-resize-handle span {
+.output-resize-handle[data-corner="nw"] {
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  place-items: start;
+  padding: 6px 0 0 6px;
+  border-radius: 0 0 7px;
+  cursor: nwse-resize;
+}
+
+.output-resize-handle[data-corner="ne"] {
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  place-items: start end;
+  padding: 6px 6px 0 0;
+  border-radius: 0 0 0 7px;
+  cursor: nesw-resize;
+}
+
+.output-resize-handle[data-corner="sw"] {
+  inset-block-end: 0;
+  inset-inline-start: 0;
+  place-items: end start;
+  padding: 0 0 6px 6px;
+  border-radius: 0 7px 0 0;
+  cursor: nesw-resize;
+}
+
+.output-resize-handle[data-corner="se"] {
+  inset-inline-end: 0;
+  inset-block-end: 0;
+  place-items: end;
+  padding: 0 6px 6px 0;
+  border-radius: 7px 0 0;
+  cursor: nwse-resize;
+}
+
+.output-resize-handle span {
   inline-size: 12px;
   block-size: 12px;
+}
+
+.output-resize-handle[data-corner="nw"] span {
+  border-inline-start: 2px solid currentColor;
+  border-block-start: 2px solid currentColor;
+}
+
+.output-resize-handle[data-corner="ne"] span {
+  border-inline-end: 2px solid currentColor;
+  border-block-start: 2px solid currentColor;
+}
+
+.output-resize-handle[data-corner="sw"] span {
+  border-inline-start: 2px solid currentColor;
+  border-block-end: 2px solid currentColor;
+}
+
+.output-resize-handle[data-corner="se"] span {
   border-inline-end: 2px solid currentColor;
   border-block-end: 2px solid currentColor;
 }
 
-#output-resize-handle:hover {
+.output-resize-handle:hover {
   color: #fff;
-  background: linear-gradient(135deg, transparent 38%, rgba(29, 30, 42, 0.92));
+  background: rgba(29, 30, 42, 0.86);
 }
 
-#output-resize-handle:focus-visible {
+.output-resize-handle:focus-visible {
   outline: 2px solid #9dbbff;
   outline-offset: -3px;
 }
@@ -149,9 +198,9 @@ body {
   display: none;
 }
 
-/* Boxed grouping for the recording controls (format picker + Record button) so they read
-   as one unit. */
-.wv-rec-group {
+/* Boxed grouping for the image + recording export controls (format picker + action button)
+   so each set reads as one unit. */
+.wv-ctl-group {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -162,13 +211,115 @@ body {
   background: rgba(255, 255, 255, 0.04);
 }
 
-.wv-rec-cap {
+.wv-ctl-cap {
   margin: 0;
   padding: 1px 1px 2px;
   font-size: 0.5625rem;
   font-weight: 600;
   letter-spacing: 0.13em;
   color: rgba(255, 255, 255, 0.5);
+}
+
+/* Caption above a full-width picker (preset / palette): a touch larger/brighter than the group
+   captions, and aligned with the dropdown below it (which is inset ~10px). */
+.wv-picker-cap {
+  padding: 7px 0 2px 11px;
+  font-size: 0.625rem;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+/* Lay the format picker + Record button side by side on one line. */
+.wv-ctl-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wv-ctl-row > * {
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+}
+
+/* The action button (last item in the row) gets the bulk of the width; the format dropdown
+   stays compact. Targeted by position — Tweakpane's button root class isn't the row's direct
+   child in every version. */
+.wv-ctl-row > :last-child {
+  flex: 2.2 1 0;
+}
+
+/* Drop the dropdown's "format" label so the select fills its half — the box caption and the
+   button's own ".webm/.mp4/.gif" suffix already say what it is. */
+.wv-ctl-row .tp-lblv_l {
+  display: none;
+}
+
+/* Tweakpane fixes the value column to a wide 160px (flex:0 0 auto); make it fill the flex cell
+   instead so the select sits flush next to the button rather than overlapping it. */
+.wv-ctl-row .tp-lblv_v {
+  width: auto;
+  min-width: 0;
+  flex: 1 1 0;
+}
+
+.wv-ctl-row .tp-lstv,
+.wv-ctl-row .tp-lstv_s {
+  width: 100%;
+  min-width: 0;
+}
+
+/* Hover hints on the more cryptic control labels: a dotted underline + "help" cursor signal that
+   a label carries extra explanation; hovering it (or focusing the row's control) reveals the
+   shared #wv-tooltip. See src/ui/controlHints.ts. */
+.tp-lblv_l.wv-has-hint {
+  cursor: help;
+  text-decoration: underline dotted rgba(255, 255, 255, 0.38);
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+  transition:
+    color 120ms ease,
+    text-decoration-color 120ms ease;
+}
+
+.tp-lblv_l.wv-has-hint:hover {
+  color: #f4f5f8;
+  text-decoration-color: rgba(157, 187, 255, 0.85);
+}
+
+/* Shared tooltip, rendered in the top layer via the Popover API so it escapes #panel's
+   overflow/scroll clipping and the canvas. Positioned in JS (fixed coords from the label rect). */
+#wv-tooltip {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  max-width: 244px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(18, 18, 26, 0.96);
+  color: #e8e8ee;
+  font-size: 0.6875rem;
+  line-height: 1.42;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+  pointer-events: none; /* never steal hover from the label it describes */
+  opacity: 0;
+  transform: translateY(-3px);
+  transition:
+    opacity 120ms ease-out,
+    transform 120ms ease-out;
+}
+
+#wv-tooltip.wv-tip-show {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #wv-tooltip {
+    transform: none;
+    transition: none;
+  }
 }
 
 /* Control panel column. */

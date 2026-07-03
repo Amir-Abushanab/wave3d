@@ -1,4 +1,4 @@
-import { MAX_COLORS, MAX_LIGHTS, MAX_NOISE_BANDS } from "./config";
+import { MAX_COLORS, MAX_LIGHTS, MAX_MESH_POINTS, MAX_NOISE_BANDS } from "./config";
 
 /**
  * The wave shaders. Vertex: a flat plane is Y-displaced by simplex noise, then
@@ -123,6 +123,7 @@ void main(){
 
 export const fragmentShader = /* glsl */ `
 #define MAX_COLORS ${MAX_COLORS}
+#define MAX_MESH_POINTS ${MAX_MESH_POINTS}
 #define MAX_LIGHTS ${MAX_LIGHTS}
 #define MAX_NOISE_BANDS ${MAX_NOISE_BANDS}
 #define PI 3.14159265359
@@ -135,22 +136,30 @@ uniform int uColorCount;
 uniform int uGradType;
 uniform float uGradAngle;
 uniform float uGradShift;
+uniform vec2 uMeshPointPos[MAX_MESH_POINTS];
+uniform vec3 uMeshPointColor[MAX_MESH_POINTS];
+uniform float uMeshPointInfluence[MAX_MESH_POINTS];
+uniform int uMeshPointCount;
+uniform float uMeshSoftness;
 uniform sampler2D uPalette;   // baked 2D palette texture
 uniform float uUsePalette;    // >0.5 = sample the texture; else procedural grad()
 uniform float uPaletteRaw;    // >0.5 = sample palette by raw (uv.x,uv.y), not gradCoord
+uniform vec2 uPaletteScale;
+uniform vec2 uPaletteOffset;
+uniform float uPaletteRotation;
 uniform float uDebug;         // dev: 1 = show pdy, 2 = show derivative normal
-uniform float uPdyLift;       // pdy white-lift strength (1 = full)
-uniform float uVolume;        // pose-robust normal-based volume/thickness strength
+uniform float uSheen;       // pdy white-lift strength (1 = full)
+uniform float uRoundness;        // pose-robust normal-based roundness/thickness strength
 uniform float uHueShift;
 uniform float uLayerHue;
 uniform float uContrast;
 uniform float uSaturation;
 uniform float uFiberCount;
-uniform float uFiberThickness;
+uniform float uFiberStrength;
 uniform float uTexture;
-uniform float uGlowAmount;
-uniform float uGlowPower;
-uniform float uGlowRamp;
+uniform float uCreaseLight;
+uniform float uCreaseSharpness;
+uniform float uCreaseSoftness;
 uniform float uEdgeFade;
 uniform float uOpacity;
 uniform vec2 uResolution;
@@ -203,6 +212,23 @@ vec3 grad(float u){
   return col;
 }
 
+// iOS-style 2D colour field. Each control point contributes an inverse-distance
+// weight; normalising the sum fills the whole surface without dark seams.
+vec3 meshGradient(vec2 uv){
+  vec3 colorSum = vec3(0.0);
+  float weightSum = 0.0;
+  float exponent = mix(4.8, 1.35, clamp(uMeshSoftness, 0.0, 1.0));
+  for (int i = 0; i < MAX_MESH_POINTS; i++){
+    if (i >= uMeshPointCount) break;
+    float influence = max(uMeshPointInfluence[i], 0.05);
+    float distanceFromPoint = length(uv - uMeshPointPos[i]) / influence;
+    float weight = 1.0 / (pow(max(distanceFromPoint, 0.012), exponent) + 0.002);
+    colorSum += uMeshPointColor[i] * weight;
+    weightSum += weight;
+  }
+  return colorSum / max(weightSum, 0.0001);
+}
+
 // Map a surface uv to the 0–1 gradient coordinate per gradient type. uGradShift
 // adds a low-frequency simplex warp so the colour varies in 2D (along the length
 // as well as across the width) — a 2D palette feel instead
@@ -219,7 +245,7 @@ float gradCoord(vec2 uv){
 // colour — colour-matched (weaker where blue is high), only near folds (pdy), and
 // concentrated toward the ends (parabola). Blends in rather than reading as hard lines.
 vec3 surfaceStreaks(vec2 uv, vec3 color, float pdy){
-  float strength = uFiberThickness;          // default 0.2
+  float strength = uFiberStrength;          // default 0.2
   float freq = uFiberCount;                   // default 600
   float colorAtten = 0.9;
   float paraPow = 3.0;
@@ -250,14 +276,14 @@ vec3 surfaceStreaks(vec2 uv, vec3 color, float pdy){
 
 void main(){
   // pdy: a foreshortening / fold detector from the screen-space uv derivative.
-  // It drives BOTH the volume shading and where the streaks appear — this is what
+  // It drives BOTH the roundness shading and where the streaks appear — this is what
   // gives the wave its thickness without any normal-based lighting.
-  float pdy = dFdy(vUv).y * uResolution.y * uGlowAmount;
+  float pdy = dFdy(vUv).y * uResolution.y * uCreaseLight;
   pdy = clamp(mapLinear(pdy, -1.0, 1.0, 0.0, 1.0), 0.0, 1.0);
-  pdy = pow(pdy, uGlowPower);
-  pdy = clamp(smoothstep(0.0, uGlowRamp, pdy), 0.0, 1.0);
+  pdy = pow(pdy, uCreaseSharpness);
+  pdy = clamp(smoothstep(0.0, uCreaseSoftness, pdy), 0.0, 1.0);
 
-  // Debug visualisations (dev): 1 = pdy volume term, 2 = derivative surface normal.
+  // Debug visualisations (dev): 1 = pdy roundness term, 2 = derivative surface normal.
   if (uDebug > 0.5) {
     if (uDebug < 1.5) { gl_FragColor = vec4(vec3(pdy), 1.0); return; }
     vec3 dn = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
@@ -268,29 +294,39 @@ void main(){
   // gradient. The raw palette is sampled by (uv.x, uv.y) directly; the
   // stops-generated texture is sampled via gradCoord so its angle/type/warp still apply.
   float gc = gradCoord(vUv);
+  vec2 mediaUv = vUv - 0.5;
+  float mediaCos = cos(uPaletteRotation);
+  float mediaSin = sin(uPaletteRotation);
+  mediaUv = vec2(
+    mediaCos * mediaUv.x + mediaSin * mediaUv.y,
+    -mediaSin * mediaUv.x + mediaCos * mediaUv.y
+  );
+  mediaUv = mediaUv * uPaletteScale + 0.5 + uPaletteOffset;
   vec2 puv = uPaletteRaw > 0.5
-    ? clamp(vUv, 0.0, 1.0)
+    ? clamp(mediaUv, 0.0, 1.0)
     : vec2(gc, clamp(vUv.y, 0.0, 1.0));
-  vec3 col = uUsePalette > 0.5 ? texture2D(uPalette, puv).rgb : grad(gc);
+  vec3 col = uGradType == 3
+    ? meshGradient(vUv)
+    : (uUsePalette > 0.5 ? texture2D(uPalette, puv).rgb : grad(gc));
   col = surfaceStreaks(vUv, col, pdy);
 
   col = contrastFn(col, uContrast);
   col = desaturate(col, 1.0 - uSaturation);
   col = hueShift(col, radians(uHueShift + uLayerHue));
 
-  // Volume cue: lift the flat (low-pdy) areas toward white. This is
+  // Sheen: lift the flat (low-pdy) areas toward white. This is
   // pose-dependent (it keys off dFdy(uv.y)), so we keep it gentle and add a robust term.
-  col += (1.0 - pdy) * 0.25 * uPdyLift;
+  col += (1.0 - pdy) * 0.25 * uSheen;
 
-  // Pose-robust "thickness": shade by the camera-facing ratio of the derivative surface
+  // Pose-robust roundness: shade by the camera-facing ratio of the derivative surface
   // normal so the ribbon reads as a rounded, grabbable solid from any angle. Grazing
   // edges darken into shadow (defining the rounded form), the body keeps its full colour,
-  // and the most face-on sliver catches a soft highlight. uVolume = strength.
-  if (uVolume > 0.001) {
+  // and the most face-on sliver catches a soft highlight. uRoundness = strength.
+  if (uRoundness > 0.001) {
     vec3 volN = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
     float facing = abs(dot(volN, normalize(vViewDir)));   // 1 = facing camera, 0 = edge-on
-    col *= mix(1.0 - 0.6 * uVolume, 1.0, facing);          // deepen grazing edges → solid form
-    col += smoothstep(0.65, 1.0, facing) * uVolume * 0.18; // soft highlight on the facing body
+    col *= mix(1.0 - 0.6 * uRoundness, 1.0, facing);          // deepen grazing edges → solid form
+    col += smoothstep(0.65, 1.0, facing) * uRoundness * 0.18; // soft highlight on the facing body
   }
 
   // Optional positionable lights (our feature) — additive & gentle, on top of the
@@ -325,6 +361,9 @@ void main(){
   }
 
   gl_FragColor = vec4(clamp(col, 0.0, 1.0), alpha);
+#ifdef PREMULTIPLIED_ALPHA
+  gl_FragColor.rgb *= gl_FragColor.a;
+#endif
 }
 `;
 
@@ -335,6 +374,7 @@ void main(){
 // hero preset. hueShift takes degrees (radians() here) to match the light shader.
 export const lineFragmentShader = /* glsl */ `
 #define MAX_COLORS ${MAX_COLORS}
+#define MAX_MESH_POINTS ${MAX_MESH_POINTS}
 #define PI 3.14159265359
 
 ${simplex2d}
@@ -345,9 +385,17 @@ uniform int uColorCount;
 uniform int uGradType;
 uniform float uGradAngle;
 uniform float uGradShift;
+uniform vec2 uMeshPointPos[MAX_MESH_POINTS];
+uniform vec3 uMeshPointColor[MAX_MESH_POINTS];
+uniform float uMeshPointInfluence[MAX_MESH_POINTS];
+uniform int uMeshPointCount;
+uniform float uMeshSoftness;
 uniform sampler2D uPalette;
 uniform float uUsePalette;
 uniform float uPaletteRaw;
+uniform vec2 uPaletteScale;
+uniform vec2 uPaletteOffset;
+uniform float uPaletteRotation;
 uniform float uHueShift;
 uniform float uLayerHue;
 uniform float uContrast;
@@ -388,6 +436,20 @@ vec3 grad(float u){
   }
   return col;
 }
+vec3 meshGradient(vec2 uv){
+  vec3 colorSum = vec3(0.0);
+  float weightSum = 0.0;
+  float exponent = mix(4.8, 1.35, clamp(uMeshSoftness, 0.0, 1.0));
+  for (int i = 0; i < MAX_MESH_POINTS; i++){
+    if (i >= uMeshPointCount) break;
+    float influence = max(uMeshPointInfluence[i], 0.05);
+    float distanceFromPoint = length(uv - uMeshPointPos[i]) / influence;
+    float weight = 1.0 / (pow(max(distanceFromPoint, 0.012), exponent) + 0.002);
+    colorSum += uMeshPointColor[i] * weight;
+    weightSum += weight;
+  }
+  return colorSum / max(weightSum, 0.0001);
+}
 float gradCoord(vec2 uv){
   float warp = uGradShift * simplexNoise(uv * 1.6 + 4.0);
   if (uGradType == 1){ return clamp(length(uv - 0.5) * 2.0 + warp, 0.0, 1.0); }
@@ -399,8 +461,20 @@ float gradCoord(vec2 uv){
 void main(){
   // Same 2D palette sample + colour ops as the solid theme.
   float gc = gradCoord(vUv);
-  vec2 puv = uPaletteRaw > 0.5 ? clamp(vUv, 0.0, 1.0) : vec2(gc, clamp(vUv.y, 0.0, 1.0));
-  vec3 color = uUsePalette > 0.5 ? texture2D(uPalette, puv).rgb : grad(gc);
+  vec2 mediaUv = vUv - 0.5;
+  float mediaCos = cos(uPaletteRotation);
+  float mediaSin = sin(uPaletteRotation);
+  mediaUv = vec2(
+    mediaCos * mediaUv.x + mediaSin * mediaUv.y,
+    -mediaSin * mediaUv.x + mediaCos * mediaUv.y
+  );
+  mediaUv = mediaUv * uPaletteScale + 0.5 + uPaletteOffset;
+  vec2 puv = uPaletteRaw > 0.5
+    ? clamp(mediaUv, 0.0, 1.0)
+    : vec2(gc, clamp(vUv.y, 0.0, 1.0));
+  vec3 color = uGradType == 3
+    ? meshGradient(vUv)
+    : (uUsePalette > 0.5 ? texture2D(uPalette, puv).rgb : grad(gc));
 
   color = contrastFn(color, uContrast);
   color = desaturate(color, 1.0 - uSaturation);
@@ -420,6 +494,9 @@ void main(){
   float depthFade = clamp(vClipPosition.z * 6.0, 0.0, 1.0);
   color = mix(uClearColor, color, a * (1.0 - depthFade));
   gl_FragColor = vec4(color, uOpacity);
+#ifdef PREMULTIPLIED_ALPHA
+  gl_FragColor.rgb *= gl_FragColor.a;
+#endif
 }
 `;
 

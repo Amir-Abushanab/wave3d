@@ -1,41 +1,78 @@
 import { Pane } from "tweakpane";
+import waveStudioLogoUrl from "../assets/favicon.png?inline";
 import {
-  resizeLayers,
+  resizeWaves,
   createLight,
+  DEFAULT_LIGHT_POSITION,
   createNoiseBand,
-  normalizePalette,
+  ensureSceneDefaults,
+  normalizeWave,
   MAX_COLORS,
   MAX_LIGHTS,
+  MAX_MESH_POINTS,
   MAX_NOISE_BANDS,
+  MAX_WAVES,
   randomizeGradient,
   randomizeColor,
+  randomizeBackground,
   randomizeSpine,
   randomizeTransform,
   randomizeTwist,
   randomizeFinish,
   randomizeLights,
   randomizeGlobal,
-  randomizeStrands,
+  randomizeWave,
 } from "../wave/config";
-import type { WaveConfig } from "../wave/config";
+import type { StudioConfig, WaveConfig } from "../wave/config";
 import type { WaveRenderer } from "../wave/WaveRenderer";
 import { PALETTE_MAPS, buildPaletteCanvas, paletteMapCanvas } from "../wave/palette";
 import { buildHeroPaletteCanvas } from "../wave/heroPalette";
 import { GradientEditor } from "./GradientEditor";
+import { MeshGradientEditor } from "./MeshGradientEditor";
 import { PaletteDropdown } from "./PaletteDropdown";
 import type { PaletteOption } from "./PaletteDropdown";
 import { getPresetThumb } from "./presetThumbs";
+import { applyControlHints, hideControlHint } from "./controlHints";
 import {
+  applyCustomExportDimension,
   applyExportPreset,
+  canExportImageFormat,
   canRecordFormat,
+  captureExportAspectRatio,
   CUSTOM_EXPORT_PRESET,
   EXPORT_PRESETS,
+  IMAGE_FORMATS,
   exportGpuWarning,
 } from "../output/formats";
-import type { ExportSize, RecordFormat } from "../output/formats";
+import type { ExportSize, ImageFormat, RecordFormat } from "../output/formats";
 
 function roundTenths(value: number): number {
   return Math.round(value * 10) / 10;
+}
+
+function pickMediaDataUrl(onLoad: (url: string, kind: "image" | "video") => void): void {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*,video/*";
+  input.addEventListener(
+    "change",
+    () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.addEventListener(
+        "load",
+        () => {
+          if (typeof reader.result === "string")
+            onLoad(reader.result, file.type.startsWith("video/") ? "video" : "image");
+        },
+        { once: true },
+      );
+      reader.readAsDataURL(file);
+    },
+    { once: true },
+  );
+  input.click();
 }
 
 export interface PanelHooks {
@@ -47,28 +84,42 @@ export interface PanelHooks {
   onReset?: () => void;
   onExportConfig?: () => void;
   onImportConfig?: () => void;
-  onExportPNG?: () => void;
+  onExportImage?: (format: ImageFormat, quality: number) => void;
   onExportEmbed?: () => void;
   onCopyLink?: () => Promise<boolean> | void;
   onToggleRecord?: (format: RecordFormat) => void;
+  /** Fired after any change that mutates the document config, so the app can record undo/redo
+   *  history. Called liberally (continuous during drags) — the History layer coalesces. */
+  onEdit?: () => void;
   exportSize?: ExportSize;
   onExportSizeChange?: () => void;
 }
 
 /**
  * Tweakpane control panel. Bindings mutate the shared config in place and ask
- * the renderer to refresh; structural changes (strand count, quality) rebuild
- * geometry, and strand-count also rebuilds the panel.
+ * the renderer to refresh; structural changes (wave count, quality) rebuild
+ * geometry, and wave-count also rebuilds the panel.
  */
 type FolderApi = ReturnType<Pane["addFolder"]>;
 
 export class ControlPanel {
   private pane!: Pane;
-  private gradientEditor?: GradientEditor;
-  private paletteDropdown?: PaletteDropdown;
-  private readonly state = { recording: false, recordFormat: "webm" as RecordFormat };
+  /** Per-wave colour editors (one set per wave's Color & Gradient sub-folder). */
+  private waveGradientEditors: GradientEditor[] = [];
+  private waveMeshEditors: MeshGradientEditor[] = [];
+  private wavePaletteDropdowns: PaletteDropdown[] = [];
+  private backgroundGradientEditor?: GradientEditor;
+  private backgroundMeshEditor?: MeshGradientEditor;
+  private backgroundGradientDropdown?: PaletteDropdown;
+  private backgroundImageDropdown?: PaletteDropdown;
+  private readonly state = {
+    recording: false,
+    recordFormat: "mp4" as RecordFormat, // MP4 is the most shareable; falls back to WebM if unsupported
+    imageFormat: "webp" as ImageFormat, // WebP: small + supports transparency; falls back if unsupported
+    imageQuality: 0.92,
+  };
   /** Remembered expanded/collapsed state of top-level folders, by title, so a
-   *  panel rebuild (e.g. on strand-count change) doesn't reset them. */
+   *  panel rebuild (e.g. on wave-count change) doesn't reset them. */
   private foldState: Record<string, boolean> = {};
   private folders: Array<{ title: string; api: FolderApi }> = [];
   private searchQuery = "";
@@ -85,14 +136,14 @@ export class ControlPanel {
   constructor(
     private readonly container: HTMLElement,
     private readonly renderer: WaveRenderer,
-    private config: WaveConfig,
+    private config: StudioConfig,
     private readonly hooks: PanelHooks = {},
   ) {
     if (hooks.defaultPreset) this.selectedPreset = hooks.defaultPreset;
     this.build();
   }
 
-  setConfig(config: WaveConfig, presetName = "—"): void {
+  setConfig(config: StudioConfig, presetName = "—"): void {
     this.config = config;
     this.selectedPreset = presetName;
     setTimeout(() => this.rebuildPanel(), 0);
@@ -104,6 +155,11 @@ export class ControlPanel {
     if (this.selectedPreset === "—") return;
     this.selectedPreset = "—";
     this.presetDropdown?.refresh();
+  }
+
+  /** The current preset-dropdown label ("—" after a manual edit); used to tag history entries. */
+  getPresetLabel(): string {
+    return this.selectedPreset;
   }
 
   /** Redraw the preset picker's thumbnails once they've finished rendering offscreen. */
@@ -125,18 +181,26 @@ export class ControlPanel {
     return this.state.recording ? "⏹ Stop recording" : `🎬 Record (.${this.state.recordFormat})`;
   }
 
-  /** Wrap a set of Tweakpane row elements in a labelled, bordered box so they read as one
-   *  unit (used to group the recording format picker + Record button). */
-  private groupRows(caption: string, rows: HTMLElement[]): void {
-    if (rows.length === 0) return;
+  /** Wrap Tweakpane rows in a labelled, bordered box. `inline` rows share one flex line; any
+   *  `stacked` rows (e.g. a conditional slider) go full-width beneath it. Used for the image
+   *  and recording export groups. */
+  private groupRows(caption: string, inline: HTMLElement[], stacked: HTMLElement[] = []): void {
+    const anchor = inline[0] ?? stacked[0];
+    if (!anchor) return;
     const box = document.createElement("div");
-    box.className = "wv-rec-group";
+    box.className = "wv-ctl-group";
     const cap = document.createElement("div");
-    cap.className = "wv-rec-cap";
+    cap.className = "wv-ctl-cap";
     cap.textContent = caption;
-    rows[0].parentElement?.insertBefore(box, rows[0]);
+    anchor.parentElement?.insertBefore(box, anchor);
     box.appendChild(cap);
-    for (const row of rows) box.appendChild(row);
+    if (inline.length > 0) {
+      const line = document.createElement("div");
+      line.className = "wv-ctl-row";
+      for (const row of inline) line.appendChild(row);
+      box.appendChild(line);
+    }
+    for (const row of stacked) box.appendChild(row);
   }
 
   refreshOutputSize(): void {
@@ -159,10 +223,22 @@ export class ControlPanel {
   }
 
   disposeEditor(): void {
-    this.gradientEditor?.destroy();
-    this.gradientEditor = undefined;
-    this.paletteDropdown?.destroy();
-    this.paletteDropdown = undefined;
+    // Any open control-hint tooltip is anchored to DOM we're about to tear down.
+    hideControlHint();
+    for (const e of this.waveGradientEditors) e.destroy();
+    this.waveGradientEditors = [];
+    for (const e of this.waveMeshEditors) e.destroy();
+    this.waveMeshEditors = [];
+    for (const d of this.wavePaletteDropdowns) d.destroy();
+    this.wavePaletteDropdowns = [];
+    this.backgroundGradientEditor?.destroy();
+    this.backgroundGradientEditor = undefined;
+    this.backgroundMeshEditor?.destroy();
+    this.backgroundMeshEditor = undefined;
+    this.backgroundGradientDropdown?.destroy();
+    this.backgroundGradientDropdown = undefined;
+    this.backgroundImageDropdown?.destroy();
+    this.backgroundImageDropdown = undefined;
     this.presetDropdown?.destroy();
     this.presetDropdown = undefined;
   }
@@ -172,61 +248,78 @@ export class ControlPanel {
     this.pane.dispose();
   }
 
-  private rebuildStrands = (): void => {
-    resizeLayers(this.config);
+  private rebuildWaves = (): void => {
+    resizeWaves(this.config);
     this.renderer.rebuild();
+    this.hooks.onEdit?.(); // add/remove wave is a structural edit — record it (skips `refresh`)
     setTimeout(() => this.rebuildPanel(), 0);
   };
 
   private rebuildPanel(): void {
     // Remember which folders are open so the rebuild doesn't reset them.
     for (const f of this.folders) this.foldState[f.title] = f.api.expanded;
+    // Disposing + recreating the pane resets #panel's scroll to the top, which yanks the view
+    // away from the section being edited (e.g. a wave's 🎲, a drag-in-3D toggle, or any add/remove that
+    // rebuilds). Capture the scroll offset and restore it — synchronously, then again next frame so
+    // async editor/thumbnail layout (per-wave GradientEditor/PaletteDropdown) can't clobber it.
+    const scrollTop = this.container.scrollTop;
     this.disposeEditor();
     this.pane.dispose();
     this.build();
+    this.container.scrollTop = scrollTop;
+    requestAnimationFrame(() => {
+      this.container.scrollTop = scrollTop;
+    });
   }
 
   private build(): void {
     const cfg = this.config;
-    // Backfill fields that may be absent in older saved states. Lights default to
-    // EMPTY — only create the array if it's missing.
-    if (!cfg.lights) cfg.lights = [];
-    if (typeof cfg.ambient !== "number") cfg.ambient = 0.45;
-    if (cfg.gradientType !== "radial" && cfg.gradientType !== "conic") cfg.gradientType = "linear";
-    if (typeof cfg.gradientAngle !== "number") cfg.gradientAngle = 90;
-    if (typeof cfg.gradientShift !== "number") cfg.gradientShift = 0.15;
-    if (typeof cfg.usePaletteTexture !== "boolean") cfg.usePaletteTexture = true;
-    if (typeof cfg.paletteSource !== "string") cfg.paletteSource = "hero";
-    if (typeof cfg.paletteEdgeColor !== "string") cfg.paletteEdgeColor = "#8e9dff";
-    if (typeof cfg.paletteEdgeAmount !== "number") cfg.paletteEdgeAmount = 0.3;
-    if (typeof cfg.volume !== "number") cfg.volume = 0.55;
-    if (typeof cfg.pdyLift !== "number") cfg.pdyLift = 0.5;
-    if (typeof cfg.mirrorH !== "boolean") cfg.mirrorH = false;
-    if (typeof cfg.mirrorV !== "boolean") cfg.mirrorV = false;
-    if (typeof cfg.fov !== "number") cfg.fov = 44;
-    if (typeof cfg.cameraZoom !== "number") cfg.cameraZoom = 1;
-    if (typeof cfg.showCameraRig !== "boolean") cfg.showCameraRig = true;
-    if (!cfg.noiseBands) cfg.noiseBands = [];
-    normalizePalette(cfg);
+    // The renderer already canonicalizes any config via ensureStudioConfig; run the scene + wave
+    // normalizers here too (idempotent) so the panel is robust even if built before the renderer.
+    ensureSceneDefaults(cfg);
+    cfg.waves.forEach(normalizeWave);
     const pane = new Pane({ container: this.container, title: "Wave Studio" });
     this.pane = pane;
 
-    // Search box to filter the many knobs by label/section name.
-    this.container.querySelector(".wv-search")?.remove();
+    // Wave Studio logo to the left of the collapsable's title. Tweakpane centres the root title,
+    // so switch the title bar to a left-aligned flex row (the collapse marker stays absolute-right).
+    const titleBar = this.container.querySelector<HTMLElement>(".tp-rotv_b");
+    const titleText = titleBar?.querySelector<HTMLElement>(".tp-rotv_t");
+    if (titleBar && titleText && !titleBar.querySelector(".wv-logo")) {
+      titleBar.style.display = "flex";
+      titleBar.style.alignItems = "center";
+      titleBar.style.paddingLeft = "10px";
+      titleText.style.flex = "1 1 auto";
+      titleText.style.width = "auto";
+      titleText.style.textAlign = "left";
+      const logo = document.createElement("img");
+      logo.className = "wv-logo";
+      logo.src = waveStudioLogoUrl;
+      logo.alt = "";
+      logo.setAttribute("aria-hidden", "true");
+      logo.style.cssText =
+        "width:18px;height:18px;margin-right:8px;flex:0 0 auto;object-fit:contain;";
+      titleBar.insertBefore(logo, titleText);
+    }
+
+    // Search box to filter the many knobs by label/section name. Created here but mounted at the
+    // TOP of the pane content at the end of build() — so it sits under the "Wave Studio" title and
+    // collapses with the pane. (Inserting it now would sink below the folders, since Tweakpane
+    // appends each folder after any custom node already present.)
     const search = document.createElement("input");
     search.type = "search";
     search.placeholder = "search controls…";
     search.className = "wv-search";
     search.value = this.searchQuery;
     search.style.cssText =
-      "width:100%;box-sizing:border-box;margin:0 0 6px;padding:6px 9px;border-radius:5px;outline:none;" +
+      "width:100%;box-sizing:border-box;margin:2px 0 8px;padding:6px 9px;border-radius:5px;outline:none;" +
       "font:12px ui-sans-serif,system-ui,-apple-system,sans-serif;color:#d6d7db;" +
       "background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.14);";
-    this.container.insertBefore(search, this.container.firstChild);
     search.addEventListener("input", () => {
       this.searchQuery = search.value;
       this.applyFilter();
     });
+    const paneContent = this.container.querySelector(".tp-rotv_c") ?? this.container;
     // Keep sliders in sync while a light is dragged via its 3D gizmo, or while the
     // camera is moved via orbit/zoom/pan. Tweakpane's refresh() re-emits 'change' for
     // any value that changed, so we guard with `syncing`: without it, orbiting writes
@@ -260,12 +353,25 @@ export class ControlPanel {
       pane.refresh();
       syncing = false;
     };
-    this.renderer.onLightsChanged = syncPanel;
+    // Light & wave gizmo drags are undoable edits, so they mark the history dirty; camera
+    // orbit/zoom/pan is deliberately NOT undoable (view state), so onCameraChanged stays a plain
+    // syncPanel. (onEdit is coalesced, so firing continuously during a drag is fine.)
+    this.renderer.onLightsChanged = () => {
+      syncPanel();
+      this.hooks.onEdit?.();
+    };
     this.renderer.onCameraChanged = syncPanel;
+    // A wave gizmo drag mutates the dragged wave's position/rotation — refresh the panel so
+    // that wave's Transform sliders track the drag live.
+    this.renderer.onWaveChanged = () => {
+      syncPanel();
+      this.hooks.onEdit?.();
+    };
 
     const refresh = (): void => {
       this.clearPresetIndicator(); // a manual edit means the config no longer matches a preset
       this.renderer.refresh();
+      this.hooks.onEdit?.(); // record for undo/redo (coalesced into one entry per gesture)
     };
 
     // Top-level folder that remembers its expanded state across rebuilds.
@@ -298,7 +404,7 @@ export class ControlPanel {
     // A per-section "randomize" button: mutate only this section, then push to the
     // renderer + refresh the sliders. `after` handles non-binding widgets (gradient
     // editor) or camera reframing.
-    const randomBtn = (folder: Folder, fn: (c: WaveConfig) => void, after?: () => void): void => {
+    const randomBtn = (folder: Folder, fn: (c: StudioConfig) => void, after?: () => void): void => {
       folder.addButton({ title: "🎲 randomize" }).on("click", () => {
         fn(cfg);
         refresh();
@@ -321,7 +427,7 @@ export class ControlPanel {
         formatOptions[`${preset.label} · ${preset.width}×${preset.height}${gpuLabel}`] = id;
       }
       output
-        .addBinding(outputSize, "preset", { label: "format", options: formatOptions })
+        .addBinding(outputSize, "preset", { label: "size", options: formatOptions })
         .on("change", (ev) => {
           if (this.syncingOutput) return;
           this.syncingOutput = true;
@@ -334,34 +440,85 @@ export class ControlPanel {
           this.updateOutputWarning();
           this.hooks.onExportSizeChange?.();
         });
-      const setCustomSize = (last: boolean): void => {
+      output
+        .addBinding(outputSize, "lockAspectRatio", { label: "lock ratio" })
+        .on("change", (ev) => {
+          if (this.syncingOutput) return;
+          outputSize.lockAspectRatio = Boolean(ev.value);
+          if (outputSize.lockAspectRatio) captureExportAspectRatio(outputSize);
+        });
+      const setCustomSize = (dimension: "width" | "height", last: boolean): void => {
         if (this.syncingOutput) return;
-        outputSize.preset = CUSTOM_EXPORT_PRESET;
+        applyCustomExportDimension(outputSize, dimension, outputSize[dimension]);
+        this.syncingOutput = true;
+        try {
+          pane.refresh();
+        } finally {
+          this.syncingOutput = false;
+        }
         if (!last) return;
-        pane.refresh();
         this.updateOutputWarning();
         this.hooks.onExportSizeChange?.();
       };
       output
         .addBinding(outputSize, "width", { min: 64, max: 8192, step: 1, label: "width px" })
-        .on("change", (ev) => setCustomSize(ev.last));
+        .on("change", (ev) => setCustomSize("width", ev.last));
       output
         .addBinding(outputSize, "height", { min: 64, max: 8192, step: 1, label: "height px" })
-        .on("change", (ev) => setCustomSize(ev.last));
+        .on("change", (ev) => setCustomSize("height", ev.last));
       const outputContent =
         (output.element.querySelector(".tp-fldv_c") as HTMLElement | null) ?? output.element;
       outputContent.appendChild(warning);
       this.updateOutputWarning();
-      output.addButton({ title: "📷 Export PNG" }).on("click", () => this.hooks.onExportPNG?.());
-      output
-        .addButton({ title: "🔗 Export embed (.html)" })
-        .on("click", () => this.hooks.onExportEmbed?.());
+      const imageOptions: Record<string, ImageFormat> = {};
+      for (const [format, definition] of Object.entries(IMAGE_FORMATS) as Array<
+        [ImageFormat, (typeof IMAGE_FORMATS)[ImageFormat]]
+      >) {
+        if (canExportImageFormat(format)) imageOptions[definition.label] = format;
+      }
+      // Fall back if the preferred default (WebP) can't be encoded here (e.g. older Safari).
+      if (!Object.values(imageOptions).includes(this.state.imageFormat)) {
+        this.state.imageFormat = Object.values(imageOptions)[0] ?? "png";
+      }
+      const imageFormatBinding = output.addBinding(this.state, "imageFormat", {
+        label: "format",
+        options: imageOptions,
+      });
+      const imageQualityBinding = output.addBinding(this.state, "imageQuality", {
+        label: "quality",
+        min: 0.1,
+        max: 1,
+        step: 0.01,
+      });
+      const exportImageBtn = output.addButton({ title: "📷 Export image (.png)" });
+      const refreshImageControls = (): void => {
+        const definition = IMAGE_FORMATS[this.state.imageFormat];
+        imageQualityBinding.hidden = !definition.lossy;
+        exportImageBtn.title = `📷 Export image (.${definition.extension})`;
+        this.applyIcons();
+      };
+      imageFormatBinding.on("change", refreshImageControls);
+      exportImageBtn.on("click", () =>
+        this.hooks.onExportImage?.(this.state.imageFormat, this.state.imageQuality),
+      );
+      refreshImageControls();
+      // Boxed like the recording group: format + Export on one line, the (lossy-only) quality
+      // slider stacked beneath.
+      this.groupRows(
+        "IMAGE",
+        [imageFormatBinding.element, exportImageBtn.element],
+        [imageQualityBinding.element],
+      );
       // Recording controls, boxed into one group. Format picker: WebM always; MP4 if the
       // browser can record it (Chromium/Safari — Firefox is WebM-only); GIF always (we encode
       // frames ourselves). The recorder falls back to WebM if a MediaRecorder container fails.
       const videoOptions: Record<string, string> = { WebM: "webm" };
-      if (canRecordFormat("mp4")) videoOptions["MP4 (H.264)"] = "mp4";
+      if (canRecordFormat("mp4")) videoOptions["MP4"] = "mp4";
       videoOptions["GIF"] = "gif";
+      // Fall back to WebM if the preferred default (MP4) isn't recordable here (e.g. Firefox).
+      if (!Object.values(videoOptions).includes(this.state.recordFormat)) {
+        this.state.recordFormat = "webm";
+      }
       const formatBinding = output
         .addBinding(this.state, "recordFormat", { label: "format", options: videoOptions })
         .on("change", () => {
@@ -373,6 +530,10 @@ export class ControlPanel {
       this.recordBtn = output.addButton({ title: this.recordTitle() });
       this.recordBtn.on("click", () => this.hooks.onToggleRecord?.(this.state.recordFormat));
       this.groupRows("RECORD", [formatBinding.element, this.recordBtn.element]);
+      // Standalone HTML page export goes last: image, then video, then embed.
+      output
+        .addButton({ title: "🔗 Export embed (.html)" })
+        .on("click", () => this.hooks.onExportEmbed?.());
     }
 
     // ---- Actions ----
@@ -395,12 +556,18 @@ export class ControlPanel {
     // ---- Global ----
     const g = mkFolder("Global", true);
     // Presets are whole-scene ("global") configs (colour, transform, twist, displacement AND
-    // the matched per-section camera) — so they live at the top of Global. Shown as a custom
-    // dropdown with a wave-shape THUMBNAIL per preset (the configs mostly share the hero
-    // palette, so only the shape distinguishes them). selectedId reflects the active preset;
-    // a manual edit flips it to "—" (Custom). Thumbnails fill in async (see refreshPresetThumbs).
-    const presetNames = Object.keys(this.hooks.presetOptions ?? {}).filter((n) => n !== "—");
+    // the matched per-section camera). "randomize" leads the folder; the preset picker sits
+    // right below it, under a clear "PRESET" caption. It's a custom dropdown with a wave-shape
+    // THUMBNAIL per preset (the configs mostly share the hero palette, so only the shape
+    // distinguishes them). selectedId reflects the active preset; a manual edit flips it to
+    // "—" (Custom). Thumbnails fill in async (see refreshPresetThumbs).
+    randomBtn(g, randomizeGlobal, () => this.renderer.resize());
     const gContent = (g.element.querySelector(".tp-fldv_c") as HTMLElement | null) ?? g.element;
+    const randomizeEl = gContent.lastElementChild; // the randomize button just added
+    const presetCap = document.createElement("div");
+    presetCap.className = "wv-ctl-cap wv-picker-cap";
+    presetCap.textContent = "PRESET";
+    const presetNames = Object.keys(this.hooks.presetOptions ?? {}).filter((n) => n !== "—");
     this.presetDropdown = new PaletteDropdown(gContent, {
       rootClass: "wv-pd-big",
       options: presetNames.map((n) => ({ id: n, label: n, group: "Presets" })),
@@ -409,38 +576,246 @@ export class ControlPanel {
       customLabel: () => (this.selectedPreset === "—" ? "Custom (edited)" : null),
       onSelect: (id) => this.hooks.onPreset?.(id),
     });
-    // Mount it at the very top of the Global folder (it appends to the end by default).
-    gContent.insertBefore(this.presetDropdown.element, gContent.firstChild);
-    randomBtn(g, randomizeGlobal, () => this.renderer.resize());
-    g.addBinding(cfg, "background", { view: "color", label: "background" }).on("change", refresh);
-    g.addBinding(cfg, "transparentBackground", { label: "transparent" }).on("change", refresh);
-    g.addBinding(cfg, "blendMode", {
-      label: "blend",
-      options: { Squared: "squared", Normal: "normal", Additive: "additive", Multiply: "multiply" },
-    }).on("change", refresh);
-    // Structural changes rebuild geometry/strands — only act on the FINAL value of a
-    // drag (ev.last), never on every intermediate event, or the rapid rebuilds of the
-    // heavy geometry can overwhelm the WebGL context.
-    g.addBinding(cfg, "strandCount", { min: 1, max: 6, step: 1 }).on("change", (ev) => {
-      if (ev.last) this.rebuildStrands();
-    });
+    // Structural changes rebuild geometry — only act on the FINAL value of a drag (ev.last),
+    // never on every intermediate event, or the rapid rebuilds of the heavy geometry can
+    // overwhelm the WebGL context. (waveCount lives in the Waves section below.)
     g.addBinding(cfg, "quality", { min: 0.25, max: 2, step: 0.05 }).on("change", (ev) => {
       if (ev.last) this.renderer.rebuild();
+      this.hooks.onEdit?.(); // structural handler skips `refresh`, so record here
     });
     g.addBinding(cfg, "dprMax", { min: 0.5, max: 2, step: 0.5 }).on("change", (ev) => {
       if (ev.last) this.renderer.resize();
+      this.hooks.onEdit?.();
     });
-    g.addBinding(cfg, "speed", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
     g.addBinding(cfg, "paused").on("change", () => this.renderer.refreshPlayback());
     // Noise phase — scrub the animation to pick a still frame.
     g.addBinding(cfg, "timeOffset", { min: 0, max: 60, step: 0.5, label: "noise phase" }).on(
       "change",
       refresh,
     );
-    // Ease the animation in over ~1s on load.
-    g.addBinding(cfg, "introRamp", { label: "intro ease-in" }).on("change", refresh);
+    // Post-processing (one pass over the whole composite — scene-level, shared by all waves).
+    g.addBinding(cfg, "grain", { min: 0, max: 3, step: 0.01 }).on("change", refresh);
+    g.addBinding(cfg, "blur", { min: 0, max: 0.3, step: 0.005 }).on("change", refresh);
+    g.addBinding(cfg, "blurSamples", { min: 1, max: 16, step: 1, label: "blur samples" }).on(
+      "change",
+      refresh,
+    );
+    // Whole-composition mirror (scene-level world-space flip).
+    g.addButton({ title: "↔ mirror horizontal" }).on("click", () => {
+      cfg.mirrorH = !cfg.mirrorH;
+      refresh();
+    });
+    g.addButton({ title: "↕ mirror vertical" }).on("click", () => {
+      cfg.mirrorV = !cfg.mirrorV;
+      refresh();
+    });
+    // Tweakpane appends each blade after the previous one, which pushes trailing custom nodes to
+    // the bottom of the folder — so re-seat the "PRESET" caption + picker right after the
+    // randomize button now that the Global blades are all in place.
+    const afterRandomize = randomizeEl?.nextElementSibling ?? null;
+    gContent.insertBefore(presetCap, afterRandomize);
+    gContent.insertBefore(this.presetDropdown.element, afterRandomize);
+
+    // ---- Background (solid colour, editable gradient, built-in map, or uploaded media) ----
+    const bgF = mkFolder("Background", true);
+    randomBtn(bgF, randomizeBackground, () => {
+      this.backgroundGradientEditor?.refresh();
+      this.backgroundMeshEditor?.refresh();
+      updateBackgroundControls();
+    });
+    bgF.addBinding(cfg, "transparentBackground", { label: "transparent" }).on("change", refresh);
+    bgF
+      .addBinding(cfg, "backgroundMode", {
+        label: "fill",
+        options: { "Solid color": "color", Gradient: "gradient", "Image / video": "image" },
+      })
+      .on("change", () => {
+        updateBackgroundControls();
+        refresh();
+      });
+    const bBackgroundColor = bgF
+      .addBinding(cfg, "background", { view: "color", label: "color / matte" })
+      .on("change", refresh);
+    const bBackgroundGradientType = bgF
+      .addBinding(cfg, "backgroundGradientType", {
+        label: "type",
+        options: { Linear: "linear", Radial: "radial", Conic: "conic", Mesh: "mesh" },
+      })
+      .on("change", () => {
+        updateBackgroundControls();
+        refresh();
+      });
+    const bBackgroundGradientAngle = bgF
+      .addBinding(cfg, "backgroundGradientAngle", {
+        label: "angle°",
+        min: 0,
+        max: 360,
+        step: 1,
+      })
+      .on("change", refresh);
+    const bBackgroundMeshSoftness = bgF
+      .addBinding(cfg, "backgroundMeshSoftness", {
+        label: "mesh softness",
+        min: 0,
+        max: 1,
+        step: 0.01,
+      })
+      .on("change", () => {
+        this.backgroundMeshEditor?.refresh();
+        refresh();
+      });
+    const bgContent =
+      (bgF.element.querySelector(".tp-fldv_c") as HTMLElement | null) ?? bgF.element;
+
+    const backgroundGradientOptions: PaletteOption[] = [];
+    for (const [id, def] of Object.entries(PALETTE_MAPS))
+      if (def.kind === "gradient")
+        backgroundGradientOptions.push({ id, label: def.label, group: "Gradient presets" });
+    backgroundGradientOptions.push({ id: "stops", label: "Custom stops", group: "Editable" });
+    this.backgroundGradientDropdown = new PaletteDropdown(bgContent, {
+      options: backgroundGradientOptions,
+      thumbFor: (id) =>
+        id === "stops"
+          ? buildPaletteCanvas({
+              stops: cfg.backgroundPalette,
+              edgeColor: cfg.background,
+              edgeAmount: 0,
+            })
+          : paletteMapCanvas(PALETTE_MAPS[id]),
+      selectedId: () => cfg.backgroundGradientSource,
+      customLabel: () => null,
+      onSelect: (id) => {
+        cfg.backgroundGradientSource = id;
+        updateBackgroundControls();
+        refresh();
+      },
+    });
+    bgContent.insertBefore(
+      this.backgroundGradientDropdown.element,
+      bBackgroundGradientType.element,
+    );
+    this.backgroundGradientEditor = new GradientEditor(bgContent, () => cfg.backgroundPalette, {
+      onChange: refresh,
+      max: MAX_COLORS,
+    });
+    bgContent.insertBefore(this.backgroundGradientEditor.element, bBackgroundGradientType.element);
+    this.backgroundMeshEditor = new MeshGradientEditor(
+      bgContent,
+      () => cfg.backgroundMeshPoints,
+      () => cfg.backgroundMeshSoftness,
+      { onChange: refresh, max: MAX_MESH_POINTS },
+    );
+    bgContent.insertBefore(this.backgroundMeshEditor.element, bBackgroundGradientType.element);
+
+    const backgroundImageOptions: PaletteOption[] = [
+      { id: "hero", label: "Hero", group: "Image maps" },
+    ];
+    for (const [id, def] of Object.entries(PALETTE_MAPS))
+      if (def.kind === "image")
+        backgroundImageOptions.push({ id, label: def.label, group: "Image maps" });
+    this.backgroundImageDropdown = new PaletteDropdown(bgContent, {
+      options: backgroundImageOptions,
+      thumbFor: (id) =>
+        id === "hero" ? buildHeroPaletteCanvas() : paletteMapCanvas(PALETTE_MAPS[id]),
+      selectedId: () =>
+        cfg.backgroundVideoUrl || cfg.backgroundImageUrl ? null : cfg.backgroundImageSource,
+      customLabel: () =>
+        cfg.backgroundVideoUrl ? "Custom video" : cfg.backgroundImageUrl ? "Custom image" : null,
+      onSelect: (id) => {
+        cfg.backgroundImageSource = id;
+        cfg.backgroundImageUrl = undefined;
+        cfg.backgroundVideoUrl = undefined;
+        updateBackgroundControls();
+        refresh();
+      },
+    });
+    const bBackgroundFit = bgF
+      .addBinding(cfg, "backgroundImageFit", {
+        label: "fit",
+        options: { Cover: "cover", Contain: "contain", Stretch: "stretch" },
+      })
+      .on("change", refresh);
+    const bBackgroundZoom = bgF
+      .addBinding(cfg, "backgroundImageZoom", {
+        label: "zoom",
+        min: 0.1,
+        max: 8,
+        step: 0.01,
+      })
+      .on("change", refresh);
+    const bBackgroundPositionX = bgF
+      .addBinding(cfg.backgroundImagePosition, "x", {
+        label: "position X %",
+        min: -100,
+        max: 100,
+        step: 1,
+      })
+      .on("change", refresh);
+    const bBackgroundPositionY = bgF
+      .addBinding(cfg.backgroundImagePosition, "y", {
+        label: "position Y %",
+        min: -100,
+        max: 100,
+        step: 1,
+      })
+      .on("change", refresh);
+    const resetBackgroundFramingBtn = bgF
+      .addButton({ title: "⟲ reset media framing" })
+      .on("click", () => {
+        cfg.backgroundImageFit = "cover";
+        cfg.backgroundImageZoom = 1;
+        cfg.backgroundImagePosition.x = 0;
+        cfg.backgroundImagePosition.y = 0;
+        pane.refresh();
+        refresh();
+      });
+    const loadBackgroundImageBtn = bgF
+      .addButton({ title: "📂 load background image / video…" })
+      .on("click", () =>
+        pickMediaDataUrl((url, kind) => {
+          cfg.backgroundImageUrl = kind === "image" ? url : undefined;
+          cfg.backgroundVideoUrl = kind === "video" ? url : undefined;
+          updateBackgroundControls();
+          refresh();
+        }),
+      );
+
+    const updateBackgroundControls = (): void => {
+      const gradient = cfg.backgroundMode === "gradient";
+      const image = cfg.backgroundMode === "image";
+      const mesh = gradient && cfg.backgroundGradientType === "mesh";
+      bBackgroundColor.hidden = gradient;
+      bBackgroundGradientType.hidden = !gradient;
+      bBackgroundGradientAngle.hidden =
+        !gradient || mesh || cfg.backgroundGradientType === "radial";
+      bBackgroundMeshSoftness.hidden = !mesh;
+      bBackgroundFit.hidden = !image;
+      bBackgroundZoom.hidden = !image;
+      bBackgroundPositionX.hidden = !image;
+      bBackgroundPositionY.hidden = !image;
+      resetBackgroundFramingBtn.hidden = !image;
+      loadBackgroundImageBtn.hidden = !image;
+      // Stops dropdown + editor drive linear/radial/conic; the mesh editor drives "mesh".
+      if (this.backgroundGradientDropdown)
+        this.backgroundGradientDropdown.element.hidden = !gradient || mesh;
+      this.backgroundGradientEditor?.setVisible(gradient && !mesh);
+      this.backgroundGradientEditor?.setEnabled(cfg.backgroundGradientSource === "stops");
+      this.backgroundMeshEditor?.setVisible(mesh);
+      if (this.backgroundImageDropdown) this.backgroundImageDropdown.element.hidden = !image;
+      this.backgroundGradientDropdown?.refresh();
+      this.backgroundImageDropdown?.refresh();
+      this.backgroundMeshEditor?.refresh();
+    };
+    updateBackgroundControls();
+
     // ---- Camera (orbit-style controls; two-way synced with mouse drag/zoom/pan) ----
     const camF = mkFolder("Camera", true);
+    // Lead the section with the rig-minimap toggle (studio aid: a corner inset showing the
+    // camera + lights).
+    camF.addBinding(cfg, "showCameraRig", { label: "rig minimap" }).on("change", () => {
+      this.renderer.setCameraRig(cfg.showCameraRig);
+    });
+    this.renderer.setCameraRig(cfg.showCameraRig);
     const onOrbit = (): void => {
       if (!syncing) this.renderer.setCameraOrbit(camP.azimuth, camP.elevation, camP.distance);
     };
@@ -467,266 +842,27 @@ export class ControlPanel {
       .on("change", onPan);
     camF.addButton({ title: "Fit to screen" }).on("click", () => this.renderer.fitToView());
     camF.addButton({ title: "Reset camera" }).on("click", () => this.renderer.resetView());
-    camF.addBinding(cfg, "showCameraRig", { label: "rig minimap" }).on("change", () => {
-      this.renderer.setCameraRig(cfg.showCameraRig);
-    });
-    this.renderer.setCameraRig(cfg.showCameraRig);
-
-    // ---- Color & Gradient (palette/stops + hue/contrast/saturation grading) ----
-    const gradF = mkFolder("Color & Gradient", true);
-    randomBtn(
-      gradF,
-      (c) => {
-        randomizeGradient(c);
-        randomizeColor(c);
-      },
-      () => this.gradientEditor?.refresh(),
-    );
-    const gradContent =
-      (gradF.element.querySelector(".tp-fldv_c") as HTMLElement | null) ?? gradF.element;
-    this.gradientEditor = new GradientEditor(gradContent, cfg, {
-      onChange: refresh,
-      max: MAX_COLORS,
-    });
-    // gradientType/angle/warp drive the procedural (non-texture) gradient; the stops +
-    // edge tint drive the "Custom stops" texture. Disable whichever don't apply to the
-    // current palette source so it's clear what's editable.
-    const bGradType = gradF
-      .addBinding(cfg, "gradientType", {
-        label: "type",
-        options: { Linear: "linear", Radial: "radial", Conic: "conic" },
-      })
-      .on("change", refresh);
-    const bGradAngle = gradF
-      .addBinding(cfg, "gradientAngle", { label: "angle°", min: 0, max: 360, step: 1 })
-      .on("change", refresh);
-    const bGradShift = gradF
-      .addBinding(cfg, "gradientShift", { label: "2D warp", min: 0, max: 0.6, step: 0.01 })
-      .on("change", refresh);
-    // 2D palette texture. Source = baked hero LUT, our editable
-    // stops, a built-in map, or a custom image you load.
-    const bUseTex = gradF
-      .addBinding(cfg, "usePaletteTexture", { label: "palette 2D" })
-      .on("change", () => {
-        updatePaletteControls();
-        refresh();
-      });
-    // Palette-source picker with an image preview of each source IN the dropdown
-    // (Tweakpane lists can't render thumbnails). Grouped: 2-D image maps, then the
-    // gradient-stop presets, then the editable "Custom stops".
-    const thumbFor = (id: string): HTMLCanvasElement =>
-      id === "hero"
-        ? buildHeroPaletteCanvas()
-        : id === "stops"
-          ? buildPaletteCanvas({
-              stops: cfg.palette,
-              edgeColor: cfg.paletteEdgeColor,
-              edgeAmount: cfg.paletteEdgeAmount,
-            })
-          : paletteMapCanvas(PALETTE_MAPS[id]);
-    const ddOptions: PaletteOption[] = [{ id: "hero", label: "Hero", group: "Image maps" }];
-    for (const [id, def] of Object.entries(PALETTE_MAPS))
-      if (def.kind === "image") ddOptions.push({ id, label: def.label, group: "Image maps" });
-    for (const [id, def] of Object.entries(PALETTE_MAPS))
-      if (def.kind === "gradient")
-        ddOptions.push({ id, label: def.label, group: "Gradient presets" });
-    ddOptions.push({ id: "stops", label: "Custom stops", group: "Editable" });
-    this.paletteDropdown = new PaletteDropdown(gradContent, {
-      options: ddOptions,
-      thumbFor,
-      selectedId: () => (cfg.paletteImageUrl ? null : cfg.paletteSource),
-      customLabel: () => (cfg.paletteImageUrl ? "Custom image" : null),
-      onSelect: (id) => {
-        cfg.paletteSource = id;
-        cfg.paletteImageUrl = undefined; // a dropdown choice overrides any loaded image
-        updatePaletteControls();
-        refresh();
-      },
-    });
-    // Move the picker directly under the "palette 2D" toggle (it mounts at the end).
-    gradContent.insertBefore(this.paletteDropdown.element, bUseTex.element.nextSibling);
-    gradF.addButton({ title: "📂 load palette image…" }).on("click", () => {
-      const input = document.createElement("input");
-      input.type = "file";
-      input.accept = "image/*";
-      input.addEventListener(
-        "change",
-        () => {
-          const f = input.files?.[0];
-          if (f) {
-            cfg.paletteImageUrl = URL.createObjectURL(f);
-            updatePaletteControls();
-            refresh();
-          }
-        },
-        { once: true },
-      );
-      input.click();
-    });
-    // Edge tint applies to the "Custom stops" source (the cool periwinkle edges).
-    const bEdgeColor = gradF
-      .addBinding(cfg, "paletteEdgeColor", { view: "color", label: "edge tint" })
-      .on("change", refresh);
-    const bEdgeAmt = gradF
-      .addBinding(cfg, "paletteEdgeAmount", { label: "edge amt", min: 0, max: 1, step: 0.01 })
-      .on("change", refresh);
-
-    const updatePaletteControls = (): void => {
-      const tex = cfg.usePaletteTexture;
-      const custom = !!cfg.paletteImageUrl;
-      const isStops = cfg.paletteSource === "stops";
-      const stopsActive = !custom && (!tex || isStops); // stops drive procedural grad or the "stops" texture
-      const procActive = !tex; // type/angle/warp only affect the procedural gradient
-      const edgeActive = tex && !custom && isStops; // edge tint only fills the "stops" texture
-      this.gradientEditor?.setEnabled(stopsActive);
-      bGradType.disabled = !procActive;
-      bGradAngle.disabled = !procActive;
-      bGradShift.disabled = !procActive;
-      bEdgeColor.disabled = !edgeActive;
-      bEdgeAmt.disabled = !edgeActive;
-      this.paletteDropdown?.refresh(); // keep the trigger thumbnail/label current
-    };
-    updatePaletteControls();
-
-    // Colour grading shares this section. Hue is cyclic; allow negatives (most presets use
-    // small negative shifts) — a min of 0 clipped them. Matches the per-strand hue range.
-    gradF.addBinding(cfg, "hueShift", { min: -180, max: 180, step: 1 }).on("change", refresh);
-    gradF.addBinding(cfg, "colorContrast", { min: 0, max: 2, step: 0.01 }).on("change", refresh);
-    gradF.addBinding(cfg, "colorSaturation", { min: 0, max: 2, step: 0.01 }).on("change", refresh);
-
-    // ---- Finish (surface texture + volume/glow, plus the render-mode theme) ----
-    const fin = mkFolder("Finish", true);
-    randomBtn(fin, randomizeFinish);
-    // Lengthwise fiber streaks: density (streak freq) and width.
-    fin
-      .addBinding(cfg, "fiberCount", { min: 1, max: 1200, step: 1, label: "streak freq" })
-      .on("change", refresh);
-    fin.addBinding(cfg, "fiberThickness", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
-    fin.addBinding(cfg, "grain", { min: 0, max: 3, step: 0.01 }).on("change", refresh);
-    fin.addBinding(cfg, "texture", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
-    fin.addBinding(cfg, "blur", { min: 0, max: 0.3, step: 0.005 }).on("change", refresh);
-    fin
-      .addBinding(cfg, "blurSamples", { min: 1, max: 16, step: 1, label: "blur samples" })
-      .on("change", refresh);
-    // Normal-based volume gives the rounded "thickness"; pdyLift is the derivative
-    // white-lift; glow* drive the dFdy "pdy" term (where streaks appear + that lift).
-    fin
-      .addBinding(cfg, "volume", { min: 0, max: 1.2, step: 0.01, label: "thickness" })
-      .on("change", refresh);
-    fin
-      .addBinding(cfg, "pdyLift", { min: 0, max: 2, step: 0.01, label: "pdy lift" })
-      .on("change", refresh);
-    fin
-      .addBinding(cfg, "glowAmount", { min: 0, max: 6, step: 0.01, label: "glow" })
-      .on("change", refresh);
-    fin.addBinding(cfg, "glowPower", { min: 0.1, max: 4, step: 0.01 }).on("change", refresh);
-    fin.addBinding(cfg, "glowRamp", { min: 0.05, max: 2, step: 0.01 }).on("change", refresh);
-    fin.addBinding(cfg, "edgeFade", { min: 0, max: 0.5, step: 0.01 }).on("change", refresh);
-    // Render mode: "solid" = surface shader; "wireframe" = the wave carved into fine
-    // vertical lines on the background colour. The line* knobs shape those wireframe lines.
-    fin
-      .addBinding(cfg, "theme", {
-        label: "theme",
-        options: { solid: "solid", wireframe: "wireframe" },
-      })
-      .on("change", refresh);
-    fin
-      .addBinding(cfg, "lineAmount", { min: 1, max: 1200, step: 1, label: "line count" })
-      .on("change", refresh);
-    fin
-      .addBinding(cfg, "lineThickness", { min: 0, max: 3, step: 0.01, label: "line thickness" })
-      .on("change", refresh);
-    fin
-      .addBinding(cfg, "lineDerivativePower", { min: 0, max: 2, step: 0.01, label: "line falloff" })
-      .on("change", refresh);
-    fin
-      .addBinding(cfg, "maxWidth", { min: 1, max: 3000, step: 1, label: "max width" })
-      .on("change", refresh);
-
-    // ---- Noise Bands (per-region fiber overrides; empty = uniform) ----
-    const bandsF = mkFolder("Noise Bands", true);
-    cfg.noiseBands.forEach((band, i) => {
-      const sub = bandsF.addFolder({ title: `Band ${i + 1}`, expanded: true });
-      sub.addBinding(band, "startX", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
-      sub.addBinding(band, "endX", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
-      sub.addBinding(band, "startY", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
-      sub.addBinding(band, "endY", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
-      sub.addBinding(band, "feather", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
-      sub.addBinding(band, "strength", { min: 0, max: 2, step: 0.01 }).on("change", refresh);
-      sub.addBinding(band, "frequency", { min: 1, max: 1200, step: 1 }).on("change", refresh);
-      sub
-        .addBinding(band, "colorAttenuation", { min: 0, max: 1, step: 0.01, label: "colorAtten" })
-        .on("change", refresh);
-      sub
-        .addBinding(band, "parabolaPower", { min: 0, max: 5, step: 0.01, label: "parabola" })
-        .on("change", refresh);
-      sub.addButton({ title: "remove this band" }).on("click", () => {
-        cfg.noiseBands.splice(i, 1);
-        refresh();
-        setTimeout(() => this.rebuildPanel(), 0);
-      });
-    });
-    if (cfg.noiseBands.length < MAX_NOISE_BANDS) {
-      bandsF.addButton({ title: "+ add band" }).on("click", () => {
-        cfg.noiseBands.push(createNoiseBand());
-        refresh();
-        setTimeout(() => this.rebuildPanel(), 0);
-      });
-    }
-
-    // ---- Displacement (noise pushes the baked folded() geometry along Y) ----
-    const sp = mkFolder("Displacement", true);
-    randomBtn(sp, randomizeSpine);
-    vec(sp, cfg.displaceFrequency, "displace freq", { min: 0, max: 0.03, step: 0.0002 }, [
-      "X (len)",
-      "Z (wid)",
-      "",
-    ]);
-    sp.addBinding(cfg, "displaceAmount", { min: -12, max: 12, step: 0.05 }).on("change", refresh);
-
-    // ---- Transform (position/rotation/scale of the folded mesh) ----
-    const tr = mkFolder("Transform", true);
-    randomBtn(tr, randomizeTransform);
-    // The mesh is scaled ×10 and the ortho camera frames in pixels, so position/scale
-    // live in the tens, not fractions — the ranges are sized accordingly.
-    vec(tr, cfg.position, "position", { min: -600, max: 600, step: 1 }); // Wave 2b uses posX 525
-    vec(tr, cfg.rotation, "rotation", { min: -180, max: 180, step: 0.1 });
-    vec(tr, cfg.scale, "scale", { min: 0, max: 30, step: 0.1 });
-    tr.addButton({ title: "↔ mirror horizontal" }).on("click", () => {
-      cfg.mirrorH = !cfg.mirrorH;
-      refresh();
-    });
-    tr.addButton({ title: "↕ mirror vertical" }).on("click", () => {
-      cfg.mirrorV = !cfg.mirrorV;
-      refresh();
-    });
-
-    // ---- Twist (three axis-rotations: frequency × expStep(uv, power)) ----
-    const tw = mkFolder("Twist", true);
-    randomBtn(tw, randomizeTwist);
-    vec(tw, cfg.twistFrequency, "twist freq", { min: -2, max: 2, step: 0.002 });
-    vec(tw, cfg.twistPower, "twist power", { min: 0, max: 8, step: 0.05 });
-    // The animated-twist vertex variant: animate the X-twist with simplex
-    // noise so the ribbon's twist breathes over time (used by the Wave 4 preset).
-    tw.addBinding(cfg, "twistMotion", { label: "animate twist" }).on("change", refresh);
 
     // ---- Lights (positionable; add/remove) ----
     const lightsF = mkFolder("Lights", true);
     randomBtn(lightsF, randomizeLights);
     lightsF.addBinding(cfg, "ambient", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
     const editProxy = { edit: this.renderer.isLightEditMode() };
-    lightsF.addBinding(editProxy, "edit", { label: "drag in 3D" }).on("change", async (ev) => {
-      const on = Boolean(ev.value);
-      // Nothing to drag without a light — add one (out where it's visible) so the
-      // gizmo has a handle, then rebuild to reveal its controls.
-      const added = on && cfg.lights.length === 0;
-      if (added) {
-        cfg.lights.push(createLight({ x: 800, y: 900, z: 1100 }, 1));
-        refresh();
-      }
-      await this.renderer.setLightEditMode(on);
-      if (added) this.rebuildPanel();
-    });
+    lightsF
+      .addBinding(editProxy, "edit", { label: "drag lights in 3D" })
+      .on("change", async (ev) => {
+        const on = Boolean(ev.value);
+        // Nothing to drag without a light — add one (out where it's visible) so the
+        // gizmo has a handle, then rebuild to reveal its controls.
+        if (on && cfg.lights.length === 0) {
+          cfg.lights.push(createLight({ ...DEFAULT_LIGHT_POSITION }, 1));
+          refresh();
+        }
+        await this.renderer.setLightEditMode(on);
+        // Rebuild so the added light's controls appear and the "drag waves in 3D" toggle clears
+        // (the two modes are mutually exclusive).
+        setTimeout(() => this.rebuildPanel(), 0);
+      });
     cfg.lights.forEach((light, i) => {
       const sub = lightsF.addFolder({ title: `Light ${i + 1}`, expanded: i === 0 });
       vec(sub, light.position, "pos", { min: -3000, max: 3000, step: 25 });
@@ -748,22 +884,439 @@ export class ControlPanel {
       });
     }
 
-    // ---- Per-strand ----
-    if (cfg.layers.length > 1) {
-      const strands = mkFolder("Strands", true);
-      randomBtn(strands, randomizeStrands);
-      cfg.layers.forEach((layer, i) => {
-        const lf = strands.addFolder({ title: `Strand ${i + 1}`, expanded: true });
-        lf.addBinding(layer, "opacity", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
-        lf.addBinding(layer, "hueShift", { min: -180, max: 180, step: 1 }).on("change", refresh);
-        lf.addBinding(layer, "widthMul", { min: 0, max: 2, step: 0.01 }).on("change", refresh);
-        lf.addBinding(layer, "speed", { min: 0, max: 3, step: 0.01 }).on("change", refresh);
-        lf.addBinding(layer, "seed", { min: 0, max: 20, step: 0.1 }).on("change", refresh);
-        vec(lf, layer.offset, "offset", { min: -3, max: 3, step: 0.05 });
-        lf.addBinding(layer, "twistOffset", { min: -180, max: 180, step: 1 }).on("change", refresh);
+    // ---- Waves ----
+    // Each WaveConfig is a COMPLETE wave: its own colour/gradient, finish, displacement, twist,
+    // transform and blend — no duplicated "global" controls. Adding a wave clones the last.
+    // (The whole document is StudioConfig = scene + waves: WaveConfig[].)
+    const buildWaveFolder = (parent: Folder, wave: WaveConfig, index: number): void => {
+      const sf = parent.addFolder({ title: `Wave ${index + 1}`, expanded: true });
+      // Per-section 🎲 that mutates only this wave's section, then rebuilds so the sliders
+      // (some of which bind to replaced Vec objects) reflect the new values.
+      const sectionRandom = (folder: Folder, fn: (s: WaveConfig) => void): void => {
+        folder.addButton({ title: "🎲 randomize" }).on("click", () => {
+          fn(wave);
+          refresh();
+          setTimeout(() => this.rebuildPanel(), 0);
+        });
+      };
+      sf.addButton({ title: "🎲 randomize wave" }).on("click", () => {
+        randomizeWave(wave);
+        refresh();
+        setTimeout(() => this.rebuildPanel(), 0);
+      });
+      if (cfg.waves.length > 1) {
+        sf.addButton({ title: "✕ remove wave" }).on("click", () => {
+          cfg.waves.splice(index, 1);
+          cfg.waveCount = cfg.waves.length;
+          this.rebuildWaves();
+        });
+      }
+
+      // Compositing (how this wave stacks on the others).
+      sf.addBinding(wave, "opacity", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
+      sf.addBinding(wave, "blendMode", {
+        label: "blend",
+        options: {
+          Squared: "squared",
+          Normal: "normal",
+          Additive: "additive",
+          Multiply: "multiply",
+        },
+      }).on("change", refresh);
+      sf.addBinding(wave, "speed", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
+      sf.addBinding(wave, "seed", { min: 0, max: 20, step: 0.1 }).on("change", refresh);
+
+      // --- Color & Gradient ---
+      const gradF = sf.addFolder({ title: "Color & Gradient", expanded: true });
+      const gradContent =
+        (gradF.element.querySelector(".tp-fldv_c") as HTMLElement | null) ?? gradF.element;
+      const gradientEditor = new GradientEditor(gradContent, () => wave.palette, {
+        onChange: () => {
+          refresh();
+          paletteDropdown.refresh();
+        },
+        max: MAX_COLORS,
+      });
+      this.waveGradientEditors.push(gradientEditor);
+      const meshEditor = new MeshGradientEditor(
+        gradContent,
+        () => wave.meshGradientPoints,
+        () => wave.meshGradientSoftness,
+        { onChange: refresh, max: MAX_MESH_POINTS },
+      );
+      this.waveMeshEditors.push(meshEditor);
+      gradF
+        .addBinding(wave, "gradientType", {
+          label: "type",
+          options: { Linear: "linear", Radial: "radial", Conic: "conic", Mesh: "mesh" },
+        })
+        .on("change", () => {
+          updatePaletteControls();
+          refresh();
+        });
+      const bGradAngle = gradF
+        .addBinding(wave, "gradientAngle", { label: "angle°", min: 0, max: 360, step: 1 })
+        .on("change", refresh);
+      const bGradShift = gradF
+        .addBinding(wave, "gradientShift", { label: "2D warp", min: 0, max: 0.6, step: 0.01 })
+        .on("change", refresh);
+      const bMeshSoftness = gradF
+        .addBinding(wave, "meshGradientSoftness", {
+          label: "mesh softness",
+          min: 0,
+          max: 1,
+          step: 0.01,
+        })
+        .on("change", () => {
+          meshEditor.refresh();
+          refresh();
+        });
+      const bUseTex = gradF
+        .addBinding(wave, "usePaletteTexture", { label: "palette 2D" })
+        .on("change", () => {
+          updatePaletteControls();
+          refresh();
+        });
+      const thumbFor = (id: string): HTMLCanvasElement =>
+        id === "hero"
+          ? buildHeroPaletteCanvas()
+          : id === "stops"
+            ? buildPaletteCanvas({
+                stops: wave.palette,
+                edgeColor: wave.paletteEdgeColor,
+                edgeAmount: wave.paletteEdgeAmount,
+              })
+            : paletteMapCanvas(PALETTE_MAPS[id]);
+      const ddOptions: PaletteOption[] = [{ id: "hero", label: "Hero", group: "Image maps" }];
+      for (const [id, def] of Object.entries(PALETTE_MAPS))
+        if (def.kind === "image") ddOptions.push({ id, label: def.label, group: "Image maps" });
+      for (const [id, def] of Object.entries(PALETTE_MAPS))
+        if (def.kind === "gradient")
+          ddOptions.push({ id, label: def.label, group: "Gradient presets" });
+      ddOptions.push({ id: "stops", label: "Custom stops", group: "Editable" });
+      const paletteDropdown = new PaletteDropdown(gradContent, {
+        options: ddOptions,
+        thumbFor,
+        selectedId: () =>
+          wave.paletteVideoUrl || wave.paletteImageUrl ? null : wave.paletteSource,
+        customLabel: () =>
+          wave.paletteVideoUrl ? "Custom video" : wave.paletteImageUrl ? "Custom image" : null,
+        onSelect: (id) => {
+          wave.paletteImageUrl = undefined;
+          wave.paletteVideoUrl = undefined;
+          const def = PALETTE_MAPS[id];
+          if (def?.kind === "gradient" && def.stops?.length) {
+            wave.palette = def.stops
+              .slice(0, MAX_COLORS)
+              .map((stop) => ({ color: stop.color, pos: stop.pos }));
+            if (typeof def.edgeColor === "string") wave.paletteEdgeColor = def.edgeColor;
+            if (typeof def.edgeAmount === "number") wave.paletteEdgeAmount = def.edgeAmount;
+            wave.usePaletteTexture = true;
+            wave.paletteSource = "stops";
+          } else {
+            wave.paletteSource = id;
+          }
+          updatePaletteControls();
+          gradientEditor.refresh();
+          this.pane.refresh();
+          refresh();
+        },
+      });
+      this.wavePaletteDropdowns.push(paletteDropdown);
+      gradContent.insertBefore(paletteDropdown.element, gradContent.firstChild);
+      const loadPaletteBtn = gradF
+        .addButton({ title: "📂 load palette image / video…" })
+        .on("click", () => {
+          pickMediaDataUrl((url, kind) => {
+            wave.paletteImageUrl = kind === "image" ? url : undefined;
+            wave.paletteVideoUrl = kind === "video" ? url : undefined;
+            wave.paletteTextureScale = { x: 1, y: 1 };
+            wave.paletteTextureOffset = { x: 0, y: 0 };
+            wave.paletteTextureRotation = 0;
+            wave.usePaletteTexture = true;
+            updatePaletteControls();
+            refresh();
+          });
+        });
+      const bPaletteScaleX = gradF
+        .addBinding(wave.paletteTextureScale, "x", {
+          label: "media scale X",
+          min: 0.1,
+          max: 8,
+          step: 0.05,
+        })
+        .on("change", refresh);
+      const bPaletteScaleY = gradF
+        .addBinding(wave.paletteTextureScale, "y", {
+          label: "media scale Y",
+          min: 0.1,
+          max: 8,
+          step: 0.05,
+        })
+        .on("change", refresh);
+      const bPaletteOffsetX = gradF
+        .addBinding(wave.paletteTextureOffset, "x", {
+          label: "media offset X",
+          min: -4,
+          max: 4,
+          step: 0.01,
+        })
+        .on("change", refresh);
+      const bPaletteOffsetY = gradF
+        .addBinding(wave.paletteTextureOffset, "y", {
+          label: "media offset Y",
+          min: -4,
+          max: 4,
+          step: 0.01,
+        })
+        .on("change", refresh);
+      const bPaletteRotation = gradF
+        .addBinding(wave, "paletteTextureRotation", {
+          label: "media rotation°",
+          min: -180,
+          max: 180,
+          step: 1,
+        })
+        .on("change", refresh);
+      const bEdgeColor = gradF
+        .addBinding(wave, "paletteEdgeColor", { view: "color", label: "edge tint" })
+        .on("change", () => {
+          refresh();
+          paletteDropdown.refresh();
+        });
+      const bEdgeAmt = gradF
+        .addBinding(wave, "paletteEdgeAmount", { label: "edge amt", min: 0, max: 1, step: 0.01 })
+        .on("change", () => {
+          refresh();
+          paletteDropdown.refresh();
+        });
+      gradF.addBinding(wave, "hueShift", { min: -180, max: 180, step: 1 }).on("change", refresh);
+      gradF.addBinding(wave, "colorContrast", { min: 0, max: 2, step: 0.01 }).on("change", refresh);
+      gradF
+        .addBinding(wave, "colorSaturation", { min: 0, max: 2, step: 0.01 })
+        .on("change", refresh);
+      sectionRandom(gradF, (s) => {
+        randomizeGradient(s);
+        randomizeColor(s);
+      });
+      const updatePaletteControls = (): void => {
+        const tex = wave.usePaletteTexture;
+        const custom = !!(wave.paletteVideoUrl || wave.paletteImageUrl);
+        const isStops = wave.paletteSource === "stops";
+        const isMesh = wave.gradientType === "mesh";
+        const stopsActive = !isMesh && !custom && (!tex || isStops);
+        const procActive = !isMesh && !tex;
+        const edgeActive = !isMesh && tex && !custom && isStops;
+        gradientEditor.setEnabled(stopsActive);
+        gradientEditor.setVisible(!isMesh);
+        meshEditor.setVisible(isMesh);
+        bGradAngle.disabled = !procActive;
+        bGradShift.disabled = !procActive;
+        bMeshSoftness.hidden = !isMesh;
+        bUseTex.disabled = isMesh;
+        paletteDropdown.element.hidden = isMesh;
+        loadPaletteBtn.hidden = isMesh;
+        bPaletteScaleX.hidden = isMesh || !custom;
+        bPaletteScaleY.hidden = isMesh || !custom;
+        bPaletteOffsetX.hidden = isMesh || !custom;
+        bPaletteOffsetY.hidden = isMesh || !custom;
+        bPaletteRotation.hidden = isMesh || !custom;
+        bEdgeColor.disabled = !edgeActive;
+        bEdgeAmt.disabled = !edgeActive;
+        paletteDropdown.refresh();
+      };
+      updatePaletteControls();
+
+      // --- Finish (surface material) ---
+      const finF = sf.addFolder({ title: "Finish", expanded: true });
+      finF
+        .addBinding(wave, "theme", {
+          label: "material",
+          options: { solid: "solid", wireframe: "wireframe" },
+        })
+        .on("change", () => {
+          updateMaterialControls();
+          refresh();
+        });
+      const bFiberCount = finF
+        .addBinding(wave, "fiberCount", { min: 1, max: 1200, step: 1, label: "streak freq" })
+        .on("change", refresh);
+      const bFiberStrength = finF
+        .addBinding(wave, "fiberStrength", { min: 0, max: 1, step: 0.01, label: "streak strength" })
+        .on("change", refresh);
+      const bTexture = finF
+        .addBinding(wave, "texture", { min: 0, max: 1, step: 0.01 })
+        .on("change", refresh);
+      const bRoundness = finF
+        .addBinding(wave, "roundness", { min: 0, max: 1.2, step: 0.01, label: "roundness" })
+        .on("change", refresh);
+      const bSheen = finF
+        .addBinding(wave, "sheen", { min: 0, max: 2, step: 0.01, label: "sheen" })
+        .on("change", refresh);
+      const bCreaseLight = finF
+        .addBinding(wave, "creaseLight", { min: 0, max: 6, step: 0.01, label: "crease light" })
+        .on("change", refresh);
+      const bCreaseSharpness = finF
+        .addBinding(wave, "creaseSharpness", {
+          min: 0.1,
+          max: 4,
+          step: 0.01,
+          label: "crease sharpness",
+        })
+        .on("change", refresh);
+      const bCreaseSoftness = finF
+        .addBinding(wave, "creaseSoftness", {
+          min: 0.05,
+          max: 2,
+          step: 0.01,
+          label: "crease softness",
+        })
+        .on("change", refresh);
+      const bEdgeFade = finF
+        .addBinding(wave, "edgeFade", { min: 0, max: 0.5, step: 0.01 })
+        .on("change", refresh);
+      const bLineAmount = finF
+        .addBinding(wave, "lineAmount", { min: 1, max: 1200, step: 1, label: "line count" })
+        .on("change", refresh);
+      const bLineThickness = finF
+        .addBinding(wave, "lineThickness", { min: 0, max: 3, step: 0.01, label: "line thickness" })
+        .on("change", refresh);
+      const bLineFalloff = finF
+        .addBinding(wave, "lineDerivativePower", {
+          min: 0,
+          max: 2,
+          step: 0.01,
+          label: "line falloff",
+        })
+        .on("change", refresh);
+      const bMaxWidth = finF
+        .addBinding(wave, "maxWidth", { min: 1, max: 3000, step: 1, label: "max width" })
+        .on("change", refresh);
+      const solidOnly = [
+        bFiberCount,
+        bFiberStrength,
+        bTexture,
+        bRoundness,
+        bSheen,
+        bCreaseLight,
+        bCreaseSharpness,
+        bCreaseSoftness,
+        bEdgeFade,
+      ];
+      const wireOnly = [bLineAmount, bLineThickness, bLineFalloff, bMaxWidth];
+      const updateMaterialControls = (): void => {
+        const wire = wave.theme === "wireframe";
+        for (const b of solidOnly) b.hidden = wire;
+        for (const b of wireOnly) b.hidden = !wire;
+      };
+      updateMaterialControls();
+      sectionRandom(finF, randomizeFinish);
+
+      // --- Noise Bands ---
+      const bandsF = sf.addFolder({ title: "Noise Bands", expanded: true });
+      wave.noiseBands.forEach((band, bi) => {
+        const sub = bandsF.addFolder({ title: `Band ${bi + 1}`, expanded: true });
+        sub.addBinding(band, "startX", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
+        sub.addBinding(band, "endX", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
+        sub.addBinding(band, "startY", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
+        sub.addBinding(band, "endY", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
+        sub.addBinding(band, "feather", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
+        sub.addBinding(band, "strength", { min: 0, max: 2, step: 0.01 }).on("change", refresh);
+        sub.addBinding(band, "frequency", { min: 1, max: 1200, step: 1 }).on("change", refresh);
+        sub
+          .addBinding(band, "colorAttenuation", { min: 0, max: 1, step: 0.01, label: "colorAtten" })
+          .on("change", refresh);
+        sub
+          .addBinding(band, "parabolaPower", { min: 0, max: 5, step: 0.01, label: "parabola" })
+          .on("change", refresh);
+        sub.addButton({ title: "remove this band" }).on("click", () => {
+          wave.noiseBands.splice(bi, 1);
+          refresh();
+          setTimeout(() => this.rebuildPanel(), 0);
+        });
+      });
+      if (wave.noiseBands.length < MAX_NOISE_BANDS) {
+        bandsF.addButton({ title: "+ add band" }).on("click", () => {
+          wave.noiseBands.push(createNoiseBand());
+          refresh();
+          setTimeout(() => this.rebuildPanel(), 0);
+        });
+      }
+
+      // --- Displacement ---
+      const dispF = sf.addFolder({ title: "Displacement", expanded: true });
+      vec(dispF, wave.displaceFrequency, "displace freq", { min: 0, max: 0.03, step: 0.0002 }, [
+        "X (len)",
+        "Z (wid)",
+        "",
+      ]);
+      dispF
+        .addBinding(wave, "displaceAmount", { min: -12, max: 12, step: 0.05 })
+        .on("change", refresh);
+      sectionRandom(dispF, randomizeSpine);
+
+      // --- Transform ---
+      const trF = sf.addFolder({ title: "Transform", expanded: true });
+      vec(trF, wave.position, "position", { min: -600, max: 600, step: 1 });
+      vec(trF, wave.rotation, "rotation", { min: -180, max: 180, step: 0.1 });
+      vec(trF, wave.scale, "scale", { min: 0, max: 30, step: 0.1 });
+      sectionRandom(trF, randomizeTransform);
+
+      // --- Twist ---
+      const twF = sf.addFolder({ title: "Twist", expanded: true });
+      vec(twF, wave.twistFrequency, "twist freq", { min: -2, max: 2, step: 0.002 });
+      vec(twF, wave.twistPower, "twist power", { min: 0, max: 8, step: 0.05 });
+      twF.addBinding(wave, "twistMotion", { label: "twist wobble" }).on("change", refresh);
+      sectionRandom(twF, randomizeTwist);
+      // Order the sub-sections: appearance (colour, finish) → shape (displacement, twist) → pose
+      // (transform) → advanced (noise bands, last). DOM move so the blocks above stay grouped.
+      const waveContent =
+        (sf.element.querySelector(":scope > .tp-fldv_c") as HTMLElement | null) ?? sf.element;
+      for (const f of [gradF, finF, dispF, twF, trF, bandsF]) waveContent.appendChild(f.element);
+    };
+
+    const wavesF = mkFolder("Waves", true);
+    // Drag waves in 3D: a box handle per wave (click a handle to select which wave the
+    // gizmo moves/rotates). Shared across all waves, so it lives at the section level.
+    const waveDragProxy = { edit: this.renderer.isWaveEditMode() };
+    wavesF
+      .addBinding(waveDragProxy, "edit", { label: "drag waves in 3D" })
+      .on("change", async (ev) => {
+        await this.renderer.setWaveEditMode(Boolean(ev.value));
+        setTimeout(() => this.rebuildPanel(), 0);
+      });
+    if (this.renderer.isWaveEditMode()) {
+      const gizmoProxy = { mode: this.renderer.getGizmoMode() };
+      wavesF
+        .addBinding(gizmoProxy, "mode", {
+          label: "gizmo",
+          options: { move: "translate", rotate: "rotate" },
+        })
+        .on("change", (ev) => {
+          this.renderer.setGizmoMode(ev.value as "translate" | "rotate");
+        });
+    }
+    cfg.waves.forEach((wave, i) => buildWaveFolder(wavesF, wave, i));
+    if (cfg.waves.length < MAX_WAVES) {
+      wavesF.addButton({ title: "+ add wave (clones the last)" }).on("click", () => {
+        cfg.waveCount = cfg.waves.length + 1;
+        this.rebuildWaves();
       });
     }
+    // Reorder the top-level folders, independent of the build order above (which stays grouped by
+    // concern). Short meta/setup folders stay near the top (output/canvas, quick actions, presets,
+    // then background/camera) so they're always reachable; the tall Waves section sits below them,
+    // above the rarely-used Lights. Done as a DOM move: appendChild re-appends in the given order.
+    const topOrder = ["Output", "Actions", "Global", "Background", "Camera", "Waves", "Lights"];
+    for (const title of topOrder) {
+      const f = this.folders.find((x) => x.title === title);
+      if (f) paneContent.appendChild(f.api.element);
+    }
+    // Seat the search at the top of the pane content now that all the folders are in place.
+    paneContent.insertBefore(search, paneContent.firstChild);
     this.applyIcons();
+    // Underline + hover-tooltip the cryptic labels (idempotent per row across rebuilds).
+    applyControlHints(this.container);
     if (this.searchQuery) this.applyFilter();
   }
 
@@ -850,6 +1403,9 @@ export class ControlPanel {
       Global: svg(
         '<circle cx="8" cy="8" r="2.1"/><path d="M8 1.7v1.7M8 12.6v1.7M1.7 8h1.7M12.6 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M3.6 12.4l1.2-1.2M11.2 4.8l1.2-1.2"/>',
       ),
+      Background: svg(
+        '<rect x="2" y="2.8" width="12" height="10.4" rx="1.4"/><circle cx="10.8" cy="5.8" r="1.2"/><path d="m2.5 11 3.2-3.2 2.2 2 1.6-1.5 4 3.7"/>',
+      ),
       Camera: svg(
         '<rect x="1.9" y="4.9" width="12.2" height="8.2" rx="1.2"/><circle cx="8" cy="9" r="2.2"/><path d="M5.7 4.9 6.7 3.1h2.6l1 1.8"/>',
       ),
@@ -866,9 +1422,7 @@ export class ControlPanel {
       Lights: svg(
         '<circle cx="8" cy="8" r="2.9"/><path d="M8 1.6v1.7M8 12.7v1.7M1.6 8h1.7M12.7 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M3.6 12.4l1.2-1.2M11.2 4.8l1.2-1.2"/>',
       ),
-      Strands: svg(
-        '<path d="M5.5 2c3 2 3 4 0 6s-3 4 0 6"/><path d="M10.5 2c-3 2-3 4 0 6s3 4 0 6"/>',
-      ),
+      Waves: svg('<path d="M5.5 2c3 2 3 4 0 6s-3 4 0 6"/><path d="M10.5 2c-3 2-3 4 0 6s3 4 0 6"/>'),
     };
     this.container.querySelectorAll(".tp-fldv_t").forEach((el) => {
       const txt = (el.textContent ?? "").trim();

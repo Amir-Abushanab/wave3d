@@ -5,7 +5,7 @@
  * single hidden WaveRenderer and runs after the app has painted, so it doesn't block startup.
  */
 import { WaveRenderer } from "../wave/WaveRenderer";
-import type { WaveConfig } from "../wave/config";
+import type { StudioConfig } from "../wave/config";
 
 const cache = new Map<string, HTMLCanvasElement>();
 let started = false;
@@ -29,7 +29,7 @@ export function getPresetThumb(name: string): HTMLCanvasElement {
 
 /** Render a thumbnail for every preset (once), then call onReady. Safe to call repeatedly. */
 export async function generatePresetThumbnails(
-  presets: Record<string, () => WaveConfig>,
+  presets: Record<string, () => StudioConfig>,
   onReady: () => void,
 ): Promise<void> {
   if (started) return;
@@ -47,7 +47,8 @@ export async function generatePresetThumbnails(
       const cfg = make();
       cfg.paused = true; // static frame for the snapshot
       cfg.transparentBackground = false; // opaque bg so the thumbnail isn't see-through
-      if (cfg.theme !== "wireframe") cfg.background = "#ffffff"; // wireframe themes keep their own bg
+      // Theme is per-wave; the wireframe look keys off the first wave for the thumbnail bg.
+      if (cfg.waves[0]?.theme !== "wireframe") cfg.background = "#ffffff";
       if (!renderer) renderer = new WaveRenderer(host, cfg);
       else renderer.setConfig(cfg);
       renderer.resize();

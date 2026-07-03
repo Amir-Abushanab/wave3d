@@ -3,6 +3,10 @@ export interface ExportSize {
   preset: string;
   width: number;
   height: number;
+  /** Preserve `aspectRatio` when either output dimension changes. */
+  lockAspectRatio: boolean;
+  /** Ratio captured from the current preset or when the lock is enabled. */
+  aspectRatio: number;
 }
 
 export interface ExportPreset {
@@ -17,6 +21,8 @@ export interface ExportGpuWarning {
 }
 
 export const CUSTOM_EXPORT_PRESET = "custom";
+export const MIN_OUTPUT_DIMENSION = 64;
+export const MAX_OUTPUT_DIMENSION = 8192;
 
 export const EXPORT_PRESETS: Record<string, ExportPreset> = {
   "full-hd": { label: "Full HD · 16:9", width: 1920, height: 1080 },
@@ -28,6 +34,52 @@ export const EXPORT_PRESETS: Record<string, ExportPreset> = {
   "ultra-hd-4k": { label: "4K UHD · 16:9", width: 3840, height: 2160 },
   "ultra-hd-8k": { label: "8K UHD · 16:9", width: 7680, height: 4320 },
 };
+
+// ---- Still-image formats ----
+
+export type ImageFormat = "png" | "webp" | "jpeg";
+
+export interface ImageFormatDefinition {
+  label: string;
+  mime: string;
+  extension: string;
+  lossy: boolean;
+  supportsTransparency: boolean;
+}
+
+export const IMAGE_FORMATS: Record<ImageFormat, ImageFormatDefinition> = {
+  png: {
+    label: "PNG",
+    mime: "image/png",
+    extension: "png",
+    lossy: false,
+    supportsTransparency: true,
+  },
+  webp: {
+    label: "WebP",
+    mime: "image/webp",
+    extension: "webp",
+    lossy: true,
+    supportsTransparency: true,
+  },
+  jpeg: {
+    label: "JPEG",
+    mime: "image/jpeg",
+    extension: "jpg",
+    lossy: true,
+    supportsTransparency: false,
+  },
+};
+
+/** Canvas encoders silently fall back to PNG for unsupported MIME types. Check the data-URL
+ *  prefix so the UI only advertises formats this browser can actually produce. */
+export function canExportImageFormat(format: ImageFormat): boolean {
+  const { mime } = IMAGE_FORMATS[format];
+  const canvas = document.createElement("canvas");
+  canvas.width = 1;
+  canvas.height = 1;
+  return canvas.toDataURL(mime).startsWith(`data:${mime}`);
+}
 
 // ---- Recording (video / GIF) formats ----
 
@@ -65,6 +117,8 @@ export const DEFAULT_EXPORT_SIZE: ExportSize = {
   preset: "full-hd",
   width: EXPORT_PRESETS["full-hd"].width,
   height: EXPORT_PRESETS["full-hd"].height,
+  lockAspectRatio: true,
+  aspectRatio: EXPORT_PRESETS["full-hd"].width / EXPORT_PRESETS["full-hd"].height,
 };
 
 function gcd(a: number, b: number): number {
@@ -77,6 +131,50 @@ export function applyExportPreset(size: ExportSize, presetId: string): void {
   if (!preset) return;
   size.width = preset.width;
   size.height = preset.height;
+  size.aspectRatio = preset.width / preset.height;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function validAspectRatio(size: ExportSize): number {
+  return Number.isFinite(size.aspectRatio) && size.aspectRatio > 0
+    ? size.aspectRatio
+    : size.width / size.height;
+}
+
+/** Apply one manually edited dimension and update the other when the ratio is locked. */
+export function applyCustomExportDimension(
+  size: ExportSize,
+  dimension: "width" | "height",
+  value: number,
+): void {
+  size.preset = CUSTOM_EXPORT_PRESET;
+  const rounded = Math.round(value);
+  if (!size.lockAspectRatio) {
+    size[dimension] = clamp(rounded, MIN_OUTPUT_DIMENSION, MAX_OUTPUT_DIMENSION);
+    size.aspectRatio = size.width / size.height;
+    return;
+  }
+
+  const ratio = validAspectRatio(size);
+  if (dimension === "width") {
+    const minWidth = Math.ceil(Math.max(MIN_OUTPUT_DIMENSION, MIN_OUTPUT_DIMENSION * ratio));
+    const maxWidth = Math.floor(Math.min(MAX_OUTPUT_DIMENSION, MAX_OUTPUT_DIMENSION * ratio));
+    size.width = clamp(rounded, minWidth, maxWidth);
+    size.height = clamp(Math.round(size.width / ratio), MIN_OUTPUT_DIMENSION, MAX_OUTPUT_DIMENSION);
+  } else {
+    const minHeight = Math.ceil(Math.max(MIN_OUTPUT_DIMENSION, MIN_OUTPUT_DIMENSION / ratio));
+    const maxHeight = Math.floor(Math.min(MAX_OUTPUT_DIMENSION, MAX_OUTPUT_DIMENSION / ratio));
+    size.height = clamp(rounded, minHeight, maxHeight);
+    size.width = clamp(Math.round(size.height * ratio), MIN_OUTPUT_DIMENSION, MAX_OUTPUT_DIMENSION);
+  }
+}
+
+/** Capture the current dimensions as the ratio future locked edits preserve. */
+export function captureExportAspectRatio(size: ExportSize): void {
+  size.aspectRatio = size.width / size.height;
 }
 
 export function aspectRatioLabel(width: number, height: number): string {

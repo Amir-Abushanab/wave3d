@@ -7,16 +7,18 @@ const stage = document.getElementById("stage") as HTMLElement;
 const p = new URLSearchParams(location.search);
 const presetName = p.get("preset");
 const config = presetName && PRESETS[presetName] ? PRESETS[presetName]() : createDefaultConfig();
+// Every wave field now lives on the wave; preview only tweaks the first wave.
+const s0 = config.waves[0];
 // Preview forces an opaque white background for composition testing — but the wireframe theme's
 // background IS part of its look (it's the between-line colour), so keep the preset's own.
-if (config.theme !== "wireframe") {
+if (s0.theme !== "wireframe") {
   config.transparentBackground = false;
   config.background = "#ffffff";
 }
 // ?notex disables the baked palette texture (procedural-gradient fallback) for testing.
-if (p.has("notex")) config.usePaletteTexture = false;
-if (p.get("pal")) config.paletteSource = p.get("pal") as string;
-if (p.get("palurl")) config.paletteImageUrl = p.get("palurl") as string; // load a palette image (URL) via TextureLoader instead of the named palette
+if (p.has("notex")) s0.usePaletteTexture = false;
+if (p.get("pal")) s0.paletteSource = p.get("pal") as string;
+if (p.get("palurl")) s0.paletteImageUrl = p.get("palurl") as string; // load a palette image (URL) via TextureLoader instead of the named palette
 if (p.has("mh")) config.mirrorH = true;
 if (p.has("mv")) config.mirrorV = true;
 if (p.has("lightedit"))
@@ -25,27 +27,27 @@ const num = (k: string, set: (v: number) => void): void => {
   const v = p.get(k);
   if (v !== null) set(parseFloat(v));
 };
-num("rotX", (v) => (config.rotation.x = v));
-num("rotY", (v) => (config.rotation.y = v));
-num("rotZ", (v) => (config.rotation.z = v));
-num("sx", (v) => (config.scale.x = Math.abs(config.scale.x) * v)); // sign flips/mirrors X
-num("sz", (v) => (config.scale.z = v)); // fold depth — opens/closes the hairpin twist
+num("rotX", (v) => (s0.rotation.x = v));
+num("rotY", (v) => (s0.rotation.y = v));
+num("rotZ", (v) => (s0.rotation.z = v));
+num("sx", (v) => (s0.scale.x = Math.abs(s0.scale.x) * v)); // sign flips/mirrors X
+num("sz", (v) => (s0.scale.z = v)); // fold depth — opens/closes the hairpin twist
 num("tw", (v) => {
-  config.twistFrequency = {
-    x: config.twistFrequency.x * v,
-    y: config.twistFrequency.y * v,
-    z: config.twistFrequency.z * v,
+  s0.twistFrequency = {
+    x: s0.twistFrequency.x * v,
+    y: s0.twistFrequency.y * v,
+    z: s0.twistFrequency.z * v,
   };
 }); // scale the shader twist (1.0 ≈ gentle 30°; higher turns the ribbon over)
-num("glow", (v) => (config.glowAmount = v));
-num("gpow", (v) => (config.glowPower = v));
-num("gramp", (v) => (config.glowRamp = v));
-num("vol", (v) => (config.volume = v));
-num("pdy", (v) => (config.pdyLift = v));
-num("sat", (v) => (config.colorSaturation = v));
-num("con", (v) => (config.colorContrast = v));
-num("hue", (v) => (config.hueShift = v));
-num("fiber", (v) => (config.fiberThickness = v));
+num("glow", (v) => (s0.creaseLight = v));
+num("gpow", (v) => (s0.creaseSharpness = v));
+num("gramp", (v) => (s0.creaseSoftness = v));
+num("vol", (v) => (s0.roundness = v));
+num("pdy", (v) => (s0.sheen = v));
+num("sat", (v) => (s0.colorSaturation = v));
+num("con", (v) => (s0.colorContrast = v));
+num("hue", (v) => (s0.hueShift = v));
+num("fiber", (v) => (s0.fiberStrength = v));
 num("dist", (v) => {
   config.cameraDistance = v;
   config.cameraPosition = { x: 0, y: 0, z: v };
@@ -68,4 +70,7 @@ if (p.has("az") || p.has("el")) {
   );
 }
 if (p.has("roll")) renderer.rollView(parseFloat(p.get("roll") as string));
-(window as unknown as { wave: unknown }).wave = { renderer, config };
+// Dev-only debug handle (preview itself isn't in the production build; guarded for consistency).
+if (import.meta.env.DEV) {
+  (window as unknown as { wave: unknown }).wave = { renderer, config };
+}

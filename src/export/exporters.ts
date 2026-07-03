@@ -1,7 +1,7 @@
-import type { WaveConfig } from "../wave/config";
+import type { StudioConfig } from "../wave/config";
 import type { WaveRenderer } from "../wave/WaveRenderer";
-import { pickVideoMime } from "../output/formats";
-import type { ExportSize, RecordFormat, VideoFormat } from "../output/formats";
+import { IMAGE_FORMATS, pickVideoMime } from "../output/formats";
+import type { ExportSize, ImageFormat, RecordFormat, VideoFormat } from "../output/formats";
 import { GIFEncoder, quantize, applyPalette } from "gifenc";
 
 export function downloadBlob(blob: Blob, filename: string): void {
@@ -19,7 +19,7 @@ export function downloadText(text: string, filename: string, mime = "text/plain"
 
 // ---- Config (the "save state" format) ----
 
-export function exportConfigJSON(config: WaveConfig): void {
+export function exportConfigJSON(config: StudioConfig): void {
   downloadText(JSON.stringify(config, null, 2), "wave.json", "application/json");
 }
 
@@ -38,7 +38,7 @@ function b64urlToBytes(s: string): Uint8Array<ArrayBuffer> {
 }
 
 /** gzip + base64url the config → a compact share token (~3-4× smaller than raw base64). */
-export async function encodeConfigToHash(config: WaveConfig): Promise<string> {
+export async function encodeConfigToHash(config: StudioConfig): Promise<string> {
   const json = JSON.stringify(config);
   const gz = await new Response(
     new Blob([json]).stream().pipeThrough(new CompressionStream("gzip")),
@@ -48,28 +48,28 @@ export async function encodeConfigToHash(config: WaveConfig): Promise<string> {
 
 /** Decode a config from a location hash. Tries the gzip token, then falls back to a plain
  *  base64-JSON token (the pre-compression format), then gives up (null). */
-export async function decodeConfigFromHash(hash: string): Promise<WaveConfig | null> {
+export async function decodeConfigFromHash(hash: string): Promise<StudioConfig | null> {
   const m = hash.match(/[#&]w=([^&]+)/);
   if (!m) return null;
   try {
     const text = await new Response(
       new Blob([b64urlToBytes(m[1])]).stream().pipeThrough(new DecompressionStream("gzip")),
     ).text();
-    return JSON.parse(text) as WaveConfig;
+    return JSON.parse(text) as StudioConfig;
   } catch {
     /* not a gzip token — try the legacy plain base64-JSON format */
   }
   try {
     return JSON.parse(
       decodeURIComponent(escape(atob(m[1].replace(/-/g, "+").replace(/_/g, "/")))),
-    ) as WaveConfig;
+    ) as StudioConfig;
   } catch {
     return null;
   }
 }
 
 /** Write the config into the URL and copy the link to the clipboard. Returns ok. */
-export async function copyShareLink(config: WaveConfig): Promise<boolean> {
+export async function copyShareLink(config: StudioConfig): Promise<boolean> {
   history.replaceState(null, "", "#w=" + (await encodeConfigToHash(config)));
   try {
     await navigator.clipboard.writeText(location.href);
@@ -79,7 +79,7 @@ export async function copyShareLink(config: WaveConfig): Promise<boolean> {
   }
 }
 
-export function pickConfigFile(): Promise<WaveConfig> {
+export function pickConfigFile(): Promise<StudioConfig> {
   return new Promise((resolve, reject) => {
     const input = document.createElement("input");
     input.type = "file";
@@ -97,7 +97,7 @@ export function pickConfigFile(): Promise<WaveConfig> {
           "load",
           () => {
             try {
-              resolve(JSON.parse(String(reader.result)) as WaveConfig);
+              resolve(JSON.parse(String(reader.result)) as StudioConfig);
             } catch (err) {
               reject(err instanceof Error ? err : new Error("Invalid JSON"));
             }
@@ -119,13 +119,21 @@ export function pickConfigFile(): Promise<WaveConfig> {
 
 // ---- Image ----
 
-export async function exportPNG(
+export async function exportImage(
   renderer: WaveRenderer,
   size: ExportSize,
+  format: ImageFormat,
   transparent = false,
+  quality = 0.92,
 ): Promise<void> {
-  const blob = await renderer.capturePNG(transparent);
-  downloadBlob(blob, `wave-${size.width}x${size.height}.png`);
+  const definition = IMAGE_FORMATS[format];
+  const preserveTransparency = definition.supportsTransparency && transparent;
+  const blob = await renderer.captureImage(
+    definition.mime,
+    preserveTransparency,
+    definition.lossy ? quality : undefined,
+  );
+  downloadBlob(blob, `wave-${size.width}x${size.height}.${definition.extension}`);
 }
 
 // ---- Embeddable component ----
@@ -136,7 +144,7 @@ function serializeForInlineScript(value: unknown): string {
 
 /** A self-contained HTML page that renders this exact wave from config. */
 export function generateEmbedHTML(
-  config: WaveConfig,
+  config: StudioConfig,
   size: ExportSize,
   runtimeSource: string,
 ): string {
@@ -178,7 +186,7 @@ export function generateEmbedHTML(
 `;
 }
 
-export async function exportEmbed(config: WaveConfig, size: ExportSize): Promise<void> {
+export async function exportEmbed(config: StudioConfig, size: ExportSize): Promise<void> {
   const runtimeUrl = new URL("./wave-studio-embed.js", document.baseURI);
   const response = await fetch(runtimeUrl);
   if (!response.ok) {

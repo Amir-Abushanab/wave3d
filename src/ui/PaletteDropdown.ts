@@ -35,7 +35,8 @@ const CSS = `
   box-shadow: inset 0 0 0 1px rgba(0,0,0,0.4); }
 .wv-pd-name { flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .wv-pd-caret { flex:0 0 auto; opacity:0.6; }
-.wv-pd-list { margin-top:4px; border-radius:5px; overflow:hidden;
+.wv-pd-list { margin-top:4px; border-radius:5px; overflow-x:hidden; overflow-y:auto;
+  max-height:min(420px, 60vh);
   background:rgba(12,12,18,0.96); border:1px solid rgba(255,255,255,0.14); }
 .wv-pd-group { padding:5px 9px 3px; font:10px ui-sans-serif,system-ui,sans-serif;
   letter-spacing:.04em; text-transform:uppercase; color:#7e828c; }

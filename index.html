@@ -6,19 +6,51 @@
     <title>Wave Studio — open-source 3D wave authoring</title>
     <meta
       name="description"
-      content="Author 3D gradient waves in the browser and export them as config, an embeddable component, PNG, or video."
+      content="Author 3D gradient waves in the browser and export them as config, an embeddable component, PNG, WebP, JPEG, or video."
     />
+    <link rel="icon" type="image/png" sizes="64x64" href="/src/assets/favicon.png" />
     <link rel="stylesheet" href="/src/style.css" />
+    <!-- Optional 16-frame animated favicon:
+    <script type="module" src="/src/animated-favicon.ts"></script>
+    -->
   </head>
   <body>
     <section id="workspace" aria-label="Export preview workspace">
       <main id="stage" aria-label="Wave export preview">
         <output id="capture-size" aria-live="polite"></output>
         <button
-          id="output-resize-handle"
+          class="output-resize-handle"
+          data-corner="nw"
           type="button"
-          aria-label="Resize output dimensions. Use arrow keys for precise adjustments."
-          title="Drag to resize output dimensions"
+          aria-label="Resize output from the top-left corner. Use arrow keys for precise adjustments."
+          title="Drag the top-left corner to resize"
+        >
+          <span aria-hidden="true"></span>
+        </button>
+        <button
+          class="output-resize-handle"
+          data-corner="ne"
+          type="button"
+          aria-label="Resize output from the top-right corner. Use arrow keys for precise adjustments."
+          title="Drag the top-right corner to resize"
+        >
+          <span aria-hidden="true"></span>
+        </button>
+        <button
+          class="output-resize-handle"
+          data-corner="sw"
+          type="button"
+          aria-label="Resize output from the bottom-left corner. Use arrow keys for precise adjustments."
+          title="Drag the bottom-left corner to resize"
+        >
+          <span aria-hidden="true"></span>
+        </button>
+        <button
+          class="output-resize-handle"
+          data-corner="se"
+          type="button"
+          aria-label="Resize output from the bottom-right corner. Use arrow keys for precise adjustments."
+          title="Drag the bottom-right corner to resize"
         >
           <span aria-hidden="true"></span>
         </button>

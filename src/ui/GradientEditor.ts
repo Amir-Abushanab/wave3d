@@ -1,4 +1,4 @@
-import type { WaveConfig, ColorStop } from "../wave/config";
+import type { ColorStop } from "../wave/config";
 
 /**
  * A CSS-gradient-style stop editor: a bar with one draggable dot per colour stop.
@@ -6,7 +6,7 @@ import type { WaveConfig, ColorStop } from "../wave/config";
  * transition); drag one past another to reorder. Click a dot to select it and
  * recolour it; double-click the bar to add a stop, double-click a dot to remove.
  *
- * It mutates `config.palette` (ColorStop[]) in place and calls `hooks.onChange`
+ * It mutates the supplied ColorStop[] in place and calls `hooks.onChange`
  * so the renderer re-uploads the gradient. Stop order in the array is irrelevant
  * — the renderer/shader sort by position.
  */
@@ -49,7 +49,7 @@ export class GradientEditor {
 
   constructor(
     parent: HTMLElement,
-    private readonly config: WaveConfig,
+    private readonly getStops: () => ColorStop[],
     private readonly hooks: GradientEditorHooks,
   ) {
     if (!document.getElementById(STYLE_ID)) {
@@ -89,7 +89,11 @@ export class GradientEditor {
     this.root.remove();
   }
 
-  /** Re-read config.palette and repaint (after an external change, e.g. randomize). */
+  get element(): HTMLElement {
+    return this.root;
+  }
+
+  /** Re-read the supplied stops and repaint after an external change. */
   refresh(): void {
     this.selected = Math.max(0, Math.min(this.selected, this.stops.length - 1));
     this.rebuildHandles();
@@ -102,8 +106,12 @@ export class GradientEditor {
     this.root.style.pointerEvents = on ? "" : "none";
   }
 
+  setVisible(on: boolean): void {
+    this.root.style.display = on ? "" : "none";
+  }
+
   private get stops(): ColorStop[] {
-    return this.config.palette;
+    return this.getStops();
   }
 
   /** (Re)create the handle elements — only on init / add / remove. */
