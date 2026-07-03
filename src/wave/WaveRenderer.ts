@@ -815,62 +815,38 @@ export class WaveRenderer {
     const matte = new THREE.Color(this.config.background);
     this.renderer.setClearColor(matte, 1);
     if (this.config.backgroundMode === "color") {
-      this.clearBackgroundVideo();
-      this.backgroundTexture?.dispose();
-      this.backgroundTexture = undefined;
-      this.backgroundSig = "";
-      this.scene.background = matte;
+      this.applyColorBackground(matte);
       return;
     }
-
     // Live video is redrawn every frame, so cap its staging canvas near 1080p. Still images
     // and procedural maps retain the full 4K-capable background texture path.
     const { width, height } = this.backgroundCanvasSize(
       this.config.backgroundVideoUrl ? 2048 : 4096,
     );
-    if (this.config.backgroundMode === "gradient") {
-      this.clearBackgroundVideo();
-      const gradType = this.config.backgroundGradientType;
-      if (gradType === "mesh") {
-        const pts = this.config.backgroundMeshPoints ?? [];
-        const softness = this.config.backgroundMeshSoftness ?? 0.62;
-        const ptSig = pts
-          .map((p) => `${p.color}@${p.x.toFixed(3)},${p.y.toFixed(3)},${p.influence.toFixed(3)}`)
-          .join(",");
-        const sig = ["mesh", softness.toFixed(3), ptSig, width, height].join("|");
-        if (sig !== this.backgroundSig || !this.backgroundTexture) {
-          const canvas = buildBackgroundMeshCanvas(pts, softness, width, height);
-          this.backgroundTexture?.dispose();
-          this.backgroundTexture = canvasToTexture(canvas);
-          this.backgroundSig = sig;
-        }
-        this.scene.background = this.backgroundTexture;
-        return;
-      }
-      const source = this.config.backgroundGradientSource ?? "stops";
-      const def = PALETTE_MAPS[source];
-      const stops =
-        source !== "stops" && def?.kind === "gradient" && def.stops
-          ? def.stops
-          : this.config.backgroundPalette;
-      const stopSig = stops.map((stop) => `${stop.color}@${stop.pos.toFixed(3)}`).join(",");
-      const sig = [
-        "gradient",
-        source,
-        gradType,
-        this.config.backgroundGradientAngle,
-        stopSig,
-        width,
-        height,
-      ].join("|");
+    if (this.config.backgroundMode === "gradient") this.applyGradientBackground(width, height);
+    else this.applyImageBackground(matte, width, height);
+  }
+
+  private applyColorBackground(matte: THREE.Color): void {
+    this.clearBackgroundVideo();
+    this.backgroundTexture?.dispose();
+    this.backgroundTexture = undefined;
+    this.backgroundSig = "";
+    this.scene.background = matte;
+  }
+
+  private applyGradientBackground(width: number, height: number): void {
+    this.clearBackgroundVideo();
+    const gradType = this.config.backgroundGradientType;
+    if (gradType === "mesh") {
+      const pts = this.config.backgroundMeshPoints ?? [];
+      const softness = this.config.backgroundMeshSoftness ?? 0.62;
+      const ptSig = pts
+        .map((p) => `${p.color}@${p.x.toFixed(3)},${p.y.toFixed(3)},${p.influence.toFixed(3)}`)
+        .join(",");
+      const sig = ["mesh", softness.toFixed(3), ptSig, width, height].join("|");
       if (sig !== this.backgroundSig || !this.backgroundTexture) {
-        const canvas = buildBackgroundGradientCanvas({
-          stops,
-          type: gradType,
-          angle: this.config.backgroundGradientAngle,
-          width,
-          height,
-        });
+        const canvas = buildBackgroundMeshCanvas(pts, softness, width, height);
         this.backgroundTexture?.dispose();
         this.backgroundTexture = canvasToTexture(canvas);
         this.backgroundSig = sig;
@@ -878,7 +854,40 @@ export class WaveRenderer {
       this.scene.background = this.backgroundTexture;
       return;
     }
+    const source = this.config.backgroundGradientSource ?? "stops";
+    const def = PALETTE_MAPS[source];
+    const stops =
+      source !== "stops" && def?.kind === "gradient" && def.stops
+        ? def.stops
+        : this.config.backgroundPalette;
+    const stopSig = stops.map((stop) => `${stop.color}@${stop.pos.toFixed(3)}`).join(",");
+    const sig = [
+      "gradient",
+      source,
+      gradType,
+      this.config.backgroundGradientAngle,
+      stopSig,
+      width,
+      height,
+    ].join("|");
+    if (sig !== this.backgroundSig || !this.backgroundTexture) {
+      const canvas = buildBackgroundGradientCanvas({
+        stops,
+        type: gradType,
+        angle: this.config.backgroundGradientAngle,
+        width,
+        height,
+      });
+      this.backgroundTexture?.dispose();
+      this.backgroundTexture = canvasToTexture(canvas);
+      this.backgroundSig = sig;
+    }
+    this.scene.background = this.backgroundTexture;
+  }
 
+  /** Image mode: a live video, a user-loaded image, or a built-in map. `matte` shows while an
+   *  async source is still loading. */
+  private applyImageBackground(matte: THREE.Color, width: number, height: number): void {
     const fit = this.config.backgroundImageFit ?? "cover";
     const zoom = this.config.backgroundImageZoom ?? 1;
     const position = this.config.backgroundImagePosition ?? { x: 0, y: 0 };

@@ -102,6 +102,15 @@ export interface PanelHooks {
  * geometry, and wave-count also rebuilds the panel.
  */
 type FolderApi = ReturnType<Pane["addFolder"]>;
+type MkFolder = (title: string, expanded: boolean) => FolderApi;
+type RandomBtn = (folder: FolderApi, fn: (c: StudioConfig) => void, after?: () => void) => void;
+type VecRows = (
+  folder: FolderApi,
+  obj: object,
+  label: string,
+  opts: { min?: number; max?: number; step?: number },
+  axisLabels?: [string, string, string],
+) => void;
 
 export class ControlPanel {
   private pane!: Pane;
@@ -123,6 +132,14 @@ export class ControlPanel {
    *  panel rebuild (e.g. on wave-count change) doesn't reset them. */
   private foldState: Record<string, boolean> = {};
   private folders: Array<{ title: string; api: FolderApi }> = [];
+  /** Guards the camera two-way sync: refresh() re-emits 'change' for updated bindings, and
+   *  without the guard orbiting writes camera state -> refresh re-fires the slider's change ->
+   *  the camera moves again -> a feedback loop that makes the view jump. */
+  private camSyncing = false;
+  /** Orbit-style camera proxy shown in the Camera folder, two-way synced with the live camera.
+   *  The camera is orthographic, so the framing knob is `zoom` (not fov); `distance` stays
+   *  internal (orbit positioning only - it doesn't change ortho size). */
+  private readonly camP = { azimuth: 0, elevation: 0, distance: 5000, panX: 0, panY: 0, zoom: 1 };
   private searchQuery = "";
   private syncingOutput = false;
   /** Name of the last-applied preset, shown in the Global → preset dropdown. Persists
@@ -256,314 +273,149 @@ export class ControlPanel {
     setTimeout(() => this.rebuildPanel(), 0);
   };
 
-  private rebuildPanel(): void {
-    // Remember which folders are open so the rebuild doesn't reset them.
-    for (const f of this.folders) this.foldState[f.title] = f.api.expanded;
-    // Disposing + recreating the pane resets #panel's scroll to the top, which yanks the view
-    // away from the section being edited (e.g. a wave's 🎲, a drag-in-3D toggle, or any add/remove that
-    // rebuilds). Capture the scroll offset and restore it — synchronously, then again next frame so
-    // async editor/thumbnail layout (per-wave GradientEditor/PaletteDropdown) can't clobber it.
-    const scrollTop = this.container.scrollTop;
-    this.disposeEditor();
-    this.pane.dispose();
-    this.build();
-    this.container.scrollTop = scrollTop;
-    requestAnimationFrame(() => {
-      this.container.scrollTop = scrollTop;
-    });
-  }
-
-  private build(): void {
-    const cfg = this.config;
-    // The renderer already canonicalizes any config via ensureStudioConfig; run the scene + wave
-    // normalizers here too (idempotent) so the panel is robust even if built before the renderer.
-    ensureSceneDefaults(cfg);
-    cfg.waves.forEach(normalizeWave);
-    const pane = new Pane({ container: this.container, title: "Wave Studio" });
-    this.pane = pane;
-
-    // Wave Studio logo to the left of the collapsable's title. Tweakpane centres the root title,
-    // so switch the title bar to a left-aligned flex row (the collapse marker stays absolute-right).
-    const titleBar = this.container.querySelector<HTMLElement>(".tp-rotv_b");
-    const titleText = titleBar?.querySelector<HTMLElement>(".tp-rotv_t");
-    if (titleBar && titleText && !titleBar.querySelector(".wv-logo")) {
-      titleBar.style.display = "flex";
-      titleBar.style.alignItems = "center";
-      titleBar.style.paddingLeft = "10px";
-      titleText.style.flex = "1 1 auto";
-      titleText.style.width = "auto";
-      titleText.style.textAlign = "left";
-      const logo = document.createElement("img");
-      logo.className = "wv-logo";
-      logo.src = waveStudioLogoUrl;
-      logo.alt = "";
-      logo.setAttribute("aria-hidden", "true");
-      logo.style.cssText =
-        "width:18px;height:18px;margin-right:8px;flex:0 0 auto;object-fit:contain;";
-      titleBar.insertBefore(logo, titleText);
-    }
-
-    // Search box to filter the many knobs by label/section name. Created here but mounted at the
-    // TOP of the pane content at the end of build() — so it sits under the "Wave Studio" title and
-    // collapses with the pane. (Inserting it now would sink below the folders, since Tweakpane
-    // appends each folder after any custom node already present.)
-    const search = document.createElement("input");
-    search.type = "search";
-    search.placeholder = "search controls…";
-    search.className = "wv-search";
-    search.value = this.searchQuery;
-    search.style.cssText =
-      "width:100%;box-sizing:border-box;margin:2px 0 8px;padding:6px 9px;border-radius:5px;outline:none;" +
-      "font:12px ui-sans-serif,system-ui,-apple-system,sans-serif;color:#d6d7db;" +
-      "background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.14);";
-    search.addEventListener("input", () => {
-      this.searchQuery = search.value;
-      this.applyFilter();
-    });
-    const paneContent = this.container.querySelector(".tp-rotv_c") ?? this.container;
-    // Keep sliders in sync while a light is dragged via its 3D gizmo, or while the
-    // camera is moved via orbit/zoom/pan. Tweakpane's refresh() re-emits 'change' for
-    // any value that changed, so we guard with `syncing`: without it, orbiting writes
-    // cameraDistance → refresh re-fires the slider's change → setCameraDistance dollies
-    // the camera → another orbit change → a feedback loop that makes the view jump.
-    let syncing = false;
-    // Camera proxy: orbit-style values shown in the Camera folder, kept in two-way sync with
-    // the live camera. The camera is orthographic, so the framing knob is `zoom` (not
-    // fov); `distance` stays internal (orbit positioning only — it doesn't change ortho size).
-    const camP = {
-      azimuth: 0,
-      elevation: 0,
-      distance: 5000,
-      panX: 0,
-      panY: 0,
-      zoom: cfg.cameraZoom ?? 1,
-    };
-    const syncCam = (): void => {
-      const o = this.renderer.getCameraOrbit();
-      camP.azimuth = roundTo(o.azimuth, 1);
-      camP.elevation = roundTo(o.elevation, 1);
-      camP.distance = o.distance;
-      camP.panX = roundTo(o.panX, 1);
-      camP.panY = roundTo(o.panY, 1);
-      camP.zoom = roundTo(this.renderer.getZoom(), 2);
-    };
-    syncCam();
-    const syncPanel = (): void => {
-      syncing = true;
-      syncCam();
-      pane.refresh();
-      syncing = false;
-    };
-    // Camera drags fire per pointermove, so they refresh only the Camera folder's bindings —
-    // a full pane.refresh() walks every binding in the panel (hundreds at high wave counts).
-    let camFolder: FolderApi | undefined;
-    const syncCameraPanel = (): void => {
-      syncing = true;
-      syncCam();
-      camFolder?.refresh();
-      syncing = false;
-    };
-    // Light & wave gizmo drags are undoable edits, so they mark the history dirty; camera
-    // orbit/zoom/pan is deliberately NOT undoable (view state), so onCameraChanged stays a plain
-    // panel sync. (onEdit is coalesced, so firing continuously during a drag is fine.)
-    this.renderer.onLightsChanged = () => {
-      syncPanel();
-      this.hooks.onEdit?.();
-    };
-    this.renderer.onCameraChanged = syncCameraPanel;
-    // A wave gizmo drag mutates the dragged wave's position/rotation — refresh the panel so
-    // that wave's Transform sliders track the drag live.
-    this.renderer.onWaveChanged = () => {
-      syncPanel();
-      this.hooks.onEdit?.();
-    };
-
-    const refresh = (): void => {
-      this.clearPresetIndicator(); // a manual edit means the config no longer matches a preset
-      this.renderer.refresh();
-      this.hooks.onEdit?.(); // record for undo/redo (coalesced into one entry per gesture)
-    };
-
-    // Top-level folder that remembers its expanded state across rebuilds.
-    type Folder = FolderApi;
-    this.folders = [];
-    const mkFolder = (title: string, expanded: boolean): Folder => {
-      const api = pane.addFolder({ title, expanded: this.foldState[title] ?? expanded });
-      this.folders.push({ title, api });
-      return api;
-    };
-
-    // Tweakpane's combined point widgets (x/y/z in one row) are fiddly, so split
-    // every Vec2/Vec3 into individual labelled 1-D sliders — one slider per axis.
-    const vec = (
-      folder: Folder,
-      obj: object,
-      label: string,
-      opts: { min?: number; max?: number; step?: number },
-      axisLabels: [string, string, string] = ["X", "Y", "Z"],
-    ): void => {
-      const rec = obj as Record<string, number>;
-      (["x", "y", "z"] as const).forEach((k, i) => {
-        if (!(k in rec)) return;
-        folder
-          .addBinding(rec, k, { label: `${label} ${axisLabels[i]}`, ...opts })
-          .on("change", refresh);
-      });
-    };
-
-    // A per-section "randomize" button: mutate only this section, then push to the
-    // renderer + refresh the sliders. `after` handles non-binding widgets (gradient
-    // editor) or camera reframing.
-    const randomBtn = (folder: Folder, fn: (c: StudioConfig) => void, after?: () => void): void => {
-      folder.addButton({ title: "🎲 randomize" }).on("click", () => {
-        fn(cfg);
-        refresh();
-        pane.refresh();
-        after?.();
-      });
-    };
-
-    // ---- Output ----
+  /** "Output" folder: export size/preset + GPU warning, image export, recording, embed export. */
+  private buildOutputFolder(pane: Pane, mkFolder: MkFolder): void {
     const outputSize = this.hooks.exportSize;
-    if (outputSize) {
-      const output = mkFolder("Output", true);
-      const warning = document.createElement("div");
-      warning.className = "wv-output-warning";
-      warning.setAttribute("role", "status");
-      const formatOptions: Record<string, string> = { Custom: CUSTOM_EXPORT_PRESET };
-      for (const [id, preset] of Object.entries(EXPORT_PRESETS)) {
-        const gpuWarning = exportGpuWarning(preset.width, preset.height);
-        const gpuLabel = gpuWarning ? ` · ⚠ ${gpuWarning.short}` : "";
-        formatOptions[`${preset.label} · ${preset.width}×${preset.height}${gpuLabel}`] = id;
-      }
-      const sizeBinding = output
-        .addBinding(outputSize, "preset", { label: "size", options: formatOptions })
-        .on("change", (ev) => {
-          if (this.syncingOutput) return;
-          this.syncingOutput = true;
-          try {
-            applyExportPreset(outputSize, String(ev.value));
-            pane.refresh();
-          } finally {
-            this.syncingOutput = false;
-          }
-          this.updateOutputWarning();
-          this.hooks.onExportSizeChange?.();
-        });
-      const lockBinding = output
-        .addBinding(outputSize, "lockAspectRatio", { label: "lock ratio" })
-        .on("change", (ev) => {
-          if (this.syncingOutput) return;
-          outputSize.lockAspectRatio = Boolean(ev.value);
-          if (outputSize.lockAspectRatio) captureExportAspectRatio(outputSize);
-        });
-      const setCustomSize = (dimension: "width" | "height", last: boolean): void => {
+    if (!outputSize) return;
+    const output = mkFolder("Output", true);
+    const warning = document.createElement("div");
+    warning.className = "wv-output-warning";
+    warning.setAttribute("role", "status");
+    const formatOptions: Record<string, string> = { Custom: CUSTOM_EXPORT_PRESET };
+    for (const [id, preset] of Object.entries(EXPORT_PRESETS)) {
+      const gpuWarning = exportGpuWarning(preset.width, preset.height);
+      const gpuLabel = gpuWarning ? ` · ⚠ ${gpuWarning.short}` : "";
+      formatOptions[`${preset.label} · ${preset.width}×${preset.height}${gpuLabel}`] = id;
+    }
+    const sizeBinding = output
+      .addBinding(outputSize, "preset", { label: "size", options: formatOptions })
+      .on("change", (ev) => {
         if (this.syncingOutput) return;
-        applyCustomExportDimension(outputSize, dimension, outputSize[dimension]);
         this.syncingOutput = true;
         try {
+          applyExportPreset(outputSize, String(ev.value));
           pane.refresh();
         } finally {
           this.syncingOutput = false;
         }
-        if (!last) return;
         this.updateOutputWarning();
         this.hooks.onExportSizeChange?.();
-      };
-      const widthBinding = output
-        .addBinding(outputSize, "width", { min: 64, max: 8192, step: 1, label: "width px" })
-        .on("change", (ev) => setCustomSize("width", ev.last));
-      const heightBinding = output
-        .addBinding(outputSize, "height", { min: 64, max: 8192, step: 1, label: "height px" })
-        .on("change", (ev) => setCustomSize("height", ev.last));
-      // Reveal the export-area readout while any size control is hovered or focused, so the size
-      // shows live as you adjust it (a short leave-delay avoids flicker moving between the rows).
-      let sizeHideTimer = 0;
-      const activateSize = (): void => {
-        window.clearTimeout(sizeHideTimer);
-        this.hooks.onSizeControlsActive?.(true);
-      };
-      const deactivateSize = (): void => {
-        window.clearTimeout(sizeHideTimer);
-        sizeHideTimer = window.setTimeout(() => this.hooks.onSizeControlsActive?.(false), 120);
-      };
-      for (const bind of [sizeBinding, lockBinding, widthBinding, heightBinding]) {
-        bind.element.addEventListener("pointerenter", activateSize);
-        bind.element.addEventListener("pointerleave", deactivateSize);
-        bind.element.addEventListener("focusin", activateSize);
-        bind.element.addEventListener("focusout", deactivateSize);
+      });
+    const lockBinding = output
+      .addBinding(outputSize, "lockAspectRatio", { label: "lock ratio" })
+      .on("change", (ev) => {
+        if (this.syncingOutput) return;
+        outputSize.lockAspectRatio = Boolean(ev.value);
+        if (outputSize.lockAspectRatio) captureExportAspectRatio(outputSize);
+      });
+    const setCustomSize = (dimension: "width" | "height", last: boolean): void => {
+      if (this.syncingOutput) return;
+      applyCustomExportDimension(outputSize, dimension, outputSize[dimension]);
+      this.syncingOutput = true;
+      try {
+        pane.refresh();
+      } finally {
+        this.syncingOutput = false;
       }
-      const outputContent =
-        (output.element.querySelector(".tp-fldv_c") as HTMLElement | null) ?? output.element;
-      outputContent.appendChild(warning);
+      if (!last) return;
       this.updateOutputWarning();
-      const imageOptions: Record<string, ImageFormat> = {};
-      for (const [format, definition] of Object.entries(IMAGE_FORMATS) as Array<
-        [ImageFormat, (typeof IMAGE_FORMATS)[ImageFormat]]
-      >) {
-        if (canExportImageFormat(format)) imageOptions[definition.label] = format;
-      }
-      // Fall back if the preferred default (WebP) can't be encoded here (e.g. older Safari).
-      if (!Object.values(imageOptions).includes(this.state.imageFormat)) {
-        this.state.imageFormat = Object.values(imageOptions)[0] ?? "png";
-      }
-      const imageFormatBinding = output.addBinding(this.state, "imageFormat", {
-        label: "format",
-        options: imageOptions,
-      });
-      const imageQualityBinding = output.addBinding(this.state, "imageQuality", {
-        label: "quality",
-        min: 0.1,
-        max: 1,
-        step: 0.01,
-      });
-      const exportImageBtn = output.addButton({ title: "📷 Export image (.png)" });
-      const refreshImageControls = (): void => {
-        const definition = IMAGE_FORMATS[this.state.imageFormat];
-        imageQualityBinding.hidden = !definition.lossy;
-        exportImageBtn.title = `📷 Export image (.${definition.extension})`;
-        this.applyIcons();
-      };
-      imageFormatBinding.on("change", refreshImageControls);
-      exportImageBtn.on("click", () =>
-        this.hooks.onExportImage?.(this.state.imageFormat, this.state.imageQuality),
-      );
-      refreshImageControls();
-      // Boxed like the recording group: format + Export on one line, the (lossy-only) quality
-      // slider stacked beneath.
-      this.groupRows(
-        "IMAGE",
-        [imageFormatBinding.element, exportImageBtn.element],
-        [imageQualityBinding.element],
-      );
-      // Recording controls, boxed into one group. Format picker: WebM always; MP4 if the
-      // browser can record it (Chromium/Safari — Firefox is WebM-only); GIF always (we encode
-      // frames ourselves). The recorder falls back to WebM if a MediaRecorder container fails.
-      const videoOptions: Record<string, string> = { WebM: "webm" };
-      if (canRecordFormat("mp4")) videoOptions["MP4"] = "mp4";
-      videoOptions["GIF"] = "gif";
-      // Fall back to WebM if the preferred default (MP4) isn't recordable here (e.g. Firefox).
-      if (!Object.values(videoOptions).includes(this.state.recordFormat)) {
-        this.state.recordFormat = "webm";
-      }
-      const formatBinding = output
-        .addBinding(this.state, "recordFormat", { label: "format", options: videoOptions })
-        .on("change", () => {
-          if (this.recordBtn && !this.state.recording) {
-            this.recordBtn.title = this.recordTitle();
-            this.applyIcons();
-          }
-        });
-      this.recordBtn = output.addButton({ title: this.recordTitle() });
-      this.recordBtn.on("click", () => this.hooks.onToggleRecord?.(this.state.recordFormat));
-      this.groupRows("RECORD", [formatBinding.element, this.recordBtn.element]);
-      // Standalone HTML page export goes last: image, then video, then embed.
-      output
-        .addButton({ title: "🔗 Export embed (.html)" })
-        .on("click", () => this.hooks.onExportEmbed?.());
+      this.hooks.onExportSizeChange?.();
+    };
+    const widthBinding = output
+      .addBinding(outputSize, "width", { min: 64, max: 8192, step: 1, label: "width px" })
+      .on("change", (ev) => setCustomSize("width", ev.last));
+    const heightBinding = output
+      .addBinding(outputSize, "height", { min: 64, max: 8192, step: 1, label: "height px" })
+      .on("change", (ev) => setCustomSize("height", ev.last));
+    // Reveal the export-area readout while any size control is hovered or focused, so the size
+    // shows live as you adjust it (a short leave-delay avoids flicker moving between the rows).
+    let sizeHideTimer = 0;
+    const activateSize = (): void => {
+      window.clearTimeout(sizeHideTimer);
+      this.hooks.onSizeControlsActive?.(true);
+    };
+    const deactivateSize = (): void => {
+      window.clearTimeout(sizeHideTimer);
+      sizeHideTimer = window.setTimeout(() => this.hooks.onSizeControlsActive?.(false), 120);
+    };
+    for (const bind of [sizeBinding, lockBinding, widthBinding, heightBinding]) {
+      bind.element.addEventListener("pointerenter", activateSize);
+      bind.element.addEventListener("pointerleave", deactivateSize);
+      bind.element.addEventListener("focusin", activateSize);
+      bind.element.addEventListener("focusout", deactivateSize);
     }
+    const outputContent =
+      (output.element.querySelector(".tp-fldv_c") as HTMLElement | null) ?? output.element;
+    outputContent.appendChild(warning);
+    this.updateOutputWarning();
+    const imageOptions: Record<string, ImageFormat> = {};
+    for (const [format, definition] of Object.entries(IMAGE_FORMATS) as Array<
+      [ImageFormat, (typeof IMAGE_FORMATS)[ImageFormat]]
+    >) {
+      if (canExportImageFormat(format)) imageOptions[definition.label] = format;
+    }
+    // Fall back if the preferred default (WebP) can't be encoded here (e.g. older Safari).
+    if (!Object.values(imageOptions).includes(this.state.imageFormat)) {
+      this.state.imageFormat = Object.values(imageOptions)[0] ?? "png";
+    }
+    const imageFormatBinding = output.addBinding(this.state, "imageFormat", {
+      label: "format",
+      options: imageOptions,
+    });
+    const imageQualityBinding = output.addBinding(this.state, "imageQuality", {
+      label: "quality",
+      min: 0.1,
+      max: 1,
+      step: 0.01,
+    });
+    const exportImageBtn = output.addButton({ title: "📷 Export image (.png)" });
+    const refreshImageControls = (): void => {
+      const definition = IMAGE_FORMATS[this.state.imageFormat];
+      imageQualityBinding.hidden = !definition.lossy;
+      exportImageBtn.title = `📷 Export image (.${definition.extension})`;
+      this.applyIcons();
+    };
+    imageFormatBinding.on("change", refreshImageControls);
+    exportImageBtn.on("click", () =>
+      this.hooks.onExportImage?.(this.state.imageFormat, this.state.imageQuality),
+    );
+    refreshImageControls();
+    // Boxed like the recording group: format + Export on one line, the (lossy-only) quality
+    // slider stacked beneath.
+    this.groupRows(
+      "IMAGE",
+      [imageFormatBinding.element, exportImageBtn.element],
+      [imageQualityBinding.element],
+    );
+    // Recording controls, boxed into one group. Format picker: WebM always; MP4 if the
+    // browser can record it (Chromium/Safari — Firefox is WebM-only); GIF always (we encode
+    // frames ourselves). The recorder falls back to WebM if a MediaRecorder container fails.
+    const videoOptions: Record<string, string> = { WebM: "webm" };
+    if (canRecordFormat("mp4")) videoOptions["MP4"] = "mp4";
+    videoOptions["GIF"] = "gif";
+    // Fall back to WebM if the preferred default (MP4) isn't recordable here (e.g. Firefox).
+    if (!Object.values(videoOptions).includes(this.state.recordFormat)) {
+      this.state.recordFormat = "webm";
+    }
+    const formatBinding = output
+      .addBinding(this.state, "recordFormat", { label: "format", options: videoOptions })
+      .on("change", () => {
+        if (this.recordBtn && !this.state.recording) {
+          this.recordBtn.title = this.recordTitle();
+          this.applyIcons();
+        }
+      });
+    this.recordBtn = output.addButton({ title: this.recordTitle() });
+    this.recordBtn.on("click", () => this.hooks.onToggleRecord?.(this.state.recordFormat));
+    this.groupRows("RECORD", [formatBinding.element, this.recordBtn.element]);
+    // Standalone HTML page export goes last: image, then video, then embed.
+    output
+      .addButton({ title: "🔗 Export embed (.html)" })
+      .on("click", () => this.hooks.onExportEmbed?.());
+  }
 
-    // ---- Actions ----
+  /** "Actions" folder: randomize/reset/save/load/share. */
+  private buildActionsFolder(mkFolder: MkFolder): void {
     const actions = mkFolder("Actions", true);
     actions.addButton({ title: "🎲 Randomize All" }).on("click", () => this.hooks.onRandomize?.());
     actions.addButton({ title: "🔄 Reset to default" }).on("click", () => this.hooks.onReset?.());
@@ -579,8 +431,15 @@ export class ControlPanel {
       linkBtn.title = ok === false ? "✓ URL updated (copy it)" : "✓ Link copied!";
       setTimeout(() => (linkBtn.title = "🔗 Copy share link"), 1600);
     });
+  }
 
-    // ---- Global ----
+  /** "Global" folder: preset picker, quality/DPR, playback, post fx, mirror. */
+  private buildGlobalFolder(
+    mkFolder: MkFolder,
+    randomBtn: RandomBtn,
+    cfg: StudioConfig,
+    refresh: () => void,
+  ): void {
     const g = mkFolder("Global", true);
     // Presets are whole-scene ("global") configs (colour, transform, twist, displacement AND
     // the matched per-section camera). "randomize" leads the folder; the preset picker sits
@@ -642,8 +501,16 @@ export class ControlPanel {
     const afterRandomize = randomizeEl?.nextElementSibling ?? null;
     gContent.insertBefore(presetCap, afterRandomize);
     gContent.insertBefore(this.presetDropdown.element, afterRandomize);
+  }
 
-    // ---- Background (solid colour, editable gradient, built-in map, or uploaded media) ----
+  /** "Background" folder: solid colour, editable gradient, built-in map, or uploaded media. */
+  private buildBackgroundFolder(
+    pane: Pane,
+    mkFolder: MkFolder,
+    randomBtn: RandomBtn,
+    cfg: StudioConfig,
+    refresh: () => void,
+  ): void {
     const bgF = mkFolder("Background", true);
     randomBtn(bgF, randomizeBackground, () => {
       this.backgroundGradientEditor?.refresh();
@@ -834,10 +701,12 @@ export class ControlPanel {
       this.backgroundMeshEditor?.refresh();
     };
     updateBackgroundControls();
+  }
 
-    // ---- Camera (orbit-style controls; two-way synced with mouse drag/zoom/pan) ----
+  /** "Camera" folder: orbit-style controls, two-way synced with mouse drag/zoom/pan. */
+  private buildCameraFolder(mkFolder: MkFolder, cfg: StudioConfig): FolderApi {
     const camF = mkFolder("Camera", true);
-    camFolder = camF;
+    const camP = this.camP;
     // Lead the section with the rig-minimap toggle (studio aid: a corner inset showing the
     // camera + lights).
     camF.addBinding(cfg, "showCameraRig", { label: "rig minimap" }).on("change", () => {
@@ -845,10 +714,11 @@ export class ControlPanel {
     });
     this.renderer.setCameraRig(cfg.showCameraRig);
     const onOrbit = (): void => {
-      if (!syncing) this.renderer.setCameraOrbit(camP.azimuth, camP.elevation, camP.distance);
+      if (!this.camSyncing)
+        this.renderer.setCameraOrbit(camP.azimuth, camP.elevation, camP.distance);
     };
     const onPan = (): void => {
-      if (!syncing) this.renderer.setCameraTarget(camP.panX, camP.panY);
+      if (!this.camSyncing) this.renderer.setCameraTarget(camP.panX, camP.panY);
     };
     camF
       .addBinding(camP, "azimuth", { min: -180, max: 180, step: 1, label: "azimuth°" })
@@ -860,7 +730,7 @@ export class ControlPanel {
     camF
       .addBinding(camP, "zoom", { min: 0.1, max: 6, step: 0.05, label: "zoom" })
       .on("change", () => {
-        if (!syncing) this.renderer.setZoom(camP.zoom);
+        if (!this.camSyncing) this.renderer.setZoom(camP.zoom);
       });
     camF
       .addBinding(camP, "panX", { min: -2000, max: 2000, step: 10, label: "pan X" })
@@ -870,8 +740,17 @@ export class ControlPanel {
       .on("change", onPan);
     camF.addButton({ title: "Fit to screen" }).on("click", () => this.renderer.fitToView());
     camF.addButton({ title: "Reset camera" }).on("click", () => this.renderer.resetView());
+    return camF;
+  }
 
-    // ---- Lights (positionable; add/remove) ----
+  /** "Lights" folder: ambient, drag-in-3D toggle, per-light controls, add/remove. */
+  private buildLightsFolder(
+    mkFolder: MkFolder,
+    randomBtn: RandomBtn,
+    vec: VecRows,
+    cfg: StudioConfig,
+    refresh: () => void,
+  ): void {
     const lightsF = mkFolder("Lights", true);
     randomBtn(lightsF, randomizeLights);
     lightsF.addBinding(cfg, "ambient", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
@@ -911,6 +790,168 @@ export class ControlPanel {
         setTimeout(() => this.rebuildPanel(), 0);
       });
     }
+  }
+
+  private rebuildPanel(): void {
+    // Remember which folders are open so the rebuild doesn't reset them.
+    for (const f of this.folders) this.foldState[f.title] = f.api.expanded;
+    // Disposing + recreating the pane resets #panel's scroll to the top, which yanks the view
+    // away from the section being edited (e.g. a wave's 🎲, a drag-in-3D toggle, or any add/remove that
+    // rebuilds). Capture the scroll offset and restore it — synchronously, then again next frame so
+    // async editor/thumbnail layout (per-wave GradientEditor/PaletteDropdown) can't clobber it.
+    const scrollTop = this.container.scrollTop;
+    this.disposeEditor();
+    this.pane.dispose();
+    this.build();
+    this.container.scrollTop = scrollTop;
+    requestAnimationFrame(() => {
+      this.container.scrollTop = scrollTop;
+    });
+  }
+
+  private build(): void {
+    const cfg = this.config;
+    // The renderer already canonicalizes any config via ensureStudioConfig; run the scene + wave
+    // normalizers here too (idempotent) so the panel is robust even if built before the renderer.
+    ensureSceneDefaults(cfg);
+    cfg.waves.forEach(normalizeWave);
+    const pane = new Pane({ container: this.container, title: "Wave Studio" });
+    this.pane = pane;
+
+    // Wave Studio logo to the left of the collapsable's title. Tweakpane centres the root title,
+    // so switch the title bar to a left-aligned flex row (the collapse marker stays absolute-right).
+    const titleBar = this.container.querySelector<HTMLElement>(".tp-rotv_b");
+    const titleText = titleBar?.querySelector<HTMLElement>(".tp-rotv_t");
+    if (titleBar && titleText && !titleBar.querySelector(".wv-logo")) {
+      titleBar.style.display = "flex";
+      titleBar.style.alignItems = "center";
+      titleBar.style.paddingLeft = "10px";
+      titleText.style.flex = "1 1 auto";
+      titleText.style.width = "auto";
+      titleText.style.textAlign = "left";
+      const logo = document.createElement("img");
+      logo.className = "wv-logo";
+      logo.src = waveStudioLogoUrl;
+      logo.alt = "";
+      logo.setAttribute("aria-hidden", "true");
+      logo.style.cssText =
+        "width:18px;height:18px;margin-right:8px;flex:0 0 auto;object-fit:contain;";
+      titleBar.insertBefore(logo, titleText);
+    }
+
+    // Search box to filter the many knobs by label/section name. Created here but mounted at the
+    // TOP of the pane content at the end of build() — so it sits under the "Wave Studio" title and
+    // collapses with the pane. (Inserting it now would sink below the folders, since Tweakpane
+    // appends each folder after any custom node already present.)
+    const search = document.createElement("input");
+    search.type = "search";
+    search.placeholder = "search controls…";
+    search.className = "wv-search";
+    search.value = this.searchQuery;
+    search.style.cssText =
+      "width:100%;box-sizing:border-box;margin:2px 0 8px;padding:6px 9px;border-radius:5px;outline:none;" +
+      "font:12px ui-sans-serif,system-ui,-apple-system,sans-serif;color:#d6d7db;" +
+      "background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.14);";
+    search.addEventListener("input", () => {
+      this.searchQuery = search.value;
+      this.applyFilter();
+    });
+    const paneContent = this.container.querySelector(".tp-rotv_c") ?? this.container;
+    // Keep sliders in sync while a light is dragged via its 3D gizmo, or while the camera is
+    // moved via orbit/zoom/pan (guarded by this.camSyncing; see the field's doc).
+    const camP = this.camP;
+    camP.zoom = cfg.cameraZoom ?? 1;
+    const syncCam = (): void => {
+      const o = this.renderer.getCameraOrbit();
+      camP.azimuth = roundTo(o.azimuth, 1);
+      camP.elevation = roundTo(o.elevation, 1);
+      camP.distance = o.distance;
+      camP.panX = roundTo(o.panX, 1);
+      camP.panY = roundTo(o.panY, 1);
+      camP.zoom = roundTo(this.renderer.getZoom(), 2);
+    };
+    syncCam();
+    const syncPanel = (): void => {
+      this.camSyncing = true;
+      syncCam();
+      pane.refresh();
+      this.camSyncing = false;
+    };
+    // Camera drags fire per pointermove, so they refresh only the Camera folder's bindings —
+    // a full pane.refresh() walks every binding in the panel (hundreds at high wave counts).
+    let camFolder: FolderApi | undefined;
+    const syncCameraPanel = (): void => {
+      this.camSyncing = true;
+      syncCam();
+      camFolder?.refresh();
+      this.camSyncing = false;
+    };
+    // Light & wave gizmo drags are undoable edits, so they mark the history dirty; camera
+    // orbit/zoom/pan is deliberately NOT undoable (view state), so onCameraChanged stays a plain
+    // panel sync. (onEdit is coalesced, so firing continuously during a drag is fine.)
+    this.renderer.onLightsChanged = () => {
+      syncPanel();
+      this.hooks.onEdit?.();
+    };
+    this.renderer.onCameraChanged = syncCameraPanel;
+    // A wave gizmo drag mutates the dragged wave's position/rotation — refresh the panel so
+    // that wave's Transform sliders track the drag live.
+    this.renderer.onWaveChanged = () => {
+      syncPanel();
+      this.hooks.onEdit?.();
+    };
+
+    const refresh = (): void => {
+      this.clearPresetIndicator(); // a manual edit means the config no longer matches a preset
+      this.renderer.refresh();
+      this.hooks.onEdit?.(); // record for undo/redo (coalesced into one entry per gesture)
+    };
+
+    // Top-level folder that remembers its expanded state across rebuilds.
+    type Folder = FolderApi;
+    this.folders = [];
+    const mkFolder = (title: string, expanded: boolean): Folder => {
+      const api = pane.addFolder({ title, expanded: this.foldState[title] ?? expanded });
+      this.folders.push({ title, api });
+      return api;
+    };
+
+    // Tweakpane's combined point widgets (x/y/z in one row) are fiddly, so split
+    // every Vec2/Vec3 into individual labelled 1-D sliders — one slider per axis.
+    const vec = (
+      folder: Folder,
+      obj: object,
+      label: string,
+      opts: { min?: number; max?: number; step?: number },
+      axisLabels: [string, string, string] = ["X", "Y", "Z"],
+    ): void => {
+      const rec = obj as Record<string, number>;
+      (["x", "y", "z"] as const).forEach((k, i) => {
+        if (!(k in rec)) return;
+        folder
+          .addBinding(rec, k, { label: `${label} ${axisLabels[i]}`, ...opts })
+          .on("change", refresh);
+      });
+    };
+
+    // A per-section "randomize" button: mutate only this section, then push to the
+    // renderer + refresh the sliders. `after` handles non-binding widgets (gradient
+    // editor) or camera reframing.
+    const randomBtn = (folder: Folder, fn: (c: StudioConfig) => void, after?: () => void): void => {
+      folder.addButton({ title: "🎲 randomize" }).on("click", () => {
+        fn(cfg);
+        refresh();
+        pane.refresh();
+        after?.();
+      });
+    };
+
+    this.buildOutputFolder(pane, mkFolder);
+    this.buildActionsFolder(mkFolder);
+    this.buildGlobalFolder(mkFolder, randomBtn, cfg, refresh);
+    this.buildBackgroundFolder(pane, mkFolder, randomBtn, cfg, refresh);
+    camFolder = this.buildCameraFolder(mkFolder, cfg);
+    this.buildLightsFolder(mkFolder, randomBtn, vec, cfg, refresh);
 
     // ---- Waves ----
     // Each WaveConfig is a COMPLETE wave: its own colour/gradient, finish, displacement, twist,
