@@ -48,6 +48,8 @@ export class MeshGradientEditor {
   private handles: HTMLButtonElement[] = [];
   private selected = 0;
   private dragging = false;
+  private rafId = 0;
+  private fieldCanvas?: HTMLCanvasElement;
 
   constructor(
     parent: HTMLElement,
@@ -77,8 +79,7 @@ export class MeshGradientEditor {
       const point = this.points[this.selected];
       if (!point) return;
       point.color = this.colorInput.value;
-      this.paint();
-      this.hooks.onChange();
+      this.schedulePaint();
     });
     this.influenceInput = document.createElement("input");
     this.influenceInput.type = "range";
@@ -90,8 +91,7 @@ export class MeshGradientEditor {
       const point = this.points[this.selected];
       if (!point) return;
       point.influence = Number(this.influenceInput.value);
-      this.paint();
-      this.hooks.onChange();
+      this.schedulePaint();
     });
     this.posLabel = div("mge-pos");
     this.addBtn = button("+", () => this.addPoint(), "Add mesh point");
@@ -109,6 +109,7 @@ export class MeshGradientEditor {
   }
 
   destroy(): void {
+    cancelAnimationFrame(this.rafId);
     this.root.remove();
   }
 
@@ -175,8 +176,22 @@ export class MeshGradientEditor {
     const context = this.canvas.getContext("2d");
     if (!context) return;
     // Shared with the background renderer so the preview and the actual background can't drift.
+    // The field renders at half resolution and upscales: renderMeshGradient is O(w·h·points) on
+    // the CPU and runs during handle drags, and the mesh field is smooth enough that the
+    // upscale is imperceptible at preview size.
     const { width, height } = this.canvas;
-    context.putImageData(renderMeshGradient(this.points, this.getSoftness(), width, height), 0, 0);
+    const fw = Math.max(1, width >> 1);
+    const fh = Math.max(1, height >> 1);
+    this.fieldCanvas ??= document.createElement("canvas");
+    if (this.fieldCanvas.width !== fw || this.fieldCanvas.height !== fh) {
+      this.fieldCanvas.width = fw;
+      this.fieldCanvas.height = fh;
+    }
+    this.fieldCanvas
+      .getContext("2d")
+      ?.putImageData(renderMeshGradient(this.points, this.getSoftness(), fw, fh), 0, 0);
+    context.imageSmoothingEnabled = true;
+    context.drawImage(this.fieldCanvas, 0, 0, width, height);
   }
 
   private pointFromEvent(event: PointerEvent | MouseEvent): { x: number; y: number } {
@@ -200,8 +215,18 @@ export class MeshGradientEditor {
     const point = this.points[index];
     if (!point) return;
     Object.assign(point, roundPoint(this.pointFromEvent(event)));
-    this.paint();
-    this.hooks.onChange();
+    this.schedulePaint();
+  }
+
+  /** Coalesce continuous-input updates (drags, colour/influence scrubs) to one CPU field
+   *  repaint + renderer refresh per frame — pointermove can fire far above 60 Hz. */
+  private schedulePaint(): void {
+    if (this.rafId) return;
+    this.rafId = requestAnimationFrame(() => {
+      this.rafId = 0;
+      this.paint();
+      this.hooks.onChange();
+    });
   }
 
   private onHandleUp(event: PointerEvent): void {

@@ -354,14 +354,23 @@ export class ControlPanel {
       pane.refresh();
       syncing = false;
     };
+    // Camera drags fire per pointermove, so they refresh only the Camera folder's bindings —
+    // a full pane.refresh() walks every binding in the panel (hundreds at high wave counts).
+    let camFolder: FolderApi | undefined;
+    const syncCameraPanel = (): void => {
+      syncing = true;
+      syncCam();
+      camFolder?.refresh();
+      syncing = false;
+    };
     // Light & wave gizmo drags are undoable edits, so they mark the history dirty; camera
     // orbit/zoom/pan is deliberately NOT undoable (view state), so onCameraChanged stays a plain
-    // syncPanel. (onEdit is coalesced, so firing continuously during a drag is fine.)
+    // panel sync. (onEdit is coalesced, so firing continuously during a drag is fine.)
     this.renderer.onLightsChanged = () => {
       syncPanel();
       this.hooks.onEdit?.();
     };
-    this.renderer.onCameraChanged = syncPanel;
+    this.renderer.onCameraChanged = syncCameraPanel;
     // A wave gizmo drag mutates the dragged wave's position/rotation — refresh the panel so
     // that wave's Transform sliders track the drag live.
     this.renderer.onWaveChanged = () => {
@@ -828,6 +837,7 @@ export class ControlPanel {
 
     // ---- Camera (orbit-style controls; two-way synced with mouse drag/zoom/pan) ----
     const camF = mkFolder("Camera", true);
+    camFolder = camF;
     // Lead the section with the rig-minimap toggle (studio aid: a corner inset showing the
     // camera + lights).
     camF.addBinding(cfg, "showCameraRig", { label: "rig minimap" }).on("change", () => {
@@ -948,10 +958,18 @@ export class ControlPanel {
       const gradF = sf.addFolder({ title: "Color & Gradient", expanded: true });
       const gradContent =
         (gradF.element.querySelector(".tp-fldv_c") as HTMLElement | null) ?? gradF.element;
+      let swatchRaf = 0;
       const gradientEditor = new GradientEditor(gradContent, () => wave.palette, {
         onChange: () => {
           refresh();
-          paletteDropdown.refresh();
+          // Coalesce the trigger-swatch rebuild (a 256×64 CPU palette render) to one per
+          // frame — stop drags fire onChange per pointermove.
+          if (!swatchRaf) {
+            swatchRaf = requestAnimationFrame(() => {
+              swatchRaf = 0;
+              paletteDropdown.refresh();
+            });
+          }
         },
         max: MAX_COLORS,
       });

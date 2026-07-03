@@ -155,8 +155,17 @@ function el(tag: string, cls: string, text?: string): HTMLElement {
 function swatch(canvas: HTMLCanvasElement | null): HTMLElement {
   const sw = el("div", "wv-pd-sw");
   if (canvas) {
-    sw.style.backgroundImage = `url(${canvas.toDataURL()})`;
-    sw.style.backgroundSize = "cover";
+    // Blit into a child canvas rather than toDataURL(): refresh() runs per input event during
+    // gradient-stop drags, and a synchronous PNG encode per swatch is the expensive part.
+    const copy = document.createElement("canvas");
+    copy.width = canvas.width;
+    copy.height = canvas.height;
+    copy.getContext("2d")?.drawImage(canvas, 0, 0);
+    copy.style.cssText =
+      "position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:inherit;";
+    sw.style.position = "relative";
+    sw.style.overflow = "hidden";
+    sw.appendChild(copy);
   } else {
     sw.style.background = "repeating-conic-gradient(#3a3a44 0 25%, #2a2a32 0 50%) 50%/10px 10px";
   }
