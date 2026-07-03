@@ -7,6 +7,7 @@ import { OutputResizeHandle } from "./ui/OutputResizeHandle";
 import { RecordingOverlay } from "./ui/RecordingOverlay";
 import { HistoryControls } from "./ui/HistoryControls";
 import { HistoryThumbnailer } from "./ui/historyThumbs";
+import { showToast, dismissToast } from "./ui/Toast";
 import { History } from "./history";
 import { generatePresetThumbnails } from "./ui/presetThumbs";
 import {
@@ -62,6 +63,23 @@ if (firstBoot) {
   );
 }
 
+// Keep the export frame clean: the dimensions bar (#capture-size) and the four resize handles stay
+// hidden, and flash in for a moment only when the export dimensions actually change (a corner drag,
+// a size preset, or a width/height edit). The handles additionally show while hovering the frame —
+// see the #stage:hover / #stage.controls-flash rules in the CSS. (The camera-controls hint moved out
+// to the history cluster, out of the way at bottom-left — see historyControls.addHelpButton below.)
+let exportInfoW = -1;
+let exportInfoH = -1;
+let exportInfoTimer = 0;
+function flashExportInfo(width: number, height: number): void {
+  if (width === exportInfoW && height === exportInfoH) return; // ignore no-op re-renders (window resize)
+  exportInfoW = width;
+  exportInfoH = height;
+  stage!.classList.add("controls-flash");
+  clearTimeout(exportInfoTimer);
+  exportInfoTimer = window.setTimeout(() => stage!.classList.remove("controls-flash"), 1800);
+}
+
 // The app's default wave (what loads on startup and on "Reset to default").
 const DEFAULT_PRESET = "Stripe Hero";
 const makeDefault = (): StudioConfig => PRESETS[DEFAULT_PRESET]();
@@ -87,6 +105,7 @@ function updateExportPresentation(refitPreview: boolean): void {
     `EXPORT AREA · ${width} × ${height} px · ${aspectRatioLabel(width, height)}` +
     " · IMAGE / VIDEO / EMBED" +
     (gpuWarning ? ` · ⚠ ${gpuWarning.short.toUpperCase()}` : "");
+  flashExportInfo(width, height); // briefly reveal the bar + resize handles when the size changes
 }
 
 function applyExportSize(): void {
@@ -117,10 +136,12 @@ const history = new History({
   onChange: () => historyControls.update(history.getState()),
 });
 const onEdit = (): void => {
+  dismissToast(); // a fresh edit supersedes a pending "undo clear"
   if (!applying.on) history.markDirty();
 };
 
 function applyConfig(next: StudioConfig, presetName = "—", record = true, label?: string): void {
+  dismissToast(); // preset / reset / randomize / import / undo / redo supersedes a pending "undo clear"
   // Normalize once, up front, so this module, the renderer, and the panel all share the same
   // canonical config object.
   if (record) history.flush(); // commit any pending manual edit as its own step first
@@ -154,6 +175,7 @@ const panel = new ControlPanel(panelEl, renderer, config, {
   },
   exportSize,
   onExportSizeChange: applyExportSize,
+  onSizeControlsActive: (active) => stage!.classList.toggle("size-adjusting", active),
   onExportImage: (format, quality) => {
     void exportImage(renderer, exportSize, format, config.transparentBackground, quality);
   },
@@ -211,8 +233,21 @@ const historyControls = new HistoryControls(workspace, {
   onUndo: doUndo,
   onRedo: doRedo,
   onJump: doJump,
+  // Wipe the timeline back to a single baseline — the current wave stays, undo/redo resets — but
+  // offer a few seconds to take it back via an Undo toast (any later edit invalidates it).
+  onClear: () => {
+    history.clear(config, panel.getPresetLabel());
+    showToast({
+      message: "History cleared",
+      actionLabel: "Undo",
+      onAction: () => history.undoClear(),
+    });
+  },
   thumb: historyThumbnailer,
 });
+// Park the camera-controls hint here (bottom-left, out of the way) as a "?" whose hover/focus
+// reveals it — rather than floating it over the export frame.
+historyControls.addHelpButton("drag to move · scroll to zoom · right-drag or arrow keys to rotate");
 // Seed the baseline now that the panel + controls exist (a shared link re-seeds it below).
 history.reset(config, hasSharedLink ? "—" : DEFAULT_PRESET);
 
@@ -251,47 +286,6 @@ if (hasSharedLink) {
 // Render each preset's thumbnail offscreen (once the main view has painted), then refresh the
 // preset picker to show them. Deferred so it never competes with the initial render.
 setTimeout(() => void generatePresetThumbnails(PRESETS, () => panel.refreshPresetThumbs()), 600);
-
-// Camera-controls hint: shows briefly, fades on first interaction or after a few seconds.
-// firstBoot-only so it doesn't flash back on every dev hot-reload.
-if (firstBoot) {
-  const hint = document.createElement("div");
-  hint.textContent = "drag to move · scroll to zoom · right-drag or arrow keys to rotate";
-  hint.style.cssText =
-    "position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:20;" +
-    "padding:7px 14px;border-radius:999px;white-space:nowrap;pointer-events:none;" +
-    "font:12px/1 ui-sans-serif,system-ui,-apple-system,sans-serif;color:#dfe1e6;" +
-    "background:rgba(18,18,26,0.72);border:1px solid rgba(255,255,255,0.12);" +
-    "backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);" +
-    "opacity:0;transition:opacity 0.6s ease;";
-  document.body.appendChild(hint);
-  requestAnimationFrame(() => {
-    hint.style.opacity = "1";
-  });
-
-  let gone = false;
-  function dismiss(): void {
-    if (gone) return;
-    gone = true;
-    hint.style.opacity = "0";
-    setTimeout(() => hint.remove(), 700);
-    window.removeEventListener("pointerdown", onPointer, true);
-    window.removeEventListener("wheel", dismiss, true);
-    window.removeEventListener("keydown", onKey, true);
-  }
-  function onPointer(e: PointerEvent): void {
-    const t = e.target;
-    if (t instanceof HTMLElement && t.closest("#panel")) return; // panel clicks don't count
-    dismiss();
-  }
-  function onKey(e: KeyboardEvent): void {
-    if (e.key.startsWith("Arrow")) dismiss();
-  }
-  window.addEventListener("pointerdown", onPointer, true);
-  window.addEventListener("wheel", dismiss, true);
-  window.addEventListener("keydown", onKey, true);
-  setTimeout(dismiss, 5000);
-}
 
 // Exposed for debugging — dev only, so it's stripped from the production build.
 if (import.meta.env.DEV) {

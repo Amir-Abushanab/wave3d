@@ -312,7 +312,7 @@ function defaultWave(): WaveConfig {
     creaseLight: 0.6,
     creaseSharpness: 0.589,
     creaseSoftness: 1.0,
-    // sheen 0 + roundness 0: the ortho crop makes pdy low, so the hero look comes from the
+    // sheen 0 + roundness 0: the ortho crop makes crease low, so the hero look comes from the
     // SrcColor² blend + the palette, not the derivative white-lift.
     sheen: 0.0,
     roundness: 0.0,
@@ -533,24 +533,6 @@ export function ensureCamera(config: StudioConfig): void {
 
 /** Backfill/repair a wave so the renderer can consume it (covers partial wave-model JSON). */
 export function normalizeWave(s: WaveConfig): void {
-  // Migrate legacy field names from older saved states / share links. Must run BEFORE the
-  // type-guard defaulting below — otherwise a renamed field reads as "missing" and gets clobbered
-  // with a default, losing the saved value. Copy old → new (only when the new key is unset), then
-  // drop the old key. Idempotent, so re-normalising an already-migrated wave is a no-op.
-  const legacy = s as unknown as Record<string, unknown>;
-  const RENAMED_FIELDS: ReadonlyArray<readonly [string, string]> = [
-    ["glowAmount", "creaseLight"],
-    ["glowPower", "creaseSharpness"],
-    ["glowRamp", "creaseSoftness"],
-    ["fiberThickness", "fiberStrength"],
-    ["pdyLift", "sheen"],
-    ["volume", "roundness"],
-  ];
-  for (const [oldKey, newKey] of RENAMED_FIELDS) {
-    if (legacy[newKey] === undefined && legacy[oldKey] !== undefined)
-      legacy[newKey] = legacy[oldKey];
-    delete legacy[oldKey];
-  }
   normalizeWaveColour(s);
   if (typeof s.gradientAngle !== "number") s.gradientAngle = 90;
   if (typeof s.gradientShift !== "number") s.gradientShift = 0.15;
@@ -1205,7 +1187,7 @@ export function randomizeFinish(c: WaveConfig): void {
   c.texture = r2(rand(0, 0.35));
   c.roundness = r2(rand(0.3, 0.8)); // rounded-solid shading
   c.sheen = r2(rand(0.2, 0.9));
-  c.creaseLight = r2(rand(0.4, 1.0)); // pdy strength (where streaks appear)
+  c.creaseLight = r2(rand(0.4, 1.0)); // crease strength (where streaks appear)
   c.creaseSharpness = r2(rand(0.45, 0.8));
   c.creaseSoftness = r2(rand(0.8, 1.2));
   c.edgeFade = r2(rand(0, 0.08));

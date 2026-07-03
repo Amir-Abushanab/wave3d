@@ -88,6 +88,15 @@ body {
   pointer-events: none;
   transform: translateX(-50%);
   backdrop-filter: blur(10px);
+  /* A hidden notch: shown only for a moment when the export size changes (unlike the handles, it
+     does NOT reveal on plain hover). JS toggles #stage.controls-flash — see main.ts. */
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+#stage.controls-flash #capture-size,
+#stage.size-adjusting #capture-size {
+  opacity: 1;
 }
 
 .output-resize-handle {
@@ -101,6 +110,18 @@ body {
   background: rgba(12, 12, 18, 0.48);
   color: rgba(255, 255, 255, 0.78);
   touch-action: none;
+  /* Hidden by default to keep the frame clean; revealed on hover / during a resize / for a moment
+     after the size changes (see the reveal rule below). */
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+
+/* Reveal the corner handles while the pointer is over the frame, while actively resizing, or in the
+   brief window after the export size changes (JS toggles #stage.controls-flash — see main.ts). */
+#stage:hover .output-resize-handle,
+#stage.is-resizing .output-resize-handle,
+#stage.controls-flash .output-resize-handle {
+  opacity: 1;
 }
 
 .output-resize-handle[data-corner="nw"] {

@@ -19,6 +19,8 @@ export interface HistoryControlsHooks {
   onUndo: () => void;
   onRedo: () => void;
   onJump: (id: number) => void;
+  /** Clear the timeline back to a single baseline (the current wave is kept; undo/redo is wiped). */
+  onClear?: () => void;
   /** Optional per-version preview thumbnails; when present, each row shows one. */
   thumb?: HistoryThumbSource;
 }
@@ -56,11 +58,13 @@ interface DragState {
 
 export class HistoryControls {
   private readonly el: HTMLDivElement;
+  private readonly bar: HTMLDivElement;
   private readonly grip: HTMLDivElement;
   private readonly undoBtn: HTMLButtonElement;
   private readonly redoBtn: HTMLButtonElement;
   private readonly toggleBtn: HTMLButtonElement;
   private readonly panel: HTMLDivElement;
+  private readonly clearBtn: HTMLButtonElement;
   private readonly list: HTMLUListElement;
   private open = false;
   private lastState: HistoryState = { canUndo: false, canRedo: false, entries: [] };
@@ -82,13 +86,21 @@ export class HistoryControls {
     this.panel.hidden = true;
     const head = document.createElement("div");
     head.className = "wv-hist-head";
-    head.textContent = "History";
+    const headTitle = document.createElement("span");
+    headTitle.textContent = "History";
+    this.clearBtn = document.createElement("button");
+    this.clearBtn.type = "button";
+    this.clearBtn.className = "wv-hist-clear";
+    this.clearBtn.dataset.act = "clear";
+    this.clearBtn.textContent = "Clear";
+    head.append(headTitle, this.clearBtn);
     this.list = document.createElement("ul");
     this.list.className = "wv-hist-list";
     this.panel.append(head, this.list);
 
     // Button bar (the always-visible, draggable cluster).
     const bar = document.createElement("div");
+    this.bar = bar;
     bar.className = "wv-hist-bar";
     this.grip = document.createElement("div");
     this.grip.className = "wv-hist-grip";
@@ -120,6 +132,20 @@ export class HistoryControls {
     this.render();
   }
 
+  /** Add a non-action "?" button to the bar whose hover/focus reveals `tip` (reusing the bar's
+   *  data-tip tooltip). Lets the app park the camera-controls hint here — out of the way at
+   *  bottom-left — instead of floating it over the export frame. Clicking it is a no-op (onClick
+   *  only handles undo/redo/toggle/jump). */
+  addHelpButton(tip: string): void {
+    const btn = HistoryControls.mkBtn(
+      "help",
+      '<span style="font-weight:700;font-size:15px">?</span>',
+      "Camera controls",
+      tip,
+    );
+    this.bar.append(btn);
+  }
+
   dispose(): void {
     this.stopTicking();
     if (this.scrollRaf) cancelAnimationFrame(this.scrollRaf);
@@ -136,6 +162,7 @@ export class HistoryControls {
     if (act === "undo") this.hooks.onUndo();
     else if (act === "redo") this.hooks.onRedo();
     else if (act === "toggle") this.setOpen(!this.open);
+    else if (act === "clear") this.hooks.onClear?.();
     else if (btn.dataset.id) this.hooks.onJump(Number(btn.dataset.id));
   };
 
@@ -211,6 +238,8 @@ export class HistoryControls {
   private render(): void {
     this.setDisabled(this.undoBtn, !this.lastState.canUndo);
     this.setDisabled(this.redoBtn, !this.lastState.canRedo);
+    // Nothing to clear when the timeline is just the baseline entry.
+    this.setDisabled(this.clearBtn, this.lastState.entries.length <= 1);
     if (!this.open) return;
     // Newest (current) at the top, oldest at the bottom.
     const entries = this.lastState.entries;
@@ -349,8 +378,15 @@ export class HistoryControls {
   backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);}
 .wv-hist--below .wv-hist-panel{bottom:auto;top:calc(100% + 8px);}
 .wv-hist-panel[hidden]{display:none;}
-.wv-hist-head{padding:9px 12px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;
+.wv-hist-head{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:7px 8px 7px 12px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;
   font-size:10px;color:#9a9cab;border-bottom:1px solid rgba(255,255,255,0.08);flex:0 0 auto;}
+.wv-hist-clear{padding:2px 8px;border:1px solid rgba(255,255,255,0.16);border-radius:6px;
+  background:transparent;color:#c2c3d0;font:inherit;font-size:9px;cursor:pointer;
+  transition:background 0.12s ease,color 0.12s ease;}
+.wv-hist-clear:hover{background:rgba(255,255,255,0.09);color:#fff;}
+.wv-hist-clear:focus-visible{outline:2px solid #7a73ff;outline-offset:1px;}
+.wv-hist-clear.is-disabled{opacity:0.4;cursor:default;pointer-events:none;}
 .wv-hist-list{margin:0;padding:4px;list-style:none;overflow-y:auto;flex:1 1 auto;}
 .wv-hist-list::-webkit-scrollbar{width:8px;}
 .wv-hist-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.16);border-radius:8px;}

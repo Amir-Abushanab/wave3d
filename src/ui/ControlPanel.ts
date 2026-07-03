@@ -93,6 +93,9 @@ export interface PanelHooks {
   onEdit?: () => void;
   exportSize?: ExportSize;
   onExportSizeChange?: () => void;
+  /** Fired with true/false as the pointer/focus enters/leaves the size controls, so the app can
+   *  reveal the export-area readout for live feedback while you adjust the dimensions. */
+  onSizeControlsActive?: (active: boolean) => void;
 }
 
 /**
@@ -426,7 +429,7 @@ export class ControlPanel {
         const gpuLabel = gpuWarning ? ` · ⚠ ${gpuWarning.short}` : "";
         formatOptions[`${preset.label} · ${preset.width}×${preset.height}${gpuLabel}`] = id;
       }
-      output
+      const sizeBinding = output
         .addBinding(outputSize, "preset", { label: "size", options: formatOptions })
         .on("change", (ev) => {
           if (this.syncingOutput) return;
@@ -440,7 +443,7 @@ export class ControlPanel {
           this.updateOutputWarning();
           this.hooks.onExportSizeChange?.();
         });
-      output
+      const lockBinding = output
         .addBinding(outputSize, "lockAspectRatio", { label: "lock ratio" })
         .on("change", (ev) => {
           if (this.syncingOutput) return;
@@ -460,12 +463,29 @@ export class ControlPanel {
         this.updateOutputWarning();
         this.hooks.onExportSizeChange?.();
       };
-      output
+      const widthBinding = output
         .addBinding(outputSize, "width", { min: 64, max: 8192, step: 1, label: "width px" })
         .on("change", (ev) => setCustomSize("width", ev.last));
-      output
+      const heightBinding = output
         .addBinding(outputSize, "height", { min: 64, max: 8192, step: 1, label: "height px" })
         .on("change", (ev) => setCustomSize("height", ev.last));
+      // Reveal the export-area readout while any size control is hovered or focused, so the size
+      // shows live as you adjust it (a short leave-delay avoids flicker moving between the rows).
+      let sizeHideTimer = 0;
+      const activateSize = (): void => {
+        window.clearTimeout(sizeHideTimer);
+        this.hooks.onSizeControlsActive?.(true);
+      };
+      const deactivateSize = (): void => {
+        window.clearTimeout(sizeHideTimer);
+        sizeHideTimer = window.setTimeout(() => this.hooks.onSizeControlsActive?.(false), 120);
+      };
+      for (const bind of [sizeBinding, lockBinding, widthBinding, heightBinding]) {
+        bind.element.addEventListener("pointerenter", activateSize);
+        bind.element.addEventListener("pointerleave", deactivateSize);
+        bind.element.addEventListener("focusin", activateSize);
+        bind.element.addEventListener("focusout", deactivateSize);
+      }
       const outputContent =
         (output.element.querySelector(".tp-fldv_c") as HTMLElement | null) ?? output.element;
       outputContent.appendChild(warning);
@@ -1298,8 +1318,24 @@ export class ControlPanel {
     }
     cfg.waves.forEach((wave, i) => buildWaveFolder(wavesF, wave, i));
     if (cfg.waves.length < MAX_WAVES) {
-      wavesF.addButton({ title: "+ add wave (clones the last)" }).on("click", () => {
-        cfg.waveCount = cfg.waves.length + 1;
+      wavesF.addButton({ title: "+ add wave (offset copy)" }).on("click", () => {
+        const last = cfg.waves[cfg.waves.length - 1];
+        const clone = structuredClone(last);
+        // Exact copy of the last wave, dropped into open frame space (screen-left, camera-relative)
+        // so it reads as a distinct second wave instead of sitting hidden on top of it or — for the
+        // hero, which already fills the right of the frame — landing off-frame past it. A same-
+        // colour copy needs to move a good fraction of the frame to be visible; a world-space nudge
+        // toward the wrong side just looks like the first wave got a little thicker. resizeWaves()
+        // (via rebuildWaves) clones with no offset; do it here so only a user-initiated add moves
+        // (presets/imports keep their authored layout).
+        const off = this.renderer.duplicateOffset();
+        clone.position = {
+          x: last.position.x + off.x,
+          y: last.position.y + off.y,
+          z: last.position.z,
+        };
+        cfg.waves.push(clone);
+        cfg.waveCount = cfg.waves.length;
         this.rebuildWaves();
       });
     }

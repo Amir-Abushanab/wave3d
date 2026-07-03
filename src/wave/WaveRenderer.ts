@@ -250,6 +250,13 @@ export class WaveRenderer {
   private readonly homeCamPos = new THREE.Vector3();
   private readonly homeCamTarget = new THREE.Vector3();
 
+  // Reused scratch for per-frame clip-plane fitting (see updateClipPlanes) — hoisted so the
+  // render loop allocates nothing.
+  private readonly clipBox = new THREE.Box3();
+  private readonly clipSphere = new THREE.Sphere();
+  private readonly clipTmpA = new THREE.Vector3();
+  private readonly clipTmpB = new THREE.Vector3();
+
   // --- Camera-rig minimap (corner inset: the wave + a little camera/light marker) ---
   private cameraRigOn = false;
   private cameraRigCollapsed = false;
@@ -349,7 +356,9 @@ export class WaveRenderer {
 
     // Orthographic, framed in device pixels: resize() sets the frustum to the canvas size, and
     // the mesh is scaled up so the wave overflows the frame, leaving only the twist on screen.
-    // Bounds (-1,1,1,-1) here are placeholders overwritten by the first resize(); near/far = 1..10000.
+    // The left/right/top/bottom bounds here are placeholders overwritten by the first resize();
+    // near/far are placeholders too — updateClipPlanes() refits them to the scene every frame so
+    // no camera angle ever clips the wave (a fixed slab does — see updateClipPlanes).
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 10000);
     this.camera.position.set(
       config.cameraPosition.x,
@@ -488,6 +497,7 @@ export class WaveRenderer {
       uCreaseSoftness: { value: 1.0 },
       uEdgeFade: { value: 0.06 },
       uOpacity: { value: 1 },
+      uSquared: { value: 1 }, // "squared" deep-colour mode: square the colour in-shader (see applyBlendMode)
       uResolution: { value: new THREE.Vector2(1, 1) },
       uAmbient: { value: 0.45 },
       uNumLights: { value: 1 },
@@ -553,25 +563,32 @@ export class WaveRenderer {
    * Returns true if material state changed (caller flags needsUpdate).
    */
   private applyBlendMode(material: THREE.ShaderMaterial, mode: BlendMode): boolean {
+    // "squared" is the deep hero look. It used to be a framebuffer-squaring CustomBlending
+    // (src·src, dst×0) — which REPLACES the destination rather than compositing over it, so any
+    // semi-transparent pixel (soft ribbon edges, and the large near-edge-on regions at oblique
+    // camera angles) wiped the framebuffer's colour AND alpha, punching dark / see-through holes
+    // through the background and through other waves. On a transparent page you never saw it; on
+    // an opaque background or with overlapping waves it's the "chunks vanish" artifact.
+    //
+    // Fix: do the colour-squaring in the shader (uSquared) and composite it with ordinary
+    // premultiplied alpha (NormalBlending). Over an opaque body the result is identical (col²);
+    // soft edges now blend into what's behind them instead of erasing it.
+    const squared = mode === "squared";
     const blending =
       mode === "additive"
         ? THREE.AdditiveBlending
         : mode === "multiply"
           ? THREE.MultiplyBlending
-          : mode === "normal"
-            ? THREE.NormalBlending
-            : THREE.CustomBlending; // "squared" (default)
-    const premultipliedAlpha = blending === THREE.MultiplyBlending;
+          : THREE.NormalBlending; // "squared" (deep, via uSquared) and "normal" both composite
+    // Premultiplied so the squared/multiply colour composites correctly (the shaders premultiply
+    // their output under the PREMULTIPLIED_ALPHA define Three injects for this).
+    const premultipliedAlpha = mode === "multiply" || squared;
+    material.uniforms.uSquared.value = squared ? 1 : 0;
     if (material.blending === blending && material.premultipliedAlpha === premultipliedAlpha) {
       return false;
     }
     material.blending = blending;
     material.premultipliedAlpha = premultipliedAlpha;
-    if (blending === THREE.CustomBlending) {
-      material.blendEquation = THREE.AddEquation;
-      material.blendSrc = THREE.SrcColorFactor;
-      material.blendDst = THREE.ZeroFactor;
-    }
     return true;
   }
 
@@ -777,7 +794,7 @@ export class WaveRenderer {
     });
   }
 
-  /** Dev: 0 = normal, 1 = visualise pdy roundness term, 2 = visualise derivative normal. */
+  /** Dev: 0 = normal, 1 = visualise the crease value, 2 = visualise derivative normal. */
   setDebug(v: number): void {
     for (const s of this.waves) s.material.uniforms.uDebug.value = v;
     this.renderOnce();
@@ -1229,6 +1246,7 @@ export class WaveRenderer {
   renderOnce(): void {
     this.updateBackgroundVideoFrame();
     this.updateTime();
+    this.updateClipPlanes(); // keep near/far bracketing the scene so no camera angle clips the wave
     this.composer.render();
     // Draw the light gizmo/helpers on top, crisp (not through the post pass), and
     // never into exports.
@@ -1598,6 +1616,69 @@ export class WaveRenderer {
     const dh = this.camera.top - this.camera.bottom;
     this.camera.zoom = Math.max(dw / FRAME_W, dh / FRAME_H) * (this.config.cameraZoom ?? 1);
     this.camera.updateProjectionMatrix();
+  }
+
+  /** Fit the orthographic near/far planes to the scene before every render, so no part of a wave
+   *  is ever clipped as the camera orbits / dollies / pans (or when waves are added or scaled).
+   *
+   *  The camera is *constructed* with fixed 1..10000 planes that only suit the authored hero
+   *  framing; once the view moves, the wave's depth extent along the view axis easily crosses
+   *  them and the GPU hard-slices the geometry along a flat plane — chunks of the wave vanish.
+   *
+   *  The in-shader twist rotates each vertex about its LOCAL origin, so it can never move a vertex
+   *  further from that origin than the base geometry already sits. A sphere at each mesh's origin
+   *  (radius = base extent × the mesh's largest world scale, plus the Y displacement, ×1.2 slack)
+   *  therefore safely contains the fully-deformed wave. We union those, then bracket the union
+   *  along the view axis with a margin. Bracketing to the scene (rather than a fixed huge slab)
+   *  keeps clip-space depth scene-normalised — so the wireframe theme's depth fade, which reads
+   *  gl_Position.z, looks the same at any camera distance instead of washing out. Runs each frame;
+   *  it's a handful of vector ops over 1–8 meshes with no allocation. */
+  private updateClipPlanes(): void {
+    this.clipBox.makeEmpty();
+    for (const wave of this.waves) {
+      const mesh = wave.mesh;
+      mesh.updateWorldMatrix(true, false);
+      const bs = mesh.geometry.boundingSphere;
+      if (!bs) continue;
+      // The twist pivot (the mesh's local origin) in world space = the safe sphere's centre.
+      const center = this.clipTmpA.setFromMatrixPosition(mesh.matrixWorld);
+      const disp = Math.abs(Number(wave.material.uniforms.uDispAmount.value) || 0);
+      const localRadius = bs.center.length() + bs.radius + disp;
+      const radius = localRadius * mesh.matrixWorld.getMaxScaleOnAxis() * 1.2;
+      // Enclose this wave's sphere by adding its axis-aligned bounding cube corners.
+      this.clipBox.expandByPoint(this.clipTmpB.copy(center).addScalar(radius));
+      this.clipBox.expandByPoint(this.clipTmpB.copy(center).addScalar(-radius));
+    }
+    if (this.clipBox.isEmpty()) return;
+    this.clipBox.getBoundingSphere(this.clipSphere);
+    const viewDir = this.camera.getWorldDirection(this.clipTmpA); // normalised view axis
+    const centerDepth = this.clipTmpB
+      .copy(this.clipSphere.center)
+      .sub(this.camera.position)
+      .dot(viewDir);
+    const radius = this.clipSphere.radius;
+    const margin = radius * 0.25 + 10;
+    // Orthographic: a negative near is legal — the slab may extend behind the camera origin.
+    this.camera.near = centerDepth - radius - margin;
+    this.camera.far = centerDepth + radius + margin;
+    this.camera.updateProjectionMatrix();
+  }
+
+  /** A world-space position delta that drops a duplicated wave into open frame space beside the
+   *  one it was copied from — screen-left and a touch down, sized to the visible frame — instead
+   *  of hidden exactly on top of it or (for the hero, which fills the right of the frame) pushed
+   *  off-frame. Camera-relative: it's "left on screen" no matter how the view is rotated/zoomed,
+   *  because it's built from the camera's right/up axes and the frame's visible world size. */
+  duplicateOffset(): { x: number; y: number; z: number } {
+    this.camera.updateMatrixWorld();
+    const worldW = (this.camera.right - this.camera.left) / this.camera.zoom; // visible world span
+    const worldH = (this.camera.top - this.camera.bottom) / this.camera.zoom;
+    const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0).normalize();
+    const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1).normalize();
+    // Screen-left ~40% + screen-down ~15% of the frame: enough to clearly separate the copy, small
+    // enough that a few successive adds cascade diagonally and stay on-screen before running off.
+    const off = right.multiplyScalar(-0.4 * worldW).add(up.multiplyScalar(-0.15 * worldH));
+    return { x: off.x, y: off.y, z: 0 };
   }
 
   /** Toggle the corner camera-rig minimap (studio aid; off in the embed). */

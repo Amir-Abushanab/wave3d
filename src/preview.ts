@@ -39,15 +39,15 @@ num("tw", (v) => {
     z: s0.twistFrequency.z * v,
   };
 }); // scale the shader twist (1.0 ≈ gentle 30°; higher turns the ribbon over)
-num("glow", (v) => (s0.creaseLight = v));
-num("gpow", (v) => (s0.creaseSharpness = v));
-num("gramp", (v) => (s0.creaseSoftness = v));
-num("vol", (v) => (s0.roundness = v));
-num("pdy", (v) => (s0.sheen = v));
+num("crease", (v) => (s0.creaseLight = v));
+num("creasesharp", (v) => (s0.creaseSharpness = v));
+num("creasesoft", (v) => (s0.creaseSoftness = v));
+num("round", (v) => (s0.roundness = v));
+num("sheen", (v) => (s0.sheen = v));
 num("sat", (v) => (s0.colorSaturation = v));
 num("con", (v) => (s0.colorContrast = v));
 num("hue", (v) => (s0.hueShift = v));
-num("fiber", (v) => (s0.fiberStrength = v));
+num("streak", (v) => (s0.fiberStrength = v));
 num("dist", (v) => {
   config.cameraDistance = v;
   config.cameraPosition = { x: 0, y: 0, z: v };

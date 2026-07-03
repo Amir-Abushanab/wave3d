@@ -152,6 +152,8 @@ export class History {
   private nextId = 1;
   private dirty = false;
   private timer: number | undefined;
+  /** The timeline captured by the last clear(), so it can be restored once via undoClear(). */
+  private clearedSnapshot?: { entries: Entry[]; cursor: number };
 
   constructor(
     private readonly deps: HistoryDeps,
@@ -166,6 +168,27 @@ export class History {
     this.entries = [this.makeEntry(config, label, presetName)];
     this.cursor = 0;
     this.deps.onChange();
+  }
+
+  /** Wipe the timeline back to a single baseline (keeping the live wave), remembering the old
+   *  timeline so undoClear() can put it back once. Like reset(), but reversible. */
+  clear(config: StudioConfig, presetName: string): void {
+    this.clearedSnapshot = { entries: this.entries.slice(), cursor: this.cursor };
+    this.reset(config, presetName);
+  }
+
+  /** Restore the timeline captured by the most recent clear() (the live wave is unchanged, so it
+   *  still matches the restored cursor). No-op if there's nothing to restore. */
+  undoClear(): boolean {
+    const snap = this.clearedSnapshot;
+    if (!snap) return false;
+    this.clearedSnapshot = undefined;
+    this.cancelTimer();
+    this.dirty = false;
+    this.entries = snap.entries.slice();
+    this.cursor = snap.cursor;
+    this.deps.onChange();
+    return true;
   }
 
   /** Note that the live config changed; schedules a debounced commit (the coalescing backstop). */

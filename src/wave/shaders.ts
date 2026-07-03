@@ -5,9 +5,9 @@ import { MAX_COLORS, MAX_LIGHTS, MAX_MESH_POINTS, MAX_NOISE_BANDS } from "./conf
  * twisted by three axis-rotations `freq * expStep(uv, power)` where
  * `expStep(x,n) = exp2(-exp2(n)*pow(x,n))` is a falloff (rotation concentrated at
  * the uv=0 edge), with diagonal axes + an animated X wobble. Fragment: uses NO
- * normal-based lighting — "thickness" comes from `pdy`, a foreshorten/fold
+ * normal-based lighting — "thickness" comes from `crease`, a foreshorten/fold
  * detector built from `dFdy(uv)`, used to lift flat areas toward white
- * (`col += (1-pdy)*0.25`) and to localise the striations. Striations are subtle
+ * (`col += (1-crease)*0.25`) and to localise the striations. Striations are subtle
  * high-frequency simplex noise ADDED to the colour, colour-matched via (1-blue)
  * and end-weighted via a parabola — so they blend rather than form hard lines.
  * Our additions: gradient stops/types for colour, and an optional additive light
@@ -147,8 +147,8 @@ uniform float uPaletteRaw;    // >0.5 = sample palette by raw (uv.x,uv.y), not g
 uniform vec2 uPaletteScale;
 uniform vec2 uPaletteOffset;
 uniform float uPaletteRotation;
-uniform float uDebug;         // dev: 1 = show pdy, 2 = show derivative normal
-uniform float uSheen;       // pdy white-lift strength (1 = full)
+uniform float uDebug;         // dev: 1 = show crease, 2 = show derivative normal
+uniform float uSheen;       // white-lift on the flat (low-crease) areas (1 = full)
 uniform float uRoundness;        // pose-robust normal-based roundness/thickness strength
 uniform float uHueShift;
 uniform float uLayerHue;
@@ -162,6 +162,7 @@ uniform float uCreaseSharpness;
 uniform float uCreaseSoftness;
 uniform float uEdgeFade;
 uniform float uOpacity;
+uniform float uSquared;   // 1 = square the output colour (the deep "squared" hero look)
 uniform vec2 uResolution;
 uniform float uAmbient;
 uniform int uNumLights;
@@ -242,9 +243,9 @@ float gradCoord(vec2 uv){
 }
 
 // Striations: a subtle high-frequency simplex-noise grain ADDED to the
-// colour — colour-matched (weaker where blue is high), only near folds (pdy), and
+// colour — colour-matched (weaker where blue is high), only near folds (crease), and
 // concentrated toward the ends (parabola). Blends in rather than reading as hard lines.
-vec3 surfaceStreaks(vec2 uv, vec3 color, float pdy){
+vec3 surfaceStreaks(vec2 uv, vec3 color, float crease){
   float strength = uFiberStrength;          // default 0.2
   float freq = uFiberCount;                   // default 600
   float colorAtten = 0.9;
@@ -270,22 +271,22 @@ vec3 surfaceStreaks(vec2 uv, vec3 color, float pdy){
   float n0 = simplexNoise(vec2(uv.x * 0.1, uv.y * 0.5));
   float n1 = simplexNoise(vec2(uv.x * (freq + freq * 0.5 * n0), uv.y * 4.0 * n0));
   n1 = mapLinear(n1, -1.0, 1.0, 0.0, 1.0);
-  color += n1 * strength * (1.0 - color.b * colorAtten) * pdy * p;
+  color += n1 * strength * (1.0 - color.b * colorAtten) * crease * p;
   return color;
 }
 
 void main(){
-  // pdy: a foreshortening / fold detector from the screen-space uv derivative.
+  // crease: a foreshortening / fold detector from the screen-space uv derivative.
   // It drives BOTH the roundness shading and where the streaks appear — this is what
   // gives the wave its thickness without any normal-based lighting.
-  float pdy = dFdy(vUv).y * uResolution.y * uCreaseLight;
-  pdy = clamp(mapLinear(pdy, -1.0, 1.0, 0.0, 1.0), 0.0, 1.0);
-  pdy = pow(pdy, uCreaseSharpness);
-  pdy = clamp(smoothstep(0.0, uCreaseSoftness, pdy), 0.0, 1.0);
+  float crease = dFdy(vUv).y * uResolution.y * uCreaseLight;
+  crease = clamp(mapLinear(crease, -1.0, 1.0, 0.0, 1.0), 0.0, 1.0);
+  crease = pow(crease, uCreaseSharpness);
+  crease = clamp(smoothstep(0.0, uCreaseSoftness, crease), 0.0, 1.0);
 
-  // Debug visualisations (dev): 1 = pdy roundness term, 2 = derivative surface normal.
+  // Debug visualisations (dev): 1 = crease value, 2 = derivative surface normal.
   if (uDebug > 0.5) {
-    if (uDebug < 1.5) { gl_FragColor = vec4(vec3(pdy), 1.0); return; }
+    if (uDebug < 1.5) { gl_FragColor = vec4(vec3(crease), 1.0); return; }
     vec3 dn = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
     gl_FragColor = vec4(dn * 0.5 + 0.5, 1.0); return;
   }
@@ -308,15 +309,15 @@ void main(){
   vec3 col = uGradType == 3
     ? meshGradient(vUv)
     : (uUsePalette > 0.5 ? texture2D(uPalette, puv).rgb : grad(gc));
-  col = surfaceStreaks(vUv, col, pdy);
+  col = surfaceStreaks(vUv, col, crease);
 
   col = contrastFn(col, uContrast);
   col = desaturate(col, 1.0 - uSaturation);
   col = hueShift(col, radians(uHueShift + uLayerHue));
 
-  // Sheen: lift the flat (low-pdy) areas toward white. This is
+  // Sheen: lift the flat (low-crease) areas toward white. This is
   // pose-dependent (it keys off dFdy(uv.y)), so we keep it gentle and add a robust term.
-  col += (1.0 - pdy) * 0.25 * uSheen;
+  col += (1.0 - crease) * 0.25 * uSheen;
 
   // Pose-robust roundness: shade by the camera-facing ratio of the derivative surface
   // normal so the ribbon reads as a rounded, grabbable solid from any angle. Grazing
@@ -360,7 +361,15 @@ void main(){
     alpha *= vig;
   }
 
-  gl_FragColor = vec4(clamp(col, 0.0, 1.0), alpha);
+  // Deep "squared" hero colour: formerly done by a framebuffer-squaring blend that REPLACED the
+  // destination (punching holes at soft edges / where waves overlap). Squaring here + normal
+  // premultiplied compositing (see applyBlendMode) keeps the deep colour and blends correctly.
+  col = clamp(col, 0.0, 1.0);
+  // Square colour AND alpha so the soft ribbon edges keep the crisp, thin feather of the original
+  // squared-blend look — but now composited (premultiplied) rather than replace-blended, so they
+  // no longer punch holes. Over an opaque background alpha² still resolves to fully opaque.
+  if (uSquared > 0.5) { col *= col; alpha *= alpha; }
+  gl_FragColor = vec4(col, alpha);
 #ifdef PREMULTIPLIED_ALPHA
   gl_FragColor.rgb *= gl_FragColor.a;
 #endif
@@ -401,6 +410,7 @@ uniform float uLayerHue;
 uniform float uContrast;
 uniform float uSaturation;
 uniform float uOpacity;
+uniform float uSquared;             // 1 = square the output colour (deep "squared" look)
 uniform float uLineAmount;          // default 425
 uniform float uLineThickness;       // default 1
 uniform float uLineDerivativePower; // default 0.95
@@ -493,6 +503,7 @@ void main(){
   // gives the proper subtle far-end fade and thin-line look.
   float depthFade = clamp(vClipPosition.z * 6.0, 0.0, 1.0);
   color = mix(uClearColor, color, a * (1.0 - depthFade));
+  if (uSquared > 0.5) color *= color; // deep "squared" look, now composited not replace-blended
   gl_FragColor = vec4(color, uOpacity);
 #ifdef PREMULTIPLIED_ALPHA
   gl_FragColor.rgb *= gl_FragColor.a;
