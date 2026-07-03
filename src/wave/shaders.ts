@@ -52,6 +52,125 @@ float simplexNoise(in vec2 p){
 }
 `;
 
+// Uniforms shared by BOTH fragment shaders (solid + wireframe line): the palette/gradient
+// inputs and the colour-grade knobs. Each shader declares its theme-specific uniforms beside
+// this block. Requires MAX_COLORS / MAX_MESH_POINTS #defines.
+const colorUniforms = /* glsl */ `
+uniform vec3 uColors[MAX_COLORS];
+uniform float uColorPos[MAX_COLORS];
+uniform int uColorCount;
+uniform int uGradType;
+uniform float uGradAngle;
+uniform float uGradShift;
+uniform vec2 uMeshPointPos[MAX_MESH_POINTS];
+uniform vec3 uMeshPointColor[MAX_MESH_POINTS];
+uniform float uMeshPointInfluence[MAX_MESH_POINTS];
+uniform int uMeshPointCount;
+uniform float uMeshSoftness;
+uniform sampler2D uPalette;   // baked 2D palette texture
+uniform float uUsePalette;    // >0.5 = sample the texture; else procedural grad()
+uniform float uPaletteRaw;    // >0.5 = sample palette by raw (uv.x,uv.y), not gradCoord
+uniform vec2 uPaletteScale;
+uniform vec2 uPaletteOffset;
+uniform float uPaletteRotation;
+uniform float uHueShift;
+uniform float uContrast;
+uniform float uSaturation;
+uniform float uOpacity;
+uniform float uSquared;   // 1 = square the output colour (the deep "squared" hero look)
+`;
+
+// Colour helpers + the palette/gradient sampler shared by both fragment shaders.
+// Interpolate AFTER ${"simplex2d"} and ${"colorUniforms"} (gradCoord needs both) and a PI define.
+const colorFns = /* glsl */ `
+vec3 contrastFn(vec3 v, float a){ return (v - 0.5) * a + 0.5; }
+vec3 desaturate(vec3 color, float factor){
+  vec3 gray = vec3(dot(vec3(0.299, 0.587, 0.114), color));
+  return mix(color, gray, factor);
+}
+vec3 hueShift(vec3 color, float shift){
+  vec3 g = vec3(0.57735);
+  vec3 proj = g * dot(g, color);
+  vec3 U = color - proj;
+  vec3 W = cross(g, U);
+  return U * cos(shift) + W * sin(shift) + proj;
+}
+
+// Our gradient: interpolate stops by their positions (uColorPos sorted ascending).
+vec3 grad(float u){
+  u = clamp(u, 0.0, 1.0);
+  vec3 col = uColors[0];
+  for (int i = 0; i < MAX_COLORS - 1; i++){
+    if (i >= uColorCount - 1) break;
+    float p0 = uColorPos[i];
+    float p1 = uColorPos[i + 1];
+    if (u >= p0){
+      float t = clamp((u - p0) / max(p1 - p0, 1e-5), 0.0, 1.0);
+      col = mix(uColors[i], uColors[i + 1], t);
+    }
+  }
+  return col;
+}
+
+// iOS-style 2D colour field. Each control point contributes an inverse-distance
+// weight; normalising the sum fills the whole surface without dark seams.
+vec3 meshGradient(vec2 uv){
+  vec3 colorSum = vec3(0.0);
+  float weightSum = 0.0;
+  float exponent = mix(4.8, 1.35, clamp(uMeshSoftness, 0.0, 1.0));
+  for (int i = 0; i < MAX_MESH_POINTS; i++){
+    if (i >= uMeshPointCount) break;
+    float influence = max(uMeshPointInfluence[i], 0.05);
+    float distanceFromPoint = length(uv - uMeshPointPos[i]) / influence;
+    float weight = 1.0 / (pow(max(distanceFromPoint, 0.012), exponent) + 0.002);
+    colorSum += uMeshPointColor[i] * weight;
+    weightSum += weight;
+  }
+  return colorSum / max(weightSum, 0.0001);
+}
+
+// Map a surface uv to the 0–1 gradient coordinate per gradient type. uGradShift
+// adds a low-frequency simplex warp so the colour varies in 2D (along the length
+// as well as across the width) — a 2D palette feel instead
+// of flat 1-D bands.
+float gradCoord(vec2 uv){
+  float warp = uGradShift * simplexNoise(uv * 1.6 + 4.0);
+  if (uGradType == 1){ return clamp(length(uv - 0.5) * 2.0 + warp, 0.0, 1.0); }    // radial
+  if (uGradType == 2){ return fract(atan(uv.y - 0.5, uv.x - 0.5) / (2.0 * PI) + 0.5 + warp); } // conic
+  vec2 dir = vec2(sin(uGradAngle), cos(uGradAngle));                              // linear, angled
+  return clamp(dot(uv - 0.5, dir) + 0.5 + warp, 0.0, 1.0);
+}
+
+// One base-colour sample for the whole surface: rotate/scale/offset the raw-palette uv,
+// then pick the mesh field / baked 2D texture / procedural stops by mode. The raw palette
+// is sampled by (uv.x, uv.y) directly; the stops-generated texture is sampled via
+// gradCoord so its angle/type/warp still apply.
+vec3 waveBaseColor(vec2 uv){
+  float gc = gradCoord(uv);
+  vec2 mediaUv = uv - 0.5;
+  float mediaCos = cos(uPaletteRotation);
+  float mediaSin = sin(uPaletteRotation);
+  mediaUv = vec2(
+    mediaCos * mediaUv.x + mediaSin * mediaUv.y,
+    -mediaSin * mediaUv.x + mediaCos * mediaUv.y
+  );
+  mediaUv = mediaUv * uPaletteScale + 0.5 + uPaletteOffset;
+  vec2 puv = uPaletteRaw > 0.5
+    ? clamp(mediaUv, 0.0, 1.0)
+    : vec2(gc, clamp(uv.y, 0.0, 1.0));
+  return uGradType == 3
+    ? meshGradient(uv)
+    : (uUsePalette > 0.5 ? texture2D(uPalette, puv).rgb : grad(gc));
+}
+
+// The shared colour grade: contrast → desaturate → hue rotate (degrees).
+vec3 applyColorGrade(vec3 c){
+  c = contrastFn(c, uContrast);
+  c = desaturate(c, 1.0 - uSaturation);
+  return hueShift(c, radians(uHueShift));
+}
+`;
+
 export const vertexShader = /* glsl */ `
 ${simplex2d}
 
@@ -130,30 +249,10 @@ export const fragmentShader = /* glsl */ `
 
 ${simplex2d}
 
-uniform vec3 uColors[MAX_COLORS];
-uniform float uColorPos[MAX_COLORS];
-uniform int uColorCount;
-uniform int uGradType;
-uniform float uGradAngle;
-uniform float uGradShift;
-uniform vec2 uMeshPointPos[MAX_MESH_POINTS];
-uniform vec3 uMeshPointColor[MAX_MESH_POINTS];
-uniform float uMeshPointInfluence[MAX_MESH_POINTS];
-uniform int uMeshPointCount;
-uniform float uMeshSoftness;
-uniform sampler2D uPalette;   // baked 2D palette texture
-uniform float uUsePalette;    // >0.5 = sample the texture; else procedural grad()
-uniform float uPaletteRaw;    // >0.5 = sample palette by raw (uv.x,uv.y), not gradCoord
-uniform vec2 uPaletteScale;
-uniform vec2 uPaletteOffset;
-uniform float uPaletteRotation;
+${colorUniforms}
 uniform float uDebug;         // dev: 1 = show crease, 2 = show derivative normal
 uniform float uSheen;       // white-lift on the flat (low-crease) areas (1 = full)
 uniform float uRoundness;        // pose-robust normal-based roundness/thickness strength
-uniform float uHueShift;
-uniform float uLayerHue;
-uniform float uContrast;
-uniform float uSaturation;
 uniform float uFiberCount;
 uniform float uFiberStrength;
 uniform float uTexture;
@@ -161,8 +260,6 @@ uniform float uCreaseLight;
 uniform float uCreaseSharpness;
 uniform float uCreaseSoftness;
 uniform float uEdgeFade;
-uniform float uOpacity;
-uniform float uSquared;   // 1 = square the output colour (the deep "squared" hero look)
 uniform vec2 uResolution;
 uniform float uAmbient;
 uniform int uNumLights;
@@ -181,66 +278,10 @@ varying vec3 vViewDir;
 // Cheap value hash for the optional grain overlay (distinct from the simplex hash).
 float grainHash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 
-// ---- Colour helpers ----
-vec3 contrastFn(vec3 v, float a){ return (v - 0.5) * a + 0.5; }
-vec3 desaturate(vec3 color, float factor){
-  vec3 gray = vec3(dot(vec3(0.299, 0.587, 0.114), color));
-  return mix(color, gray, factor);
-}
-vec3 hueShift(vec3 color, float shift){
-  vec3 g = vec3(0.57735);
-  vec3 proj = g * dot(g, color);
-  vec3 U = color - proj;
-  vec3 W = cross(g, U);
-  return U * cos(shift) + W * sin(shift) + proj;
-}
 float parabola(float x, float k){ return pow(4.0 * x * (1.0 - x), k); }
 float mapLinear(float v, float a, float b, float c, float d){ return c + (v - a) * (d - c) / (b - a); }
 
-// Our gradient: interpolate stops by their positions (uColorPos sorted ascending).
-vec3 grad(float u){
-  u = clamp(u, 0.0, 1.0);
-  vec3 col = uColors[0];
-  for (int i = 0; i < MAX_COLORS - 1; i++){
-    if (i >= uColorCount - 1) break;
-    float p0 = uColorPos[i];
-    float p1 = uColorPos[i + 1];
-    if (u >= p0){
-      float t = clamp((u - p0) / max(p1 - p0, 1e-5), 0.0, 1.0);
-      col = mix(uColors[i], uColors[i + 1], t);
-    }
-  }
-  return col;
-}
-
-// iOS-style 2D colour field. Each control point contributes an inverse-distance
-// weight; normalising the sum fills the whole surface without dark seams.
-vec3 meshGradient(vec2 uv){
-  vec3 colorSum = vec3(0.0);
-  float weightSum = 0.0;
-  float exponent = mix(4.8, 1.35, clamp(uMeshSoftness, 0.0, 1.0));
-  for (int i = 0; i < MAX_MESH_POINTS; i++){
-    if (i >= uMeshPointCount) break;
-    float influence = max(uMeshPointInfluence[i], 0.05);
-    float distanceFromPoint = length(uv - uMeshPointPos[i]) / influence;
-    float weight = 1.0 / (pow(max(distanceFromPoint, 0.012), exponent) + 0.002);
-    colorSum += uMeshPointColor[i] * weight;
-    weightSum += weight;
-  }
-  return colorSum / max(weightSum, 0.0001);
-}
-
-// Map a surface uv to the 0–1 gradient coordinate per gradient type. uGradShift
-// adds a low-frequency simplex warp so the colour varies in 2D (along the length
-// as well as across the width) — a 2D palette feel instead
-// of flat 1-D bands.
-float gradCoord(vec2 uv){
-  float warp = uGradShift * simplexNoise(uv * 1.6 + 4.0);
-  if (uGradType == 1){ return clamp(length(uv - 0.5) * 2.0 + warp, 0.0, 1.0); }    // radial
-  if (uGradType == 2){ return fract(atan(uv.y - 0.5, uv.x - 0.5) / (2.0 * PI) + 0.5 + warp); } // conic
-  vec2 dir = vec2(sin(uGradAngle), cos(uGradAngle));                              // linear, angled
-  return clamp(dot(uv - 0.5, dir) + 0.5 + warp, 0.0, 1.0);
-}
+${colorFns}
 
 // Striations: a subtle high-frequency simplex-noise grain ADDED to the
 // colour — colour-matched (weaker where blue is high), only near folds (crease), and
@@ -292,28 +333,10 @@ void main(){
   }
 
   // Colour: sample the baked 2D palette texture, or fall back to the procedural 1-D
-  // gradient. The raw palette is sampled by (uv.x, uv.y) directly; the
-  // stops-generated texture is sampled via gradCoord so its angle/type/warp still apply.
-  float gc = gradCoord(vUv);
-  vec2 mediaUv = vUv - 0.5;
-  float mediaCos = cos(uPaletteRotation);
-  float mediaSin = sin(uPaletteRotation);
-  mediaUv = vec2(
-    mediaCos * mediaUv.x + mediaSin * mediaUv.y,
-    -mediaSin * mediaUv.x + mediaCos * mediaUv.y
-  );
-  mediaUv = mediaUv * uPaletteScale + 0.5 + uPaletteOffset;
-  vec2 puv = uPaletteRaw > 0.5
-    ? clamp(mediaUv, 0.0, 1.0)
-    : vec2(gc, clamp(vUv.y, 0.0, 1.0));
-  vec3 col = uGradType == 3
-    ? meshGradient(vUv)
-    : (uUsePalette > 0.5 ? texture2D(uPalette, puv).rgb : grad(gc));
+  // gradient (see waveBaseColor).
+  vec3 col = waveBaseColor(vUv);
   col = surfaceStreaks(vUv, col, crease);
-
-  col = contrastFn(col, uContrast);
-  col = desaturate(col, 1.0 - uSaturation);
-  col = hueShift(col, radians(uHueShift + uLayerHue));
+  col = applyColorGrade(col);
 
   // Sheen: lift the flat (low-crease) areas toward white. This is
   // pose-dependent (it keys off dFdy(uv.y)), so we keep it gentle and add a robust term.
@@ -388,29 +411,7 @@ export const lineFragmentShader = /* glsl */ `
 
 ${simplex2d}
 
-uniform vec3 uColors[MAX_COLORS];
-uniform float uColorPos[MAX_COLORS];
-uniform int uColorCount;
-uniform int uGradType;
-uniform float uGradAngle;
-uniform float uGradShift;
-uniform vec2 uMeshPointPos[MAX_MESH_POINTS];
-uniform vec3 uMeshPointColor[MAX_MESH_POINTS];
-uniform float uMeshPointInfluence[MAX_MESH_POINTS];
-uniform int uMeshPointCount;
-uniform float uMeshSoftness;
-uniform sampler2D uPalette;
-uniform float uUsePalette;
-uniform float uPaletteRaw;
-uniform vec2 uPaletteScale;
-uniform vec2 uPaletteOffset;
-uniform float uPaletteRotation;
-uniform float uHueShift;
-uniform float uLayerHue;
-uniform float uContrast;
-uniform float uSaturation;
-uniform float uOpacity;
-uniform float uSquared;             // 1 = square the output colour (deep "squared" look)
+${colorUniforms}
 uniform float uLineAmount;          // default 425
 uniform float uLineThickness;       // default 1
 uniform float uLineDerivativePower; // default 0.95
@@ -420,75 +421,11 @@ uniform vec3 uClearColor;           // = page background colour (shown between t
 varying vec2 vUv;
 varying vec4 vClipPosition;
 
-vec3 contrastFn(vec3 v, float a){ return (v - 0.5) * a + 0.5; }
-vec3 desaturate(vec3 color, float factor){
-  vec3 gray = vec3(dot(vec3(0.299, 0.587, 0.114), color));
-  return mix(color, gray, factor);
-}
-vec3 hueShift(vec3 color, float shift){
-  vec3 g = vec3(0.57735);
-  vec3 proj = g * dot(g, color);
-  vec3 U = color - proj;
-  vec3 W = cross(g, U);
-  return U * cos(shift) + W * sin(shift) + proj;
-}
-vec3 grad(float u){
-  u = clamp(u, 0.0, 1.0);
-  vec3 col = uColors[0];
-  for (int i = 0; i < MAX_COLORS - 1; i++){
-    if (i >= uColorCount - 1) break;
-    float p0 = uColorPos[i];
-    float p1 = uColorPos[i + 1];
-    if (u >= p0){
-      float t = clamp((u - p0) / max(p1 - p0, 1e-5), 0.0, 1.0);
-      col = mix(uColors[i], uColors[i + 1], t);
-    }
-  }
-  return col;
-}
-vec3 meshGradient(vec2 uv){
-  vec3 colorSum = vec3(0.0);
-  float weightSum = 0.0;
-  float exponent = mix(4.8, 1.35, clamp(uMeshSoftness, 0.0, 1.0));
-  for (int i = 0; i < MAX_MESH_POINTS; i++){
-    if (i >= uMeshPointCount) break;
-    float influence = max(uMeshPointInfluence[i], 0.05);
-    float distanceFromPoint = length(uv - uMeshPointPos[i]) / influence;
-    float weight = 1.0 / (pow(max(distanceFromPoint, 0.012), exponent) + 0.002);
-    colorSum += uMeshPointColor[i] * weight;
-    weightSum += weight;
-  }
-  return colorSum / max(weightSum, 0.0001);
-}
-float gradCoord(vec2 uv){
-  float warp = uGradShift * simplexNoise(uv * 1.6 + 4.0);
-  if (uGradType == 1){ return clamp(length(uv - 0.5) * 2.0 + warp, 0.0, 1.0); }
-  if (uGradType == 2){ return fract(atan(uv.y - 0.5, uv.x - 0.5) / (2.0 * PI) + 0.5 + warp); }
-  vec2 dir = vec2(sin(uGradAngle), cos(uGradAngle));
-  return clamp(dot(uv - 0.5, dir) + 0.5 + warp, 0.0, 1.0);
-}
+${colorFns}
 
 void main(){
   // Same 2D palette sample + colour ops as the solid theme.
-  float gc = gradCoord(vUv);
-  vec2 mediaUv = vUv - 0.5;
-  float mediaCos = cos(uPaletteRotation);
-  float mediaSin = sin(uPaletteRotation);
-  mediaUv = vec2(
-    mediaCos * mediaUv.x + mediaSin * mediaUv.y,
-    -mediaSin * mediaUv.x + mediaCos * mediaUv.y
-  );
-  mediaUv = mediaUv * uPaletteScale + 0.5 + uPaletteOffset;
-  vec2 puv = uPaletteRaw > 0.5
-    ? clamp(mediaUv, 0.0, 1.0)
-    : vec2(gc, clamp(vUv.y, 0.0, 1.0));
-  vec3 color = uGradType == 3
-    ? meshGradient(vUv)
-    : (uUsePalette > 0.5 ? texture2D(uPalette, puv).rgb : grad(gc));
-
-  color = contrastFn(color, uContrast);
-  color = desaturate(color, 1.0 - uSaturation);
-  color = hueShift(color, radians(uHueShift + uLayerHue));
+  vec3 color = applyColorGrade(waveBaseColor(vUv));
 
   // Carve into fine vertical lines; thickness from the screen-space uv derivative.
   vec2 dy = dFdy(vUv);

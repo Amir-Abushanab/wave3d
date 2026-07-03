@@ -489,7 +489,6 @@ export class WaveRenderer {
       uSheen: { value: 1 },
       uRoundness: { value: 0.35 },
       uHueShift: { value: 0 },
-      uLayerHue: { value: 0 },
       uContrast: { value: 1 },
       uSaturation: { value: 1 },
       uFiberCount: { value: 90 },
@@ -700,9 +699,7 @@ export class WaveRenderer {
       u.uPaletteScale.value.set(sc.paletteTextureScale?.x ?? 1, sc.paletteTextureScale?.y ?? 1);
       u.uPaletteOffset.value.set(sc.paletteTextureOffset?.x ?? 0, sc.paletteTextureOffset?.y ?? 0);
       u.uPaletteRotation.value = ((sc.paletteTextureRotation ?? 0) * Math.PI) / 180;
-      // Per-wave hue is absolute, so drive uHueShift and zero the legacy per-layer delta.
       u.uHueShift.value = sc.hueShift;
-      u.uLayerHue.value = 0;
       u.uContrast.value = sc.colorContrast;
       u.uSaturation.value = sc.colorSaturation;
       // Wireframe thin-line theme params (used only by lineFragmentShader). uClearColor is the
