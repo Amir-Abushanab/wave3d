@@ -7,6 +7,7 @@
  */
 import { WaveRenderer } from "../wave/WaveRenderer";
 import type { StudioConfig } from "../wave/config";
+import { createThumbHost, prepThumbConfig, renderThumbFrame } from "./thumbnailRender";
 
 const RW = 128; // render size (16:9); displayed much smaller, so this is plenty crisp
 const RH = 72;
@@ -94,30 +95,14 @@ export class HistoryThumbnailer {
     // Clone before touching it — WaveRenderer.setConfig normalizes in place, and we must never
     // mutate the History-owned snapshot.
     const cfg = structuredClone(src);
-    cfg.paused = true; // a static frame
-    cfg.transparentBackground = false; // opaque, so the thumbnail isn't see-through
-    if (cfg.waves[0]?.theme !== "wireframe") cfg.background = "#ffffff";
+    prepThumbConfig(cfg);
     cfg.dprMax = 1; // thumbnails don't need HiDPI
     cfg.quality = Math.min(cfg.quality, 0.6); // lower geometry res — imperceptible this small, cheaper
 
-    if (!this.host) {
-      this.host = document.createElement("div");
-      this.host.style.cssText = `position:fixed;left:-10000px;top:0;width:${RW}px;height:${RH}px;opacity:0;pointer-events:none;`;
-      document.body.appendChild(this.host);
-    }
+    if (!this.host) this.host = createThumbHost(RW, RH);
     if (!this.renderer) this.renderer = new WaveRenderer(this.host, cfg);
     else this.renderer.setConfig(cfg);
-    this.renderer.resize();
-    this.renderer.renderOnce();
-    this.renderer.renderOnce(); // 2nd pass so any shader recompile (theme/blend) is applied
-
-    const gl = this.host.querySelector("canvas");
-    if (!gl) return null;
-    // Copy to a 2D canvas before encoding (reliable read of the WebGL drawing buffer).
-    const out = document.createElement("canvas");
-    out.width = gl.width;
-    out.height = gl.height;
-    out.getContext("2d")?.drawImage(gl, 0, 0);
-    return out.toDataURL("image/webp", 0.72);
+    const out = renderThumbFrame(this.renderer, this.host);
+    return out ? out.toDataURL("image/webp", 0.72) : null;
   }
 }

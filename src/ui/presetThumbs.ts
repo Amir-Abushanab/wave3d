@@ -6,6 +6,7 @@
  */
 import { WaveRenderer } from "../wave/WaveRenderer";
 import type { StudioConfig } from "../wave/config";
+import { createThumbHost, prepThumbConfig, renderThumbFrame } from "./thumbnailRender";
 
 const cache = new Map<string, HTMLCanvasElement>();
 let started = false;
@@ -35,33 +36,17 @@ export async function generatePresetThumbnails(
   if (started) return;
   started = true;
 
-  const host = document.createElement("div");
-  // In layout (so clientWidth/Height are real) but parked off-screen and invisible.
-  host.style.cssText =
-    "position:fixed;left:-10000px;top:0;width:240px;height:150px;opacity:0;pointer-events:none;";
-  document.body.appendChild(host);
+  const host = createThumbHost(240, 150);
 
   let renderer: WaveRenderer | null = null;
   try {
     for (const [name, make] of Object.entries(presets)) {
       const cfg = make();
-      cfg.paused = true; // static frame for the snapshot
-      cfg.transparentBackground = false; // opaque bg so the thumbnail isn't see-through
-      // Theme is per-wave; the wireframe look keys off the first wave for the thumbnail bg.
-      if (cfg.waves[0]?.theme !== "wireframe") cfg.background = "#ffffff";
+      prepThumbConfig(cfg);
       if (!renderer) renderer = new WaveRenderer(host, cfg);
       else renderer.setConfig(cfg);
-      renderer.resize();
-      renderer.renderOnce();
-      renderer.renderOnce(); // 2nd pass so any shader recompile (theme/variant) is applied
-      const src = host.querySelector("canvas");
-      if (src) {
-        const c = document.createElement("canvas");
-        c.width = src.width;
-        c.height = src.height;
-        c.getContext("2d")?.drawImage(src, 0, 0);
-        cache.set(name, c);
-      }
+      const c = renderThumbFrame(renderer, host);
+      if (c) cache.set(name, c);
       // Rendering is intentionally sequential because every iteration reuses the same renderer.
       await new Promise((r) => setTimeout(r, 0)); // yield so the UI stays responsive
     }
