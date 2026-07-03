@@ -1,5 +1,7 @@
 import { Pane } from "tweakpane";
 import waveStudioLogoUrl from "../assets/favicon.png?inline";
+import { injectStyleOnce } from "../util/dom";
+import { roundTo } from "../util/math";
 import {
   resizeWaves,
   createLight,
@@ -45,10 +47,6 @@ import {
   exportGpuWarning,
 } from "../output/formats";
 import type { ExportSize, ImageFormat, RecordFormat } from "../output/formats";
-
-function roundTenths(value: number): number {
-  return Math.round(value * 10) / 10;
-}
 
 function pickMediaDataUrl(onLoad: (url: string, kind: "image" | "video") => void): void {
   const input = document.createElement("input");
@@ -342,12 +340,12 @@ export class ControlPanel {
     };
     const syncCam = (): void => {
       const o = this.renderer.getCameraOrbit();
-      camP.azimuth = roundTenths(o.azimuth);
-      camP.elevation = roundTenths(o.elevation);
+      camP.azimuth = roundTo(o.azimuth, 1);
+      camP.elevation = roundTo(o.elevation, 1);
       camP.distance = o.distance;
-      camP.panX = roundTenths(o.panX);
-      camP.panY = roundTenths(o.panY);
-      camP.zoom = Math.round(this.renderer.getZoom() * 100) / 100;
+      camP.panX = roundTo(o.panX, 1);
+      camP.panY = roundTo(o.panY, 1);
+      camP.zoom = roundTo(this.renderer.getZoom(), 2);
     };
     syncCam();
     const syncPanel = (): void => {
@@ -1413,14 +1411,10 @@ export class ControlPanel {
         '<rect x="3.5" y="3.5" width="9" height="9" rx="1.6" fill="currentColor" stroke="none"/>',
       ),
     };
-    const STYLE_ID = "wv-icon-style";
-    if (!document.getElementById(STYLE_ID)) {
-      const s = document.createElement("style");
-      s.id = STYLE_ID;
-      s.textContent =
-        ".wv-ic{display:inline-flex;align-items:center;vertical-align:-2px;margin-right:6px;opacity:0.82}";
-      document.head.appendChild(s);
-    }
+    injectStyleOnce(
+      "wv-icon-style",
+      ".wv-ic{display:inline-flex;align-items:center;vertical-align:-2px;margin-right:6px;opacity:0.82}",
+    );
     this.container.querySelectorAll(".tp-btnv_t").forEach((el) => {
       const txt = el.textContent ?? "";
       for (const [emoji, icon] of Object.entries(ICONS)) {

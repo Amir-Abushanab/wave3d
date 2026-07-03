@@ -1,3 +1,5 @@
+import { clamp } from "../util/math";
+
 /** Pixel dimensions and selected preset for every visual export surface. */
 export interface ExportSize {
   preset: string;
@@ -132,10 +134,6 @@ export function applyExportPreset(size: ExportSize, presetId: string): void {
   size.width = preset.width;
   size.height = preset.height;
   size.aspectRatio = preset.width / preset.height;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
 }
 
 function validAspectRatio(size: ExportSize): number {

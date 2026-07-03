@@ -5,6 +5,7 @@ import {
   MIN_OUTPUT_DIMENSION,
 } from "../output/formats";
 import type { ExportSize } from "../output/formats";
+import { clamp } from "../util/math";
 
 const MIN_PREVIEW_DIMENSION = 120;
 type ResizeCorner = "nw" | "ne" | "sw" | "se";
@@ -29,10 +30,6 @@ interface DragState {
   maxPreviewHeight: number;
   corner: ResizeCorner;
   handle: HTMLButtonElement;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
 }
 
 /**

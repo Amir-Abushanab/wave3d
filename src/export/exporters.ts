@@ -2,6 +2,7 @@ import type { StudioConfig } from "../wave/config";
 import type { WaveRenderer } from "../wave/WaveRenderer";
 import { IMAGE_FORMATS, pickVideoMime } from "../output/formats";
 import type { ExportSize, ImageFormat, RecordFormat, VideoFormat } from "../output/formats";
+import { base64ToBytes } from "../util/base64";
 import { GIFEncoder, quantize, applyPalette } from "gifenc";
 
 export function downloadBlob(blob: Blob, filename: string): void {
@@ -30,12 +31,6 @@ function bytesToB64url(bytes: Uint8Array): string {
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
-function b64urlToBytes(s: string): Uint8Array<ArrayBuffer> {
-  const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/"));
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
-}
 
 /** gzip + base64url the config → a compact share token (~3-4× smaller than raw base64). */
 export async function encodeConfigToHash(config: StudioConfig): Promise<string> {
@@ -53,7 +48,7 @@ export async function decodeConfigFromHash(hash: string): Promise<StudioConfig |
   if (!m) return null;
   try {
     const text = await new Response(
-      new Blob([b64urlToBytes(m[1])]).stream().pipeThrough(new DecompressionStream("gzip")),
+      new Blob([base64ToBytes(m[1])]).stream().pipeThrough(new DecompressionStream("gzip")),
     ).text();
     return JSON.parse(text) as StudioConfig;
   } catch {

@@ -8,6 +8,7 @@
  * dispose() (called from main.ts's HMR teardown).
  */
 import type { HistoryState } from "../history";
+import { injectStyleOnce } from "../util/dom";
 
 /** Minimal per-version thumbnail source (satisfied structurally by HistoryThumbnailer). */
 export interface HistoryThumbSource {
@@ -341,11 +342,9 @@ export class HistoryControls {
   }
 
   private static injectStyle(): void {
-    const id = "wv-hist-style";
-    if (document.getElementById(id)) return;
-    const s = document.createElement("style");
-    s.id = id;
-    s.textContent = `
+    injectStyleOnce(
+      "wv-hist-style",
+      `
 .wv-hist{position:fixed;left:calc(var(--panel-width) + var(--edge) * 2);bottom:var(--edge);z-index:8;
   font:12px/1.3 ui-sans-serif,system-ui,-apple-system,sans-serif;}
 .wv-hist-bar{display:inline-flex;align-items:center;gap:4px;padding:5px;border-radius:12px;
@@ -406,8 +405,8 @@ export class HistoryControls {
 @media (max-width:760px){
   .wv-hist{left:var(--edge);top:var(--edge);bottom:auto;}
   .wv-hist-panel{width:min(62vw,240px);}
-}`;
-    document.head.appendChild(s);
+}`,
+    );
   }
 }
 

@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { roundTo } from "../util/math";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
@@ -17,6 +18,7 @@ import {
 import { WaveGeometry } from "./WaveGeometry";
 import {
   buildPaletteTexture,
+  configurePaletteTexture,
   paletteSignature,
   PALETTE_MAPS,
   paletteMapCanvas,
@@ -85,16 +87,7 @@ class WavePalette {
       this.ensureVideo(videoUrl);
       if (this.video?.readyState && this.video.readyState >= 2) {
         sig = "video|" + videoUrl;
-        build = () => {
-          const texture = new THREE.VideoTexture(this.video!);
-          texture.colorSpace = THREE.SRGBColorSpace;
-          texture.minFilter = THREE.LinearFilter;
-          texture.magFilter = THREE.LinearFilter;
-          texture.wrapS = THREE.ClampToEdgeWrapping;
-          texture.wrapT = THREE.ClampToEdgeWrapping;
-          texture.generateMipmaps = false;
-          return texture;
-        };
+        build = () => configurePaletteTexture(new THREE.VideoTexture(this.video!));
       } else {
         sig = "video-loading|" + videoUrl;
         build = () => buildHeroPaletteTexture();
@@ -212,14 +205,6 @@ function hexToLinearVec3(hex: string, target: THREE.Vector3): THREE.Vector3 {
   // turns red), so we read the components directly.
   const c = HEX_SCRATCH.set(hex);
   return target.set(c.r, c.g, c.b);
-}
-
-function roundMillis(value: number): number {
-  return Math.round(value * 1000) / 1000;
-}
-
-function round2(value: number): number {
-  return Math.round(value * 100) / 100;
 }
 
 /**
@@ -1971,9 +1956,9 @@ export class WaveRenderer {
   private writeCameraToConfig(): void {
     const p = this.camera.position;
     this.config.cameraPosition = {
-      x: roundMillis(p.x),
-      y: roundMillis(p.y),
-      z: roundMillis(p.z),
+      x: roundTo(p.x, 3),
+      y: roundTo(p.y, 3),
+      z: roundTo(p.z, 3),
     };
     // Capture the LIVE ortho zoom (mouse-scroll changes camera.zoom directly) back into
     // config.cameraZoom — the user multiplier — by inverting applyZoom's responsive COVER
@@ -1983,15 +1968,15 @@ export class WaveRenderer {
       (this.camera.right - this.camera.left) / FRAME_W,
       (this.camera.top - this.camera.bottom) / FRAME_H,
     );
-    if (cover > 0) this.config.cameraZoom = roundMillis(this.camera.zoom / cover);
+    if (cover > 0) this.config.cameraZoom = roundTo(this.camera.zoom / cover, 3);
     if (this.orbit) {
       const t = this.orbit.target;
       this.config.cameraTarget = {
-        x: roundMillis(t.x),
-        y: roundMillis(t.y),
-        z: roundMillis(t.z),
+        x: roundTo(t.x, 3),
+        y: roundTo(t.y, 3),
+        z: roundTo(t.z, 3),
       };
-      this.config.cameraDistance = roundMillis(p.distanceTo(this.orbit.target));
+      this.config.cameraDistance = roundTo(p.distanceTo(this.orbit.target), 3);
     }
   }
 
@@ -2106,9 +2091,9 @@ export class WaveRenderer {
     const h = this.lightHelpers[this.selectedLight];
     const light = this.config.lights?.[this.selectedLight];
     if (!h || !light) return;
-    light.position.x = Math.round(h.position.x * 100) / 100;
-    light.position.y = Math.round(h.position.y * 100) / 100;
-    light.position.z = Math.round(h.position.z * 100) / 100;
+    light.position.x = roundTo(h.position.x, 2);
+    light.position.y = roundTo(h.position.y, 2);
+    light.position.z = roundTo(h.position.z, 2);
     this.pushLightUniforms();
     this.onLightsChanged?.(this.selectedLight);
   }
@@ -2124,13 +2109,13 @@ export class WaveRenderer {
     // sliders hold a reference to these objects, so replacing them would leave the sliders
     // reading the stale old object even though the wave moved.
     if (this.gizmoMode === "rotate") {
-      wave.rotation.x = round2(THREE.MathUtils.radToDeg(h.rotation.x));
-      wave.rotation.y = round2(THREE.MathUtils.radToDeg(h.rotation.y));
-      wave.rotation.z = round2(THREE.MathUtils.radToDeg(h.rotation.z));
+      wave.rotation.x = roundTo(THREE.MathUtils.radToDeg(h.rotation.x), 2);
+      wave.rotation.y = roundTo(THREE.MathUtils.radToDeg(h.rotation.y), 2);
+      wave.rotation.z = roundTo(THREE.MathUtils.radToDeg(h.rotation.z), 2);
     } else {
-      wave.position.x = round2(h.position.x);
-      wave.position.y = round2(h.position.y);
-      wave.position.z = round2(h.position.z);
+      wave.position.x = roundTo(h.position.x, 2);
+      wave.position.y = roundTo(h.position.y, 2);
+      wave.position.z = roundTo(h.position.z, 2);
     }
     this.pushWaveTransforms();
     this.onWaveChanged?.();

@@ -1,5 +1,8 @@
 import { renderMeshGradient } from "../wave/palette";
 import type { MeshGradientPoint } from "../wave/config";
+import { toHex6 } from "../util/color";
+import { button, div, injectStyleOnce } from "../util/dom";
+import { clamp, clamp01, roundTo } from "../util/math";
 
 const STYLE_ID = "wave-mesh-gradient-editor-style";
 const CSS = `
@@ -52,12 +55,7 @@ export class MeshGradientEditor {
     private readonly getSoftness: () => number,
     private readonly hooks: MeshGradientEditorHooks,
   ) {
-    if (!document.getElementById(STYLE_ID)) {
-      const style = document.createElement("style");
-      style.id = STYLE_ID;
-      style.textContent = CSS;
-      document.head.appendChild(style);
-    }
+    injectStyleOnce(STYLE_ID, CSS);
 
     this.root = div("mge");
     this.stage = div("mge-stage");
@@ -96,8 +94,8 @@ export class MeshGradientEditor {
       this.hooks.onChange();
     });
     this.posLabel = div("mge-pos");
-    this.addBtn = button("+", "Add mesh point", () => this.addPoint());
-    this.removeBtn = button("−", "Remove selected mesh point", () => this.removePoint());
+    this.addBtn = button("+", () => this.addPoint(), "Add mesh point");
+    this.removeBtn = button("−", () => this.removePoint(), "Remove selected mesh point");
     row.append(this.colorInput, this.influenceInput, this.posLabel, this.addBtn, this.removeBtn);
     this.root.appendChild(row);
 
@@ -119,7 +117,7 @@ export class MeshGradientEditor {
   }
 
   refresh(): void {
-    this.selected = Math.max(0, Math.min(this.selected, this.points.length - 1));
+    this.selected = clamp(this.selected, 0, this.points.length - 1);
     this.rebuildHandles();
     this.paint();
   }
@@ -274,7 +272,7 @@ export class MeshGradientEditor {
   private removePoint(): void {
     if (this.points.length <= 2) return;
     this.points.splice(this.selected, 1);
-    this.selected = Math.max(0, Math.min(this.selected, this.points.length - 1));
+    this.selected = clamp(this.selected, 0, this.points.length - 1);
     this.rebuildHandles();
     this.paint();
     this.handles[this.selected]?.focus();
@@ -282,39 +280,6 @@ export class MeshGradientEditor {
   }
 }
 
-function div(className: string): HTMLElement {
-  const element = document.createElement("div");
-  element.className = className;
-  return element;
-}
-
-function button(label: string, ariaLabel: string, onClick: () => void): HTMLButtonElement {
-  const element = document.createElement("button");
-  element.type = "button";
-  element.textContent = label;
-  element.setAttribute("aria-label", ariaLabel);
-  element.addEventListener("click", onClick);
-  return element;
-}
-
-function clamp01(value: number): number {
-  return Math.max(0, Math.min(1, value));
-}
-
 function roundPoint(point: { x: number; y: number }): { x: number; y: number } {
-  return {
-    x: Math.round(clamp01(point.x) * 1000) / 1000,
-    y: Math.round(clamp01(point.y) * 1000) / 1000,
-  };
-}
-
-function toHex6(hex: string): string {
-  let value = hex.replace("#", "");
-  if (value.length === 3) {
-    value = value
-      .split("")
-      .map((character) => character + character)
-      .join("");
-  }
-  return `#${value.slice(0, 6).padEnd(6, "0")}`;
+  return { x: roundTo(clamp01(point.x), 3), y: roundTo(clamp01(point.y), 3) };
 }

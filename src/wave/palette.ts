@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { clamp01 } from "../util/math";
 import { createDefaultMeshPoints } from "./config";
 import type { BackgroundImageFit, BasicGradientType, ColorStop, MeshGradientPoint } from "./config";
 
@@ -12,10 +13,6 @@ import type { BackgroundImageFit, BasicGradientType, ColorStop, MeshGradientPoin
 
 const TEX_W = 256; // resolution along the gradient (length)
 const TEX_H = 64; // resolution across the width
-
-function clamp01(x: number): number {
-  return Math.max(0, Math.min(1, x));
-}
 
 function smoothstep(value: number): number {
   return value * value * (3 - 2 * value);
@@ -80,9 +77,9 @@ export function paletteSignature(opts: PaletteTextureOptions): string {
   return `${s}|${opts.edgeColor}|${opts.edgeAmount.toFixed(3)}`;
 }
 
-/** Wrap a canvas as a sampling-ready CanvasTexture (sRGB → GPU linearizes on sample). */
-export function canvasToTexture(canvas: HTMLCanvasElement): THREE.CanvasTexture {
-  const tex = new THREE.CanvasTexture(canvas);
+/** Sampling config shared by every palette-texture source (canvas, image, LUT, video):
+ *  sRGB (the GPU linearizes on sample), linear filtering, clamped edges, no mipmaps. */
+export function configurePaletteTexture<T extends THREE.Texture>(tex: T): T {
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
@@ -90,6 +87,11 @@ export function canvasToTexture(canvas: HTMLCanvasElement): THREE.CanvasTexture 
   tex.wrapT = THREE.ClampToEdgeWrapping;
   tex.generateMipmaps = false;
   return tex;
+}
+
+/** Wrap a canvas as a sampling-ready CanvasTexture. */
+export function canvasToTexture(canvas: HTMLCanvasElement): THREE.CanvasTexture {
+  return configurePaletteTexture(new THREE.CanvasTexture(canvas));
 }
 
 /** Build a ready-to-use CanvasTexture from gradient stops + edge tint. */
@@ -373,7 +375,7 @@ function buildNebulaCanvas(resolution = 220): HTMLCanvasElement {
     [1.0, [70, 196, 188]], // teal
   ];
   const ramp = (t: number): [number, number, number] => {
-    t = Math.max(0, Math.min(1, t));
+    t = clamp01(t);
     for (let i = 1; i < COLORS.length; i++) {
       if (t <= COLORS[i][0]) {
         const [p0, c0] = COLORS[i - 1];
@@ -634,12 +636,5 @@ export function paletteMapCanvas(def: PaletteMapDef, resolution?: number): HTMLC
 
 /** Load an arbitrary image (URL or object-URL) as a palette texture — "bring your own map". */
 export function loadPaletteImage(url: string): THREE.Texture {
-  const tex = new THREE.TextureLoader().load(url);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.minFilter = THREE.LinearFilter;
-  tex.magFilter = THREE.LinearFilter;
-  tex.wrapS = THREE.ClampToEdgeWrapping;
-  tex.wrapT = THREE.ClampToEdgeWrapping;
-  tex.generateMipmaps = false;
-  return tex;
+  return configurePaletteTexture(new THREE.TextureLoader().load(url));
 }

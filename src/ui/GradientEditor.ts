@@ -1,4 +1,7 @@
 import type { ColorStop } from "../wave/config";
+import { hexToRgb, toHex6 } from "../util/color";
+import { button, div, injectStyleOnce } from "../util/dom";
+import { clamp, clamp01, roundTo } from "../util/math";
 
 /**
  * A CSS-gradient-style stop editor: a bar with one draggable dot per colour stop.
@@ -52,12 +55,7 @@ export class GradientEditor {
     private readonly getStops: () => ColorStop[],
     private readonly hooks: GradientEditorHooks,
   ) {
-    if (!document.getElementById(STYLE_ID)) {
-      const style = document.createElement("style");
-      style.id = STYLE_ID;
-      style.textContent = CSS;
-      document.head.appendChild(style);
-    }
+    injectStyleOnce(STYLE_ID, CSS);
 
     this.root = div("rge");
     this.bar = div("rge-bar");
@@ -95,7 +93,7 @@ export class GradientEditor {
 
   /** Re-read the supplied stops and repaint after an external change. */
   refresh(): void {
-    this.selected = Math.max(0, Math.min(this.selected, this.stops.length - 1));
+    this.selected = clamp(this.selected, 0, this.stops.length - 1);
     this.rebuildHandles();
     this.paint();
   }
@@ -157,7 +155,7 @@ export class GradientEditor {
 
   private posFromEvent(e: PointerEvent | MouseEvent): number {
     const r = this.bar.getBoundingClientRect();
-    return Math.max(0, Math.min(1, (e.clientX - r.left) / Math.max(r.width, 1)));
+    return clamp01((e.clientX - r.left) / Math.max(r.width, 1));
   }
 
   private onHandleDown(e: PointerEvent, i: number): void {
@@ -172,7 +170,7 @@ export class GradientEditor {
     if (!this.dragging) return;
     const s = this.stops[i];
     if (!s) return;
-    s.pos = Math.round(this.posFromEvent(e) * 1000) / 1000;
+    s.pos = roundTo(this.posFromEvent(e), 3);
     this.paint();
     this.hooks.onChange();
   }
@@ -207,7 +205,7 @@ export class GradientEditor {
 
   private insertStop(pos: number): void {
     if (this.stops.length >= this.hooks.max) return;
-    this.stops.push({ color: this.sampleAt(pos), pos: Math.round(pos * 1000) / 1000 });
+    this.stops.push({ color: this.sampleAt(pos), pos: roundTo(pos, 3) });
     this.selected = this.stops.length - 1;
     this.rebuildHandles();
     this.paint();
@@ -217,7 +215,7 @@ export class GradientEditor {
   private removeStop(): void {
     if (this.stops.length <= 2) return;
     this.stops.splice(this.selected, 1);
-    this.selected = Math.max(0, Math.min(this.selected, this.stops.length - 1));
+    this.selected = clamp(this.selected, 0, this.stops.length - 1);
     this.rebuildHandles();
     this.paint();
     this.hooks.onChange();
@@ -240,43 +238,11 @@ export class GradientEditor {
   }
 }
 
-// ---- small DOM/colour helpers ----
-
-function div(cls: string): HTMLElement {
-  const e = document.createElement("div");
-  e.className = cls;
-  return e;
-}
-
-function button(label: string, onClick: () => void): HTMLButtonElement {
-  const b = document.createElement("button");
-  b.type = "button";
-  b.textContent = label;
-  b.addEventListener("click", onClick);
-  return b;
-}
-
-function toHex6(hex: string): string {
-  let h = hex.replace("#", "");
-  if (h.length === 3) {
-    h = h
-      .split("")
-      .map((c) => c + c)
-      .join("");
-  }
-  return `#${h.slice(0, 6).padEnd(6, "0")}`;
-}
-
-function hexToRgb(hex: string): [number, number, number] {
-  const h = toHex6(hex).slice(1);
-  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
-}
-
 function hexLerp(a: string, b: string, t: number): string {
   const A = hexToRgb(a);
   const B = hexToRgb(b);
   const c = (i: number): string =>
-    Math.max(0, Math.min(255, Math.round(A[i] + (B[i] - A[i]) * t)))
+    clamp(Math.round(A[i] + (B[i] - A[i]) * t), 0, 255)
       .toString(16)
       .padStart(2, "0");
   return `#${c(0)}${c(1)}${c(2)}`;

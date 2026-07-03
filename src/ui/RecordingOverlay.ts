@@ -4,6 +4,8 @@
  * the WebGL canvas via captureStream, so this overlay never shows up in the saved video.
  * Replaces the old read-only "recording" checkbox in the panel.
  */
+import { injectStyleOnce } from "../util/dom";
+
 export class RecordingOverlay {
   private readonly el: HTMLDivElement;
   private readonly timeEl: HTMLSpanElement;
@@ -47,11 +49,9 @@ export class RecordingOverlay {
   }
 
   private static injectStyle(): void {
-    const id = "wv-rec-style";
-    if (document.getElementById(id)) return;
-    const s = document.createElement("style");
-    s.id = id;
-    s.textContent = `
+    injectStyleOnce(
+      "wv-rec-style",
+      `
 .wv-rec{position:absolute;top:10px;right:10px;z-index:6;display:inline-flex;align-items:center;gap:7px;
   padding:6px 11px 6px 9px;border-radius:999px;background:rgba(15,16,22,0.66);color:#fff;
   font:600 12px/1 ui-sans-serif,system-ui,-apple-system,sans-serif;letter-spacing:0.06em;
@@ -61,7 +61,7 @@ export class RecordingOverlay {
   box-shadow:0 0 8px rgba(255,59,48,0.9);animation:wv-rec-pulse 1.1s ease-in-out infinite;}
 .wv-rec-time{font-variant-numeric:tabular-nums;opacity:0.9;min-width:30px;}
 @keyframes wv-rec-pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:0.25;transform:scale(0.8);}}
-@media (prefers-reduced-motion:reduce){.wv-rec-dot{animation:none;}}`;
-    document.head.appendChild(s);
+@media (prefers-reduced-motion:reduce){.wv-rec-dot{animation:none;}}`,
+    );
   }
 }

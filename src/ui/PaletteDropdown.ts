@@ -4,6 +4,8 @@
  * thumbnail; clicking it expands an inline, grouped list of thumbnails to pick from.
  */
 
+import { injectStyleOnce } from "../util/dom";
+
 export interface PaletteOption {
   id: string;
   label: string;
@@ -61,12 +63,7 @@ export class PaletteDropdown {
     parent: HTMLElement,
     private readonly hooks: PaletteDropdownHooks,
   ) {
-    if (!document.getElementById(STYLE_ID)) {
-      const s = document.createElement("style");
-      s.id = STYLE_ID;
-      s.textContent = CSS;
-      document.head.appendChild(s);
-    }
+    injectStyleOnce(STYLE_ID, CSS);
     this.root = el("div", "wv-pd" + (hooks.rootClass ? " " + hooks.rootClass : ""));
     this.trigger = el("div", "wv-pd-trigger");
     this.list = el("div", "wv-pd-list");

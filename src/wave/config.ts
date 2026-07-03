@@ -8,6 +8,7 @@
 import onePieceLogoUrl from "../assets/one-piece-logo.png?inline";
 import spiderManComicPanelsUrl from "../assets/spider-man-comic-panels.webp?inline";
 import spiderManLogoUrl from "../assets/spider-man-logo.svg?inline";
+import { clamp, clamp01, roundTo } from "../util/math";
 
 export const MAX_COLORS = 8;
 export const MAX_MESH_POINTS = 8;
@@ -431,39 +432,21 @@ function normalizeWaveColour(config: WaveConfig): void {
       const influence = Number(point.influence);
       return {
         color: typeof point.color === "string" ? point.color : fallback.color,
-        x: Math.max(0, Math.min(1, Number.isFinite(x) ? x : fallback.x)),
-        y: Math.max(0, Math.min(1, Number.isFinite(y) ? y : fallback.y)),
-        influence: Math.max(
-          0.15,
-          Math.min(1.5, Number.isFinite(influence) ? influence : fallback.influence),
-        ),
+        x: clamp01(Number.isFinite(x) ? x : fallback.x),
+        y: clamp01(Number.isFinite(y) ? y : fallback.y),
+        influence: clamp(Number.isFinite(influence) ? influence : fallback.influence, 0.15, 1.5),
       };
     });
   }
   if (!Number.isFinite(config.meshGradientSoftness)) config.meshGradientSoftness = 0.62;
-  config.meshGradientSoftness = Math.max(0, Math.min(1, config.meshGradientSoftness));
+  config.meshGradientSoftness = clamp01(config.meshGradientSoftness);
   if (!config.paletteTextureScale) config.paletteTextureScale = { x: 1, y: 1 };
   if (!config.paletteTextureOffset) config.paletteTextureOffset = { x: 0, y: 0 };
-  config.paletteTextureScale.x = Math.max(
-    0.1,
-    Math.min(8, Number(config.paletteTextureScale.x) || 1),
-  );
-  config.paletteTextureScale.y = Math.max(
-    0.1,
-    Math.min(8, Number(config.paletteTextureScale.y) || 1),
-  );
-  config.paletteTextureOffset.x = Math.max(
-    -4,
-    Math.min(4, Number(config.paletteTextureOffset.x) || 0),
-  );
-  config.paletteTextureOffset.y = Math.max(
-    -4,
-    Math.min(4, Number(config.paletteTextureOffset.y) || 0),
-  );
-  config.paletteTextureRotation = Math.max(
-    -180,
-    Math.min(180, Number(config.paletteTextureRotation) || 0),
-  );
+  config.paletteTextureScale.x = clamp(Number(config.paletteTextureScale.x) || 1, 0.1, 8);
+  config.paletteTextureScale.y = clamp(Number(config.paletteTextureScale.y) || 1, 0.1, 8);
+  config.paletteTextureOffset.x = clamp(Number(config.paletteTextureOffset.x) || 0, -4, 4);
+  config.paletteTextureOffset.y = clamp(Number(config.paletteTextureOffset.y) || 0, -4, 4);
+  config.paletteTextureRotation = clamp(Number(config.paletteTextureRotation) || 0, -180, 180);
 }
 
 /** Backfill background styling for states saved before gradient/image backgrounds existed. */
@@ -494,7 +477,7 @@ export function normalizeBackground(config: StudioConfig): void {
     config.backgroundMeshPoints = createDefaultMeshPoints();
   }
   if (!Number.isFinite(config.backgroundMeshSoftness)) config.backgroundMeshSoftness = 0.62;
-  config.backgroundMeshSoftness = Math.max(0, Math.min(1, config.backgroundMeshSoftness));
+  config.backgroundMeshSoftness = clamp01(config.backgroundMeshSoftness);
   if (typeof config.backgroundGradientAngle !== "number") config.backgroundGradientAngle = 135;
   if (typeof config.backgroundGradientSource !== "string")
     config.backgroundGradientSource = "stops";
@@ -507,18 +490,12 @@ export function normalizeBackground(config: StudioConfig): void {
     config.backgroundImageFit = "cover";
   }
   if (typeof config.backgroundImageZoom !== "number") config.backgroundImageZoom = 1;
-  config.backgroundImageZoom = Math.max(0.1, Math.min(8, config.backgroundImageZoom));
+  config.backgroundImageZoom = clamp(config.backgroundImageZoom, 0.1, 8);
   if (!config.backgroundImagePosition) config.backgroundImagePosition = { x: 0, y: 0 };
   if (typeof config.backgroundImagePosition.x !== "number") config.backgroundImagePosition.x = 0;
   if (typeof config.backgroundImagePosition.y !== "number") config.backgroundImagePosition.y = 0;
-  config.backgroundImagePosition.x = Math.max(
-    -100,
-    Math.min(100, config.backgroundImagePosition.x),
-  );
-  config.backgroundImagePosition.y = Math.max(
-    -100,
-    Math.min(100, config.backgroundImagePosition.y),
-  );
+  config.backgroundImagePosition.x = clamp(config.backgroundImagePosition.x, -100, 100);
+  config.backgroundImagePosition.y = clamp(config.backgroundImagePosition.y, -100, 100);
 }
 
 /** Backfill camera position/target for states saved before they existed. */
@@ -1070,10 +1047,10 @@ export function randomizeWave(s: WaveConfig): void {
 // ---- Per-section randomizers (each mutates only its own fields, in place) ----
 
 function r2(x: number): number {
-  return Math.round(x * 100) / 100;
+  return roundTo(x, 2);
 }
 function r3(x: number): number {
-  return Math.round(x * 1000) / 1000;
+  return roundTo(x, 3);
 }
 
 const LIGHT_TINTS = ["#ffffff", "#ffffff", "#fff0e0", "#e2e8ff", "#ffe2f0", "#e2fff4", "#fff6cc"];
@@ -1086,12 +1063,25 @@ function randomSortedPositions(n: number): number[] {
   return [0, ...inner, 1];
 }
 
+function randomMeshPoints(colors: string[]): MeshGradientPoint[] {
+  return colors.map((color) => ({
+    color,
+    x: r2(rand(0.08, 0.92)),
+    y: r2(rand(0.08, 0.92)),
+    influence: r2(rand(0.5, 0.95)),
+  }));
+}
+
+function randomStops(colors: string[]): ColorStop[] {
+  const positions = randomSortedPositions(colors.length);
+  return colors.map((color, i) => ({ color, pos: positions[i] }));
+}
+
 export function randomizeGradient(c: WaveConfig): void {
   const colors = pick(RANDOM_PALETTES);
-  const count = Math.max(3, Math.min(colors.length, Math.round(rand(3, colors.length))));
+  const count = clamp(Math.round(rand(3, colors.length)), 3, colors.length);
   const chosen = colors.slice(0, count);
-  const positions = randomSortedPositions(count);
-  c.palette = chosen.map((color, i) => ({ color, pos: positions[i] }));
+  c.palette = randomStops(chosen);
   // Bias toward linear, occasionally radial/conic/mesh for variety.
   c.gradientType = pick([
     "linear",
@@ -1105,12 +1095,7 @@ export function randomizeGradient(c: WaveConfig): void {
   c.gradientShift = r2(rand(0, 0.4)); // 2D warp
   // Also refresh the mesh field + edge tint so the whole colour section changes regardless of the
   // active source (both are inert unless gradientType is "mesh" / the source is "stops").
-  c.meshGradientPoints = colors.map((color) => ({
-    color,
-    x: r2(rand(0.08, 0.92)),
-    y: r2(rand(0.08, 0.92)),
-    influence: r2(rand(0.5, 0.95)),
-  }));
+  c.meshGradientPoints = randomMeshPoints(colors);
   c.meshGradientSoftness = r2(rand(0.45, 0.85));
   c.paletteEdgeColor = pick(chosen);
   c.paletteEdgeAmount = r2(rand(0, 0.5));
@@ -1133,17 +1118,11 @@ export function randomizeBackground(c: StudioConfig): void {
   c.backgroundGradientAngle = Math.round(rand(0, 360));
   c.background = colors[0]; // matte fallback (shown only if a gradient ever fails to cover)
   if (c.backgroundGradientType === "mesh") {
-    c.backgroundMeshPoints = colors.map((color) => ({
-      color,
-      x: r2(rand(0.08, 0.92)),
-      y: r2(rand(0.08, 0.92)),
-      influence: r2(rand(0.5, 0.95)),
-    }));
+    c.backgroundMeshPoints = randomMeshPoints(colors);
     c.backgroundMeshSoftness = r2(rand(0.45, 0.85));
   } else {
     c.backgroundGradientSource = "stops";
-    const positions = randomSortedPositions(colors.length);
-    c.backgroundPalette = colors.map((color, i) => ({ color, pos: positions[i] }));
+    c.backgroundPalette = randomStops(colors);
   }
 }
 
