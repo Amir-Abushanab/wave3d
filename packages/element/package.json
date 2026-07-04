@@ -1,0 +1,22 @@
+{
+  "name": "@wave3d/element",
+  "version": "0.1.0",
+  "description": "<wave-3d> custom element for @wave3d — a framework-agnostic drop-in animated gradient wave (the Vue/Svelte/plain-HTML story)",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": [
+    "./src/index.ts"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@wave3d/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "@wave3d/core": "workspace:^"
+  }
+}

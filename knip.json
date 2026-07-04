@@ -8,6 +8,12 @@
       "entry": ["src/preview.ts"],
       "project": ["src/**/*.ts"],
       "ignoreDependencies": ["@tweakpane/core"]
+    },
+    "packages/react": {
+      "project": ["src/**/*.{ts,tsx}"]
+    },
+    "packages/element": {
+      "project": ["src/**/*.ts"]
     }
   },
   "include": [
