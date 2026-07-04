@@ -16,6 +16,7 @@
   "dependencies": {
     "@wave3d/core": "workspace:*",
     "gifenc": "^1.0.3",
+    "shiki": "^4.3.1",
     "tweakpane": "^4.0.5"
   },
   "devDependencies": {
