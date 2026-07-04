@@ -9,7 +9,8 @@
     ".": "./src/index.ts",
     "./renderer": "./src/renderer/index.ts",
     "./presets": "./src/presets.ts",
-    "./studio": "./src/studio/index.ts"
+    "./studio": "./src/studio/index.ts",
+    "./standalone": "./src/standalone.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

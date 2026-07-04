@@ -10,7 +10,7 @@ export default defineConfig({
     emptyOutDir: true,
     target: "es2022",
     lib: {
-      entry: resolve(import.meta.dirname, "src/index.ts"),
+      entry: resolve(import.meta.dirname, "src/standalone.ts"),
       name: "Wave3D",
       fileName: () => "wave3d.standalone.js",
       formats: ["es"],
