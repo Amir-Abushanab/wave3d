@@ -224,6 +224,10 @@ export interface SceneConfig {
   paused: boolean;
   /** Noise phase offset — scrubs the noise pattern to pick a still frame. */
   timeOffset?: number;
+  /** Seamless-loop period in seconds (0 = off). When >0, the motion is mapped onto a circle in
+   *  noise space so it repeats exactly every `loopSeconds` — scene-level so a multi-wave stack
+   *  shares one period and the whole composite loops. */
+  loopSeconds?: number;
   introRamp?: boolean;
   showCameraRig: boolean;
   cameraDistance: number;
@@ -559,6 +563,7 @@ export function ensureSceneDefaults(config: StudioConfig): void {
   if (typeof config.blurSamples !== "number") config.blurSamples = 6;
   if (typeof config.showCameraRig !== "boolean") config.showCameraRig = false;
   if (typeof config.paused !== "boolean") config.paused = false;
+  if (typeof config.loopSeconds !== "number") config.loopSeconds = 0;
   if (typeof config.mirrorH !== "boolean") config.mirrorH = false;
   if (typeof config.mirrorV !== "boolean") config.mirrorV = false;
 }

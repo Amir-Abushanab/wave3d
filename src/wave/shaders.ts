@@ -177,6 +177,7 @@ ${simplex2d}
 uniform float uTime, uSpeed, uSeed;
 uniform float uDispFreqX, uDispFreqZ, uDispAmount;
 uniform float uTwFreqX, uTwFreqY, uTwFreqZ, uTwPowX, uTwPowY, uTwPowZ;
+uniform float uLoopSeconds; // seamless-loop period (only read under LOOP_MOTION)
 
 varying vec2 vUv;
 varying vec3 vWorldPos;
@@ -202,13 +203,31 @@ mat4 rotationMatrix(vec3 axis, float angle){
 
 void main(){
   vUv = uv;
+#ifndef LOOP_MOTION
   float t = uTime * uSpeed + uSeed;
+#endif
+
+#ifdef LOOP_MOTION
+  // Seamless loop: rather than scrolling the noise field linearly by t (which never repeats),
+  // sample it on a circle of radius loopR at angle loopTheta — exactly periodic with period
+  // uLoopSeconds. The tangential speed loopR·dθ/dt equals uSpeed, so the looped motion advances
+  // at the same rate as the linear drift, just curved into a closed orbit (it orbits rather than
+  // drifts — the trade-off for a seamless loop, hence opt-in). uSeed offsets the phase so stacked
+  // waves keep their relative motion while sharing the single period.
+  float loopTheta = uTime * (6.28318530718 / uLoopSeconds) + uSeed;
+  float loopR = uSpeed * uLoopSeconds * 0.159154943092; // = uSpeed·uLoopSeconds / (2π)
+  vec2 loopOff = loopR * vec2(cos(loopTheta), sin(loopTheta));
+#endif
 
   // The base geometry is already a baked hairpin fold. On top of it we deform the
   // vertices: a displacement lifts Y by simplex noise of the (x,z) position, then
   // three axis-rotations twist the strip.
   vec3 pos = position;
+#ifdef LOOP_MOTION
+  pos.y += uDispAmount * simplexNoise(vec2(pos.x * uDispFreqX, pos.z * uDispFreqZ) + loopOff);
+#else
   pos.y += uDispAmount * simplexNoise(vec2(pos.x * uDispFreqX + t, pos.z * uDispFreqZ + t));
+#endif
 
   // The X-twist frequency feeding rotB. Two modes: by default uTwFreqX is used
   // directly; the variant (used by the Wave 4 preset) modulates it with
@@ -216,7 +235,11 @@ void main(){
   // We gate the wobble with a #define so the compiled program is unchanged when off.
   float twistXFreq = uTwFreqX;
 #ifdef TWIST_MOTION
+#ifdef LOOP_MOTION
+  float twistXNoise = simplexNoise(vec2(vUv.y * 2.0, 0.0) + loopOff);
+#else
   float twistXNoise = simplexNoise(vec2(vUv.y * 2.0, t));
+#endif
   twistXFreq = uTwFreqX - twistXNoise * 0.1;
 #endif
 

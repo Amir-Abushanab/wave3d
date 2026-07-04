@@ -121,6 +121,15 @@ void renderer.enableOrbit();
 
 const recorder = new Recorder();
 const recordingOverlay = new RecordingOverlay(stage);
+/** Auto-stop timer for seamless-loop capture (records exactly one period). */
+let loopRecordTimer = 0;
+function stopRecording(): void {
+  clearTimeout(loopRecordTimer);
+  loopRecordTimer = 0;
+  recorder.stop();
+  recordingOverlay.stop();
+  panel.setRecording(false);
+}
 
 const presetOptions: Record<string, string> = { "—": "—" };
 for (const name of Object.keys(PRESETS)) presetOptions[name] = name;
@@ -184,9 +193,7 @@ const panel = new ControlPanel(panelEl, renderer, config, {
   },
   onToggleRecord: (format) => {
     if (recorder.recording) {
-      recorder.stop();
-      recordingOverlay.stop();
-      panel.setRecording(false);
+      stopRecording();
     } else {
       // GIF is composited onto an opaque background (no 1-bit transparency); use the wave's
       // own background, or white when it's transparent.
@@ -194,6 +201,14 @@ const panel = new ControlPanel(panelEl, renderer, config, {
       recorder.start(renderer, format, gifBg);
       recordingOverlay.start();
       panel.setRecording(true);
+      // Seamless-loop capture: the motion repeats every config.loopSeconds, so recording exactly
+      // one period yields a clip that loops cleanly. Auto-stop after it — the user can still stop
+      // early. (No loop set → record until stopped, as before.)
+      clearTimeout(loopRecordTimer);
+      const loopSec = config.loopSeconds ?? 0;
+      if (loopSec > 0) {
+        loopRecordTimer = window.setTimeout(stopRecording, loopSec * 1000);
+      }
     }
   },
 });

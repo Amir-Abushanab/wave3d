@@ -479,6 +479,14 @@ export class ControlPanel {
       "change",
       refresh,
     );
+    // Seamless loop — 0 = off (linear drift). >0 maps the motion onto a circle in noise space so
+    // it repeats exactly every N seconds; recording auto-stops after one loop (see onToggleRecord).
+    // Crossing 0 recompiles the vertex program (LOOP_MOTION); it orbits rather than drifts, so the
+    // motion character differs — that's the trade-off for a clean loop.
+    g.addBinding(cfg, "loopSeconds", { min: 0, max: 30, step: 0.5, label: "loop (s, 0=off)" }).on(
+      "change",
+      refresh,
+    );
     // Post-processing (one pass over the whole composite — scene-level, shared by all waves).
     g.addBinding(cfg, "grain", { min: 0, max: 3, step: 0.01 }).on("change", refresh);
     g.addBinding(cfg, "blur", { min: 0, max: 0.3, step: 0.005 }).on("change", refresh);

@@ -467,6 +467,7 @@ export class WaveRenderer {
       uTwPowX: { value: 3.95 },
       uTwPowY: { value: 5.85 },
       uTwPowZ: { value: 6.33 },
+      uLoopSeconds: { value: 0 }, // seamless-loop period (read only under the LOOP_MOTION define)
       // Colour + light (fragment)
       uColors: { value: colors },
       uColorPos: { value: colorPos },
@@ -519,6 +520,16 @@ export class WaveRenderer {
     };
   }
 
+  /** Vertex-shader #defines for a wave: TWIST_MOTION (per-wave animated twist wobble) and
+   *  LOOP_MOTION (scene-level seamless loop). Both select #ifdef-gated code paths; an empty
+   *  object compiles the default (linear-time) program. */
+  private waveDefines(sc: WaveConfig | undefined): Record<string, string> {
+    const defines: Record<string, string> = {};
+    if (sc?.twistMotion) defines.TWIST_MOTION = "";
+    if ((this.config.loopSeconds ?? 0) > 0) defines.LOOP_MOTION = "";
+    return defines;
+  }
+
   private addWave(): void {
     const geo = new WaveGeometry(this.segments);
     // Initialise defines/fragment/blend from the wave this material will represent, so the
@@ -526,9 +537,8 @@ export class WaveRenderer {
     const sc = this.config.waves[this.waves.length] ?? this.config.waves[0];
     const material = new THREE.ShaderMaterial({
       uniforms: this.makeUniforms(),
-      // TWIST_MOTION selects the variant vertex shader (an animated twist-X wobble) over the
-      // standard one. Toggled live in refresh() per wave.
-      defines: sc?.twistMotion ? { TWIST_MOTION: "" } : {},
+      // TWIST_MOTION / LOOP_MOTION select variant vertex-shader paths. Toggled live in refresh().
+      defines: this.waveDefines(sc),
       vertexShader,
       // solid theme = surfaceColor shader; wireframe theme = thin-line shader.
       // Swapped live in refresh() when the wave's theme changes.
@@ -647,12 +657,14 @@ export class WaveRenderer {
       const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
       const u = wave.material.uniforms;
       if (this.applyBlendMode(wave.material, sc.blendMode)) wave.material.needsUpdate = true;
-      // Switch between the standard and variant (animated-twist) vertex shaders by
-      // adding/removing the TWIST_MOTION define and forcing a program recompile.
+      // Recompile the vertex program when its #define set changes: TWIST_MOTION (animated twist
+      // wobble, per wave) and/or LOOP_MOTION (seamless loop, scene-level — same for every wave).
       const wantMotion = !!sc.twistMotion;
+      const wantLoop = (this.config.loopSeconds ?? 0) > 0;
       const hasMotion = "TWIST_MOTION" in (wave.material.defines ?? {});
-      if (wantMotion !== hasMotion) {
-        wave.material.defines = wantMotion ? { TWIST_MOTION: "" } : {};
+      const hasLoop = "LOOP_MOTION" in (wave.material.defines ?? {});
+      if (wantMotion !== hasMotion || wantLoop !== hasLoop) {
+        wave.material.defines = this.waveDefines(sc);
         wave.material.needsUpdate = true;
       }
       // Swap the fragment shader when this wave's theme changes: solid surfaceColor <->
@@ -752,6 +764,7 @@ export class WaveRenderer {
       // Deformation (absolute per wave)
       u.uSpeed.value = sc.speed;
       u.uSeed.value = sc.seed;
+      u.uLoopSeconds.value = this.config.loopSeconds ?? 0; // scene-level; shared by every wave
       u.uDispFreqX.value = sc.displaceFrequency.x;
       u.uDispFreqZ.value = sc.displaceFrequency.y;
       u.uDispAmount.value = sc.displaceAmount;
