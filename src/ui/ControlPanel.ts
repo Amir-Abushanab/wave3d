@@ -1290,6 +1290,10 @@ export class ControlPanel {
       const bEdgeFade = finF
         .addBinding(wave, "edgeFade", { min: 0, max: 0.5, step: 0.01 })
         .on("change", refresh);
+      // Ribbon long-edge softness (0.1 = original). Recompiles on leaving/returning to 0.1.
+      const bEdgeFeather = finF
+        .addBinding(wave, "edgeFeather", { min: 0, max: 0.5, step: 0.01, label: "edge feather" })
+        .on("change", refresh);
       // Depth tint — fade far fragments toward a colour for atmospheric depth (esp. wave stacks).
       const bDepthTint = finF
         .addBinding(wave, "depthTint", { min: 0, max: 1, step: 0.01, label: "depth tint" })
@@ -1325,6 +1329,7 @@ export class ControlPanel {
         bCreaseSharpness,
         bCreaseSoftness,
         bEdgeFade,
+        bEdgeFeather,
         bDepthTint,
         bDepthTintColor,
       ];

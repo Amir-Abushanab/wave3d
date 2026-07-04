@@ -314,6 +314,9 @@ uniform float uDepthTint;
 uniform vec3 uDepthTintColor;
 varying vec4 vClipPosition; // clip-space depth (written by the vertex shader for both programs)
 #endif
+#ifdef EDGE_FEATHER
+uniform float uEdgeFeather; // ribbon long-edge softness (only when it differs from the 0.1 default)
+#endif
 
 // Cheap value hash for the optional grain overlay (distinct from the simplex hash).
 float grainHash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
@@ -430,8 +433,15 @@ void main(){
 
   if (uTexture > 0.001) col *= 1.0 + (grainHash(vUv * 850.0) - 0.5) * uTexture * 0.25;
 
-  // Soft long edges + optional viewport-edge fade.
+  // Soft long edges + optional viewport-edge fade. The edge softness is the hardcoded 0.1 by
+  // default (literal branch → byte-identical); EDGE_FEATHER swaps in the uEdgeFeather knob only
+  // when it differs, so razor-crisp or vapor-soft edges are both reachable.
+#ifdef EDGE_FEATHER
+  float ribEdge =
+    smoothstep(0.0, uEdgeFeather, vUv.y) * (1.0 - smoothstep(1.0 - uEdgeFeather, 1.0, vUv.y));
+#else
   float ribEdge = smoothstep(0.0, 0.1, vUv.y) * (1.0 - smoothstep(0.9, 1.0, vUv.y));
+#endif
   float alpha = uOpacity * ribEdge;
   if (uEdgeFade > 0.001) {
     vec2 sc = gl_FragCoord.xy / max(uResolution, vec2(1.0));

@@ -507,6 +507,7 @@ export class WaveRenderer {
       uCreaseSharpness: { value: 2.0 },
       uCreaseSoftness: { value: 1.0 },
       uEdgeFade: { value: 0.06 },
+      uEdgeFeather: { value: 0.1 }, // ribbon-edge softness (read only under EDGE_FEATHER)
       uOpacity: { value: 1 },
       uSquared: { value: 1 }, // "squared" deep-colour mode: square the colour in-shader (see applyBlendMode)
       uResolution: { value: new THREE.Vector2(1, 1) },
@@ -537,6 +538,7 @@ export class WaveRenderer {
     if ((this.config.loopSeconds ?? 0) > 0) defines.LOOP_MOTION = "";
     if ((sc?.detailAmount ?? 0) !== 0) defines.DETAIL_OCTAVE = "";
     if ((sc?.depthTint ?? 0) > 0) defines.DEPTH_TINT = "";
+    if ((sc?.edgeFeather ?? 0.1) !== 0.1) defines.EDGE_FEATHER = "";
     return defines;
   }
 
@@ -741,6 +743,7 @@ export class WaveRenderer {
       u.uDepthTint.value = sc.depthTint ?? 0;
       hexToLinearVec3(sc.depthTintColor ?? "#0a2540", u.uDepthTintColor.value as THREE.Vector3);
       u.uEdgeFade.value = sc.edgeFade;
+      u.uEdgeFeather.value = sc.edgeFeather ?? 0.1;
       // Lights + ambient are scene-level (shared by every wave).
       const lights = this.config.lights ?? [];
       u.uAmbient.value = this.config.ambient ?? 0.45;
