@@ -1,7 +1,9 @@
 import "./style.css";
 import { WaveRenderer } from "@wave3d/core/renderer";
-import { randomizeConfig, ensureStudioConfig, PRESETS } from "@wave3d/core";
+import { ensureStudioConfig } from "@wave3d/core";
 import type { StudioConfig } from "@wave3d/core";
+import { randomizeConfig } from "@wave3d/core/studio";
+import { PRESETS } from "./presets";
 import { ControlPanel } from "./ui/ControlPanel";
 import { OutputResizeHandle } from "./ui/OutputResizeHandle";
 import { RecordingOverlay } from "./ui/RecordingOverlay";

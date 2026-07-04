@@ -1,7 +1,8 @@
 // Dev-only: renders the wave full-frame on white (no UI panel) so the default
 // composition/colours can be checked in isolation. Not part of the production build.
 import { WaveRenderer } from "@wave3d/core/renderer";
-import { createDefaultConfig, PRESETS } from "@wave3d/core";
+import { createDefaultConfig } from "@wave3d/core";
+import { PRESETS } from "./presets";
 
 const stage = document.getElementById("stage") as HTMLElement;
 const p = new URLSearchParams(location.search);

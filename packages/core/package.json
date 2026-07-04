@@ -7,7 +7,9 @@
   "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
-    "./renderer": "./src/renderer/index.ts"
+    "./renderer": "./src/renderer/index.ts",
+    "./presets": "./src/presets.ts",
+    "./studio": "./src/studio/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

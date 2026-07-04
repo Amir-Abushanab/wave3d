@@ -14,6 +14,9 @@ import {
   MAX_MESH_POINTS,
   MAX_NOISE_BANDS,
   MAX_WAVES,
+} from "@wave3d/core";
+import type { StudioConfig, WaveConfig } from "@wave3d/core";
+import {
   randomizeGradient,
   randomizeColor,
   randomizeBackground,
@@ -24,8 +27,7 @@ import {
   randomizeLights,
   randomizeGlobal,
   randomizeWave,
-} from "@wave3d/core";
-import type { StudioConfig, WaveConfig } from "@wave3d/core";
+} from "@wave3d/core/studio";
 import type { WaveRenderer } from "@wave3d/core/renderer";
 import { PALETTE_MAPS, buildPaletteCanvas, paletteMapCanvas } from "@wave3d/core/renderer";
 import { buildHeroPaletteCanvas } from "@wave3d/core/renderer";
