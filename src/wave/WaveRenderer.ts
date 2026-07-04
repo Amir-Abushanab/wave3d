@@ -464,6 +464,8 @@ export class WaveRenderer {
       uDispFreqX: { value: 0.003234 },
       uDispFreqZ: { value: 0.00799 },
       uDispAmount: { value: 6.051 },
+      uDetailFreq: { value: 0.04 },
+      uDetailAmount: { value: 0 }, // 2nd displacement octave (read only under DETAIL_OCTAVE)
       uTwFreqX: { value: -0.055 },
       uTwFreqY: { value: 0.077 },
       uTwFreqZ: { value: -0.518 },
@@ -531,6 +533,7 @@ export class WaveRenderer {
     const defines: Record<string, string> = {};
     if (sc?.twistMotion) defines.TWIST_MOTION = "";
     if ((this.config.loopSeconds ?? 0) > 0) defines.LOOP_MOTION = "";
+    if ((sc?.detailAmount ?? 0) !== 0) defines.DETAIL_OCTAVE = "";
     return defines;
   }
 
@@ -665,9 +668,12 @@ export class WaveRenderer {
       // wobble, per wave) and/or LOOP_MOTION (seamless loop, scene-level — same for every wave).
       const wantMotion = !!sc.twistMotion;
       const wantLoop = (this.config.loopSeconds ?? 0) > 0;
-      const hasMotion = "TWIST_MOTION" in (wave.material.defines ?? {});
-      const hasLoop = "LOOP_MOTION" in (wave.material.defines ?? {});
-      if (wantMotion !== hasMotion || wantLoop !== hasLoop) {
+      const wantDetail = (sc.detailAmount ?? 0) !== 0;
+      const defs = wave.material.defines ?? {};
+      const hasMotion = "TWIST_MOTION" in defs;
+      const hasLoop = "LOOP_MOTION" in defs;
+      const hasDetail = "DETAIL_OCTAVE" in defs;
+      if (wantMotion !== hasMotion || wantLoop !== hasLoop || wantDetail !== hasDetail) {
         wave.material.defines = this.waveDefines(sc);
         wave.material.needsUpdate = true;
       }
@@ -773,6 +779,8 @@ export class WaveRenderer {
       u.uDispFreqX.value = sc.displaceFrequency.x;
       u.uDispFreqZ.value = sc.displaceFrequency.y;
       u.uDispAmount.value = sc.displaceAmount;
+      u.uDetailFreq.value = sc.detailFrequency ?? 0.04;
+      u.uDetailAmount.value = sc.detailAmount ?? 0;
       u.uTwFreqX.value = sc.twistFrequency.x;
       u.uTwFreqY.value = sc.twistFrequency.y;
       u.uTwFreqZ.value = sc.twistFrequency.z;

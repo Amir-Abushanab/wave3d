@@ -179,6 +179,9 @@ export interface WaveConfig {
   // Displacement + twist (the wave shape)
   displaceFrequency: Vec2;
   displaceAmount: number;
+  /** Optional 2nd displacement octave: finer ripples riding on the broad swell (amount 0 = off). */
+  detailFrequency: number;
+  detailAmount: number;
   twistFrequency: Vec3;
   twistPower: Vec3;
   twistMotion?: boolean;
@@ -338,6 +341,8 @@ function defaultWave(): WaveConfig {
     // Hero deformation on the native 400-unit folded() geometry.
     displaceFrequency: { x: 0.003234, y: 0.00799 },
     displaceAmount: 6.051,
+    detailFrequency: 0.04, // finer than the base swell; only bites once detailAmount > 0
+    detailAmount: 0,
     // Small twist frequencies + high powers — a gentle twist; the drama is the ortho crop.
     twistFrequency: { x: -0.055, y: 0.077, z: -0.518 },
     twistPower: { x: 3.95, y: 5.85, z: 6.33 },
@@ -551,6 +556,8 @@ export function normalizeWave(s: WaveConfig): void {
   if (typeof s.edgeFade !== "number") s.edgeFade = 0.04;
   if (!s.displaceFrequency) s.displaceFrequency = { x: 0.003234, y: 0.00799 };
   if (typeof s.displaceAmount !== "number") s.displaceAmount = 6.051;
+  if (typeof s.detailFrequency !== "number") s.detailFrequency = 0.04;
+  if (typeof s.detailAmount !== "number") s.detailAmount = 0;
   if (!s.twistFrequency) s.twistFrequency = { x: -0.055, y: 0.077, z: -0.518 };
   if (!s.twistPower) s.twistPower = { x: 3.95, y: 5.85, z: 6.33 };
   if (typeof s.theme !== "string") s.theme = "solid";
@@ -1166,6 +1173,13 @@ export function randomizeSpine(c: WaveConfig): void {
   // moved). Amount takes either sign so the ribbon folds either way.
   c.displaceFrequency = { x: r3(rand(0.002, 0.016)), y: r3(rand(0.004, 0.02)) };
   c.displaceAmount = r2(rand(3, 10)) * pick([1, -1]);
+  // Occasionally layer a finer second octave for a richer, two-scale shape.
+  if (rand(0, 1) < 0.35) {
+    c.detailFrequency = r3(rand(0.03, 0.08));
+    c.detailAmount = r2(rand(0.8, 2.5)) * pick([1, -1]);
+  } else {
+    c.detailAmount = 0;
+  }
 }
 
 export function randomizeTransform(c: WaveConfig): void {

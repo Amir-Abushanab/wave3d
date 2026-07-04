@@ -1369,6 +1369,18 @@ export class ControlPanel {
       dispF
         .addBinding(wave, "displaceAmount", { min: -12, max: 12, step: 0.05 })
         .on("change", refresh);
+      // Second octave: finer ripples riding on the broad swell (amount 0 = off).
+      dispF
+        .addBinding(wave, "detailAmount", { min: -6, max: 6, step: 0.05, label: "detail amount" })
+        .on("change", refresh);
+      dispF
+        .addBinding(wave, "detailFrequency", {
+          min: 0,
+          max: 0.1,
+          step: 0.001,
+          label: "detail freq",
+        })
+        .on("change", refresh);
       sectionRandom(dispF, randomizeSpine);
 
       // --- Transform ---

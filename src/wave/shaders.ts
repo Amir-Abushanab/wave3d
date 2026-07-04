@@ -176,6 +176,7 @@ ${simplex2d}
 
 uniform float uTime, uSpeed, uSeed;
 uniform float uDispFreqX, uDispFreqZ, uDispAmount;
+uniform float uDetailFreq, uDetailAmount; // 2nd displacement octave (only read under DETAIL_OCTAVE)
 uniform float uTwFreqX, uTwFreqY, uTwFreqZ, uTwPowX, uTwPowY, uTwPowZ;
 uniform float uLoopSeconds; // seamless-loop period (only read under LOOP_MOTION)
 
@@ -227,6 +228,16 @@ void main(){
   pos.y += uDispAmount * simplexNoise(vec2(pos.x * uDispFreqX, pos.z * uDispFreqZ) + loopOff);
 #else
   pos.y += uDispAmount * simplexNoise(vec2(pos.x * uDispFreqX + t, pos.z * uDispFreqZ + t));
+#endif
+#ifdef DETAIL_OCTAVE
+  // A second, finer octave riding on the broad swell — fine ripples on top of the big shape, a
+  // shape vocabulary single-octave displacement can't reach. Shares the loop orbit so it stays
+  // periodic when looping.
+#ifdef LOOP_MOTION
+  pos.y += uDetailAmount * simplexNoise(vec2(pos.x * uDetailFreq, pos.z * uDetailFreq) + loopOff);
+#else
+  pos.y += uDetailAmount * simplexNoise(vec2(pos.x * uDetailFreq + t, pos.z * uDetailFreq + t));
+#endif
 #endif
 
   // The X-twist frequency feeding rotB. Two modes: by default uTwFreqX is used
