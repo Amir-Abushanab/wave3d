@@ -52,10 +52,18 @@ export function generateSnippet(
   const attr = JSON.stringify(config); // compact — double-quoted JSON is safe inside a single-quoted attr
   const inline = serializeForInlineScript(config); // <-escaped — safe inside an inline <script>
   const poster = opts.posterPath;
+  // When the poster is an inlined LQIP data-URI, flag it as a placeholder — a production app should
+  // point `poster` at a hosted (higher-res, separately-cacheable) image instead.
+  const noteText = "poster is an inline LQIP placeholder — swap in a hosted image for production";
+  const posterNote = !poster?.startsWith("data:")
+    ? ""
+    : target === "vue" || target === "svelte" || target === "html"
+      ? `<!-- ${noteText} -->\n`
+      : `// ${noteText}\n`;
 
   switch (target) {
     case "react":
-      return `// npm i @wave3d/react @wave3d/core three
+      return `${posterNote}// pnpm add @wave3d/react @wave3d/core three
 import { Wave3D } from "@wave3d/react";
 
 export default function Wave() {
@@ -68,7 +76,7 @@ export default function Wave() {
 }`;
 
     case "vue":
-      return `<!-- npm i @wave3d/element @wave3d/core three -->
+      return `${posterNote}<!-- pnpm add @wave3d/element @wave3d/core three -->
 <!-- main.ts: import "@wave3d/element";  (and in Vue, tell the compiler <wave-3d> is a custom
      element: app.config.compilerOptions.isCustomElement = (t) => t === "wave-3d") -->
 <template>
@@ -79,7 +87,7 @@ export default function Wave() {
 </template>`;
 
     case "svelte":
-      return `<!-- npm i @wave3d/element @wave3d/core three -->
+      return `${posterNote}<!-- pnpm add @wave3d/element @wave3d/core three -->
 <script>
   import "@wave3d/element";
 </script>
@@ -90,7 +98,7 @@ export default function Wave() {
 ></wave-3d>`;
 
     case "vanilla":
-      return `// npm i @wave3d/core three
+      return `${posterNote}// pnpm add @wave3d/core three
 import { createWave } from "@wave3d/core";
 
 createWave(
@@ -100,7 +108,7 @@ createWave(
 );`;
 
     case "html":
-      return `<div id="wave" style="width:100%;aspect-ratio:16/9"></div>
+      return `${posterNote}<div id="wave" style="width:100%;aspect-ratio:16/9"></div>
 <script type="module">
   import { mountWave } from "https://esm.sh/@wave3d/core/standalone";
   mountWave(document.getElementById("wave"), ${inline}${poster ? `, { poster: ${JSON.stringify(poster)} }` : ""});

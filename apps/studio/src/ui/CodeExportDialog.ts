@@ -162,6 +162,7 @@ export class CodeExportDialog {
     const inlineLabel = document.createElement("label");
     this.inlineToggle = document.createElement("input");
     this.inlineToggle.type = "checkbox";
+    this.inlineToggle.checked = true; // default: a self-contained snippet that works when pasted
     this.inlineToggle.addEventListener("change", () => this.renderSnippet());
     inlineLabel.append(this.inlineToggle, document.createTextNode("inline LQIP poster"));
     const ftSpacer = document.createElement("div");
