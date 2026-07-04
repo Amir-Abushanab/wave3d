@@ -20,10 +20,12 @@
     "format:check": "oxfmt . --check",
     "depcruise": "dependency-cruiser apps packages",
     "knip": "knip",
-    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm depcruise && pnpm knip",
+    "skill:validate": "intent validate packages/core/skills",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm depcruise && pnpm knip && pnpm skill:validate",
     "ncu": "pnpm dlx npm-check-updates"
   },
   "devDependencies": {
+    "@tanstack/intent": "^0.3.4",
     "dependency-cruiser": "^18.0.0",
     "knip": "^6.23.0",
     "oxfmt": "^0.56.0",

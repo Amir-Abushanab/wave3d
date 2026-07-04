@@ -2,6 +2,9 @@
   "name": "@wave3d/core",
   "version": "0.1.0",
   "description": "Framework-agnostic 3D gradient-wave renderer + config model (the engine behind Wave Studio)",
+  "keywords": [
+    "tanstack-intent"
+  ],
   "license": "MIT",
   "files": [
     "dist",
@@ -47,6 +50,7 @@
     "build:standalone": "vite build --config vite.standalone.config.ts"
   },
   "devDependencies": {
+    "@tanstack/intent": "^0.3.4",
     "@types/three": "^0.185.0",
     "three": "^0.185.0",
     "vite": "^8.1.0"
