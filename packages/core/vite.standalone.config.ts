@@ -1,9 +1,11 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
 
-// Interim standalone build (Phase 1): a single ES module with Three.js bundled in, exposing
-// mountWave() — the drop-in runtime the studio's HTML export inlines. Output:
-// dist/standalone/wave3d.standalone.js. Phase 6 replaces this with a tsdown-driven build.
+// The single-file CDN / standalone build. Vite's lib mode with codeSplitting disabled reliably
+// emits ONE self-contained file (three bundled, runtime helpers inlined) — required because the
+// studio inlines this file as one Blob into its exported embed HTML. (tsdown/rolldown extracts a
+// shared runtime-helper chunk here, which would break the single-Blob inline; tsdown builds the
+// tree-shakeable main package — see tsdown.config.ts.) Output: dist/standalone/wave3d.standalone.js
 export default defineConfig({
   build: {
     outDir: "dist/standalone",

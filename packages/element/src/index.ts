@@ -9,13 +9,21 @@ import type {
 
 const OBSERVED = ["config", "src", "preset", "poster", "paused", "lazy", "webgl"] as const;
 
+// SSR-safe base: `class extends HTMLElement` evaluates HTMLElement at import time, which throws
+// under Node. Fall back to a dummy base there — the element is never instantiated server-side
+// (register() is guarded), so the missing DOM methods are never called.
+const ElementBase: typeof HTMLElement =
+  typeof HTMLElement !== "undefined"
+    ? HTMLElement
+    : (function Wave3DElementBase() {} as unknown as typeof HTMLElement);
+
 /**
  * `<wave-3d>` — the framework-agnostic drop-in (Vue/Svelte/plain HTML). Light DOM, `display:block`.
  * Attributes: `config` (JSON), `src` (URL to a config JSON), `preset` (name), `poster`, `paused`,
  * `lazy`, `webgl`. Also a `config` property and a read-only `handle` getter. Emits `wave3d-ready`
  * (detail = renderer) and `wave3d-fallback` (detail = reason) events.
  */
-export class Wave3DElement extends HTMLElement {
+export class Wave3DElement extends ElementBase {
   static get observedAttributes(): string[] {
     return [...OBSERVED];
   }

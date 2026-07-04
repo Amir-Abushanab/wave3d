@@ -55,15 +55,15 @@ export interface WaveHandle {
 }
 
 /**
- * Mount a self-optimizing wave into a container: shows a poster immediately, then — lazily, and only
- * when the browser can actually run it — fetches the engine, builds the renderer, and crossfades in.
- * Falls back to the poster on no-WebGL / save-data / reduced-motion / context-loss / load errors.
- * No static three import: the engine arrives via a dynamic import, so the shell stays tiny.
+ * The shell implementation. `loadCore` is an explicit parameter (not read from options) so the
+ * standalone/CDN build can pass a synchronous core and NOT bundle the dynamic-import path — its
+ * output stays a single file. The public {@link createWave} supplies the dynamic-import default.
  */
-export function createWave(
+export function createWaveImpl(
+  loadCore: () => Promise<CoreModule>,
   container: HTMLElement,
-  config: Partial<StudioConfig> = {},
-  options: WaveOptions = {},
+  config: Partial<StudioConfig>,
+  options: WaveOptions,
 ): WaveHandle {
   const {
     lazy = true,
@@ -73,7 +73,6 @@ export function createWave(
     reducedMotionBehavior = "static",
     respectSaveData = true,
     fadeMs = 300,
-    loadCore = () => import("../core-loader"),
   } = options;
 
   let state: WaveState = "poster";
@@ -236,6 +235,25 @@ export function createWave(
 
   begin();
   return handle;
+}
+
+/**
+ * Mount a self-optimizing wave into a container: shows a poster immediately, then — lazily, and only
+ * when the browser can actually run it — fetches the engine, builds the renderer, and crossfades in.
+ * Falls back to the poster on no-WebGL / save-data / reduced-motion / context-loss / load errors.
+ * No static three import: the engine arrives via a dynamic import, so the shell stays tiny.
+ */
+export function createWave(
+  container: HTMLElement,
+  config: Partial<StudioConfig> = {},
+  options: WaveOptions = {},
+): WaveHandle {
+  return createWaveImpl(
+    options.loadCore ?? (() => import("../core-loader")),
+    container,
+    config,
+    options,
+  );
 }
 
 /** The drop-in embed contract: an alias of {@link createWave}. */

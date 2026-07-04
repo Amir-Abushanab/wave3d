@@ -3,13 +3,26 @@
   "version": "0.1.0",
   "description": "React <Wave3D> component for @wave3d — a drop-in, self-optimizing animated gradient wave",
   "license": "MIT",
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "sideEffects": false,
   "exports": {
     ".": "./src/index.tsx"
   },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "access": "public"
+  },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "tsdown"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

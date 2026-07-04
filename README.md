@@ -90,10 +90,61 @@ The renderer is built to be a well-behaved background:
 
 Each strand is a wave swept along a smooth spine curve: the curve is sampled, frames are carried along it by parallel transport (no Frenet flips), the cross-section is twisted around the tangent, and the strip is extruded to a tapering width — rebuilt each frame in `WaveGeometry`. The fragment shader colours it with a gradient along the length, overlays fine **stratified lines running across the wave** (`abs(sin(uv.y · lineAmount))`), adds a subtle sheen and rim glow, and feathers the edges and ends. A post pass then applies a **golden-angle soft-focus blur and dither grain**. Everything is driven by a single JSON-serializable `WaveConfig`, so the renderer, the panel, and every export read from the same source of truth.
 
-- `src/wave/` — config schema, `WaveGeometry`, shaders, and the framework-agnostic `WaveRenderer`.
-- `src/ui/` — the Tweakpane control panel.
-- `src/export/` — config / PNG / WebP / JPEG / WebM / embed exporters.
-- `embed/` — the `mountWave` entry for the standalone runtime.
+This is a pnpm monorepo:
+
+- `packages/core/` — **`@wave3d/core`**: the framework-agnostic engine. `config/model.ts` (schema),
+  `renderer/` (`WaveGeometry`, shaders, `WaveRenderer`), `shell/` (the `createWave` poster-fallback
+  drop-in), `presets.ts`, `studio/` (`StudioWaveRenderer` + randomizers), `standalone.ts` (CDN entry).
+- `packages/react/` — **`@wave3d/react`**: the `<Wave3D>` component.
+- `packages/element/` — **`@wave3d/element`**: the `<wave-3d>` custom element (Vue/Svelte/plain HTML).
+- `apps/studio/` — the Wave Studio app (Tweakpane panel in `ui/`, exporters in `export/`).
+
+## Packages
+
+Drop a self-optimizing wave into any site — it shows a poster first, then lazily upgrades to the
+live WebGL wave only when the browser can run it (falling back to the poster on no-WebGL, Save-Data,
+reduced-motion, or context loss), with three.js code-split out of the initial load.
+
+```sh
+pnpm add @wave3d/react @wave3d/core three   # React ( + @types/three for TS)
+pnpm add @wave3d/element @wave3d/core three  # <wave-3d> for Vue / Svelte / plain HTML
+```
+
+```tsx
+import { Wave3D } from "@wave3d/react";
+<Wave3D preset="Hero" poster="/wave.png" style={{ width: 480, height: 270 }} />;
+```
+
+```html
+<script type="module">
+  import "@wave3d/element";
+</script>
+<wave-3d preset="Hero" poster="/wave.png" style="width:480px;height:270px"></wave-3d>
+```
+
+Or a single `<script>` from a CDN (three bundled):
+
+```html
+<script type="module">
+  import { mountWave } from "https://esm.sh/@wave3d/core/standalone";
+  mountWave(document.getElementById("wave"), {
+    /* config */
+  });
+</script>
+```
+
+`three` is a peer dependency of `@wave3d/core` (`>=0.180 <1`); add `@types/three` for TypeScript.
+
+## Releasing
+
+The packages are prepared but not yet published. To release (maintainer):
+
+1. Create the free `@wave3d` organization on [npmjs.com](https://www.npmjs.com) (the scope is public;
+   each package already sets `publishConfig.access: "public"`).
+2. `pnpm -r build` — builds every package's `dist/` (tsdown for the tree-shakeable entries, Vite for
+   the single-file standalone).
+3. `pnpm -r --filter "@wave3d/*" publish` — pnpm rewrites the `workspace:^` peer ranges to real
+   versions and applies each package's `publishConfig.exports` (pointing at `dist/`) automatically.
 
 ## Tech
 

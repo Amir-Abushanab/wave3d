@@ -9,7 +9,9 @@
     "prepare": "git config core.hooksPath .githooks",
     "hooks:install": "git config core.hooksPath .githooks",
     "dev": "pnpm --filter wave-studio dev",
-    "build": "pnpm --filter @wave3d/core build:standalone && pnpm --filter wave-studio build",
+    "build": "pnpm -r build",
+    "build:packages": "pnpm -r --filter \"@wave3d/*\" build",
+    "pack:all": "pnpm -r --filter \"@wave3d/*\" exec pnpm pack",
     "preview": "pnpm --filter wave-studio preview",
     "typecheck": "pnpm -r typecheck",
     "lint": "oxlint .",
@@ -26,6 +28,7 @@
     "knip": "^6.23.0",
     "oxfmt": "^0.56.0",
     "oxlint": "^1.71.0",
+    "tsdown": "^0.22.3",
     "typescript": "^6.0.3"
   },
   "packageManager": "pnpm@11.9.0"

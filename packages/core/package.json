@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "description": "Framework-agnostic 3D gradient-wave renderer + config model (the engine behind Wave Studio)",
   "license": "MIT",
+  "files": [
+    "dist",
+    "skills"
+  ],
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -12,8 +16,34 @@
     "./studio": "./src/studio/index.ts",
     "./standalone": "./src/standalone.ts"
   },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./renderer": {
+        "types": "./dist/renderer/index.d.ts",
+        "default": "./dist/renderer/index.js"
+      },
+      "./presets": {
+        "types": "./dist/presets.d.ts",
+        "default": "./dist/presets.js"
+      },
+      "./studio": {
+        "types": "./dist/studio/index.d.ts",
+        "default": "./dist/studio/index.js"
+      },
+      "./standalone": {
+        "types": "./dist/standalone.d.ts",
+        "default": "./dist/standalone/wave3d.standalone.js"
+      }
+    },
+    "access": "public"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "build": "tsdown && pnpm build:standalone",
     "build:standalone": "vite build --config vite.standalone.config.ts"
   },
   "devDependencies": {

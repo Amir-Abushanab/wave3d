@@ -3,19 +3,22 @@
 // with a synchronous loadCore, so a plain <script type="module"> from a CDN upgrades with no extra
 // network round-trip. This is also the runtime the studio inlines into its exported embed HTML.
 import * as core from "./core-loader";
-import { createWave as createWaveShell } from "./shell/createWave";
+import { createWaveImpl } from "./shell/createWave";
 import type { WaveOptions, WaveHandle } from "./shell/createWave";
 import type { StudioConfig } from "./config/model";
 
+// Synchronous core — the engine is already bundled into this file, so there is no dynamic import
+// (which is exactly why the standalone stays a single file: createWaveImpl never references the
+// public createWave's `import("./core-loader")` default).
 const loadCore = (): Promise<typeof core> => Promise.resolve(core);
 
-/** {@link createWave} with the engine already bundled in (synchronous upgrade). */
+/** {@link createWaveImpl} with the engine already bundled in (synchronous upgrade). */
 export function createWave(
   container: HTMLElement,
-  config?: Partial<StudioConfig>,
-  options?: WaveOptions,
+  config: Partial<StudioConfig> = {},
+  options: WaveOptions = {},
 ): WaveHandle {
-  return createWaveShell(container, config, { loadCore, ...options });
+  return createWaveImpl(loadCore, container, config, options);
 }
 
 /** The drop-in embed contract: an alias of {@link createWave}. */
