@@ -133,7 +133,7 @@ export async function exportImage(
 
 // ---- Embeddable component ----
 
-function serializeForInlineScript(value: unknown): string {
+export function serializeForInlineScript(value: unknown): string {
   return JSON.stringify(value).replaceAll("<", "\\u003c");
 }
 

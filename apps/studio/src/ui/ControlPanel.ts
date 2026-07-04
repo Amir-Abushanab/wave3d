@@ -86,6 +86,7 @@ export interface PanelHooks {
   onImportConfig?: () => void;
   onExportImage?: (format: ImageFormat, quality: number) => void;
   onExportEmbed?: () => void;
+  onExportCode?: () => void;
   onCopyLink?: () => Promise<boolean> | void;
   onToggleRecord?: (format: RecordFormat) => void;
   /** Fired after any change that mutates the document config, so the app can record undo/redo
@@ -410,10 +411,11 @@ export class ControlPanel {
     this.recordBtn = output.addButton({ title: this.recordTitle() });
     this.recordBtn.on("click", () => this.hooks.onToggleRecord?.(this.state.recordFormat));
     this.groupRows("RECORD", [formatBinding.element, this.recordBtn.element]);
-    // Standalone HTML page export goes last: image, then video, then embed.
+    // Standalone HTML page export goes last: image, then video, then embed, then code snippets.
     output
       .addButton({ title: "🔗 Export embed (.html)" })
       .on("click", () => this.hooks.onExportEmbed?.());
+    output.addButton({ title: "⟨⟩ Export code…" }).on("click", () => this.hooks.onExportCode?.());
   }
 
   /** "Actions" folder: randomize/reset/save/load/share. */

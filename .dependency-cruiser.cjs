@@ -51,12 +51,12 @@ module.exports = {
       },
     },
     {
-      name: "studio-ui-does-not-depend-on-app-or-exports",
+      name: "studio-ui-does-not-depend-on-app",
       severity: "error",
       comment:
-        "UI components may use the wave engine, but not app entry points or export orchestration.",
+        "UI components may use the wave engine and the export generators (e.g. the code-export dialog imports the snippet generator), but not app entry points. The reverse — export → ui — stays forbidden below, keeping the dependency one-way.",
       from: { path: "^apps/studio/src/ui/" },
-      to: { path: "^apps/studio/src/(?:export|main|preview)" },
+      to: { path: "^apps/studio/src/(?:main|preview)" },
     },
     {
       name: "studio-exports-do-not-depend-on-ui-or-app",

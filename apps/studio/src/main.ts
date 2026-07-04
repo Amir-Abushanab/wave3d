@@ -5,6 +5,7 @@ import type { StudioConfig } from "@wave3d/core";
 import { randomizeConfig } from "@wave3d/core/studio";
 import { PRESETS } from "./presets";
 import { ControlPanel } from "./ui/ControlPanel";
+import { CodeExportDialog } from "./ui/CodeExportDialog";
 import { OutputResizeHandle } from "./ui/OutputResizeHandle";
 import { RecordingOverlay } from "./ui/RecordingOverlay";
 import { HistoryControls } from "./ui/HistoryControls";
@@ -164,6 +165,7 @@ function applyConfig(next: StudioConfig, presetName = "—", record = true, labe
   if (record) history.commit(config, presetName, label);
 }
 
+let codeDialog: CodeExportDialog | undefined;
 const panel = new ControlPanel(panelEl, renderer, config, {
   presetOptions,
   // Shared-link load isn't a named preset → "—"; otherwise show the default's name.
@@ -192,6 +194,10 @@ const panel = new ControlPanel(panelEl, renderer, config, {
   },
   onExportEmbed: () => {
     void exportEmbed(config, exportSize);
+  },
+  onExportCode: () => {
+    codeDialog ??= new CodeExportDialog(() => config, renderer);
+    codeDialog.show();
   },
   onToggleRecord: (format) => {
     if (recorder.recording) {
