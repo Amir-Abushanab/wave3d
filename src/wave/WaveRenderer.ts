@@ -1396,6 +1396,7 @@ export class WaveRenderer {
     this.setOrbitForEdit(true); // left-drag on a handle moves it; on empty space it pans
     this.gizmoMode = "translate"; // each mode entry starts in move mode (rotate is wave-only)
     this.transform?.setMode("translate");
+    this.transform?.setSpace("world"); // reset to world-space translate on every entry
     if (this.transform) this.transform.enabled = true;
     if (mode === "light") {
       // Light editing reframes to a 3/4 working angle, so snapshot the current view first and
@@ -1428,6 +1429,9 @@ export class WaveRenderer {
   setGizmoMode(mode: "translate" | "rotate"): void {
     this.gizmoMode = mode;
     this.transform?.setMode(mode);
+    // Rotate in LOCAL space so the gizmo rings reorient with the wave — a visual read-out of its
+    // current rotation; translate stays in world space so the arrows track the world axes.
+    this.transform?.setSpace(mode === "rotate" ? "local" : "world");
     if (mode === "rotate" && this.editMode === "wave") {
       const waveIdx = this.waveHelpers.findIndex((h) => h.userData.kind === "wave");
       if (waveIdx >= 0) this.selectWaveHandle(waveIdx);
