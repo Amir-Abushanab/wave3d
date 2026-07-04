@@ -1,5 +1,5 @@
 import "./style.css";
-import { WaveRenderer } from "@wave3d/core/renderer";
+import { StudioWaveRenderer } from "@wave3d/core/studio";
 import { ensureStudioConfig } from "@wave3d/core";
 import type { StudioConfig } from "@wave3d/core";
 import { randomizeConfig } from "@wave3d/core/studio";
@@ -89,7 +89,7 @@ const makeDefault = (): StudioConfig => PRESETS[DEFAULT_PRESET]();
 // A shared link (#w=…) overrides the default on load — applied async (gzip decode) below.
 const hasSharedLink = /[#&]w=/.test(location.hash);
 let config: StudioConfig = makeDefault();
-const renderer = new WaveRenderer(stage, config, { skipIntroRamp: import.meta.env.DEV });
+const renderer = new StudioWaveRenderer(stage, config, { skipIntroRamp: import.meta.env.DEV });
 const exportSize = { ...DEFAULT_EXPORT_SIZE };
 
 function updateExportPresentation(refitPreview: boolean): void {

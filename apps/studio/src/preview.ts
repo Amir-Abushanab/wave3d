@@ -1,6 +1,6 @@
 // Dev-only: renders the wave full-frame on white (no UI panel) so the default
 // composition/colours can be checked in isolation. Not part of the production build.
-import { WaveRenderer } from "@wave3d/core/renderer";
+import { StudioWaveRenderer } from "@wave3d/core/studio";
 import { createDefaultConfig } from "@wave3d/core";
 import { PRESETS } from "./presets";
 
@@ -56,7 +56,7 @@ num("dist", (v) => {
 num("zoom", (v) => (config.cameraZoom = v)); // ortho framing
 num("panx", (v) => (config.cameraTarget = { ...config.cameraTarget, x: v }));
 num("pany", (v) => (config.cameraTarget = { ...config.cameraTarget, y: v }));
-const renderer = new WaveRenderer(stage, config, { skipIntroRamp: import.meta.env.DEV });
+const renderer = new StudioWaveRenderer(stage, config, { skipIntroRamp: import.meta.env.DEV });
 renderer.start();
 const dbg = p.get("debug");
 if (dbg !== null) renderer.setDebug(parseFloat(dbg));

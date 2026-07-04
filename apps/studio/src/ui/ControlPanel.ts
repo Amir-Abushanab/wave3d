@@ -28,7 +28,7 @@ import {
   randomizeGlobal,
   randomizeWave,
 } from "@wave3d/core/studio";
-import type { WaveRenderer } from "@wave3d/core/renderer";
+import type { StudioWaveRenderer } from "@wave3d/core/studio";
 import { PALETTE_MAPS, buildPaletteCanvas, paletteMapCanvas } from "@wave3d/core/renderer";
 import { buildHeroPaletteCanvas } from "@wave3d/core/renderer";
 import { GradientEditor } from "./GradientEditor";
@@ -155,7 +155,7 @@ export class ControlPanel {
 
   constructor(
     private readonly container: HTMLElement,
-    private readonly renderer: WaveRenderer,
+    private readonly renderer: StudioWaveRenderer,
     private config: StudioConfig,
     private readonly hooks: PanelHooks = {},
   ) {
