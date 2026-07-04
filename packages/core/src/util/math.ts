@@ -1,4 +1,5 @@
-/** Shared numeric helpers. Dependency-free — safe to import from src/wave/* (the embed bundle). */
+/** Shared numeric helpers. Dependency-free — a private copy so the renderer core carries no
+ *  cross-package imports (the studio keeps its own copy under apps/studio/src/util). */
 
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));

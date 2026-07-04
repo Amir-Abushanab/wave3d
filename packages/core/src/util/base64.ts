@@ -1,4 +1,5 @@
-/** Dependency-free — safe to import from src/wave/* (the embed bundle). */
+/** Dependency-free — a private copy so the renderer core carries no cross-package imports
+ *  (the studio keeps its own copy under apps/studio/src/util). */
 
 /** Decode base64 — standard or url-safe alphabet — into bytes. */
 export function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {

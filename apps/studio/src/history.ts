@@ -8,7 +8,7 @@
  * cursor is behind the tip truncates the forward (redo) branch. The floating history panel renders
  * `getState()` and jumps to any entry by its stable `id`.
  */
-import type { StudioConfig, WaveConfig } from "./wave/config";
+import type { StudioConfig, WaveConfig } from "@wave3d/core";
 
 /** One committed version in the timeline. */
 interface Entry {

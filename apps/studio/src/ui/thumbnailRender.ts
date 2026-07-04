@@ -3,8 +3,8 @@
  * config to a still frame with one hidden reused WaveRenderer; only their orchestration differs
  * (one-shot loop over presets vs a lazy queue keyed by history-entry id).
  */
-import type { WaveRenderer } from "../wave/WaveRenderer";
-import type { StudioConfig } from "../wave/config";
+import type { WaveRenderer } from "@wave3d/core/renderer";
+import type { StudioConfig } from "@wave3d/core";
 
 /** A hidden host div that is in layout (so clientWidth/Height are real) but off-screen. */
 export function createThumbHost(width: number, height: number): HTMLDivElement {

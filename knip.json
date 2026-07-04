@@ -1,9 +1,15 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["src/preview.ts", "embed/index.ts"],
-  "project": ["src/**/*.ts", "embed/**/*.ts", "vite*.ts"],
-  "ignoreDependencies": ["@tweakpane/core"],
-  "ignoreBinaries": ["dot"],
+  "workspaces": {
+    "packages/core": {
+      "project": ["src/**/*.ts"]
+    },
+    "apps/studio": {
+      "entry": ["src/preview.ts"],
+      "project": ["src/**/*.ts"],
+      "ignoreDependencies": ["@tweakpane/core"]
+    }
+  },
   "include": [
     "files",
     "dependencies",

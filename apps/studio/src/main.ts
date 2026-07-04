@@ -1,7 +1,7 @@
 import "./style.css";
-import { WaveRenderer } from "./wave/WaveRenderer";
-import { randomizeConfig, ensureStudioConfig, PRESETS } from "./wave/config";
-import type { StudioConfig } from "./wave/config";
+import { WaveRenderer } from "@wave3d/core/renderer";
+import { randomizeConfig, ensureStudioConfig, PRESETS } from "@wave3d/core";
+import type { StudioConfig } from "@wave3d/core";
 import { ControlPanel } from "./ui/ControlPanel";
 import { OutputResizeHandle } from "./ui/OutputResizeHandle";
 import { RecordingOverlay } from "./ui/RecordingOverlay";
@@ -87,7 +87,7 @@ const makeDefault = (): StudioConfig => PRESETS[DEFAULT_PRESET]();
 // A shared link (#w=…) overrides the default on load — applied async (gzip decode) below.
 const hasSharedLink = /[#&]w=/.test(location.hash);
 let config: StudioConfig = makeDefault();
-const renderer = new WaveRenderer(stage, config);
+const renderer = new WaveRenderer(stage, config, { skipIntroRamp: import.meta.env.DEV });
 const exportSize = { ...DEFAULT_EXPORT_SIZE };
 
 function updateExportPresentation(refitPreview: boolean): void {

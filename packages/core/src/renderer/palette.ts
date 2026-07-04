@@ -1,7 +1,12 @@
 import * as THREE from "three";
 import { clamp01 } from "../util/math";
-import { createDefaultMeshPoints } from "./config";
-import type { BackgroundImageFit, BasicGradientType, ColorStop, MeshGradientPoint } from "./config";
+import { createDefaultMeshPoints } from "../config/model";
+import type {
+  BackgroundImageFit,
+  BasicGradientType,
+  ColorStop,
+  MeshGradientPoint,
+} from "../config/model";
 
 /**
  * Bakes the gradient stops into a 2D palette texture, sampled in the shader as

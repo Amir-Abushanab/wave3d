@@ -1,4 +1,4 @@
-import { MAX_COLORS, MAX_LIGHTS, MAX_MESH_POINTS, MAX_NOISE_BANDS } from "./config";
+import { MAX_COLORS, MAX_LIGHTS, MAX_MESH_POINTS, MAX_NOISE_BANDS } from "../config/model";
 
 /**
  * The wave shaders. Vertex: a flat plane is Y-displaced by simplex noise, then

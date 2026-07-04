@@ -1,5 +1,5 @@
-import { renderMeshGradient } from "../wave/palette";
-import type { MeshGradientPoint } from "../wave/config";
+import { renderMeshGradient } from "@wave3d/core/renderer";
+import type { MeshGradientPoint } from "@wave3d/core";
 import { toHex6 } from "../util/color";
 import { button, div, injectStyleOnce } from "../util/dom";
 import { clamp, clamp01, roundTo } from "../util/math";

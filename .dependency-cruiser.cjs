@@ -18,42 +18,53 @@ module.exports = {
     {
       name: "no-undeclared-dependencies",
       severity: "error",
-      comment: "Runtime imports must be declared in package.json.",
+      comment: "Runtime imports must be declared in the owning package's package.json.",
       from: {},
       to: {
         dependencyTypes: ["npm-no-pkg", "npm-unknown"],
       },
     },
     {
-      name: "wave-core-is-independent",
+      name: "core-does-not-depend-on-app",
       severity: "error",
-      comment:
-        "The reusable wave engine must not depend on studio UI, exports, or app entry points.",
-      from: { path: "^src/wave/" },
-      to: { path: "^(?:src/(?:ui|export|main|preview)|embed/)" },
+      comment: "The reusable @wave3d/core package must never reach into the studio application.",
+      from: { path: "^packages/core/" },
+      to: { path: "^apps/" },
     },
     {
-      name: "ui-does-not-depend-on-app-or-exports",
+      name: "renderer-stays-below-shell-and-studio",
+      severity: "error",
+      comment:
+        "The renderer core is the lowest layer: it must not import the shell entry, the studio subclass, or the package index.",
+      from: { path: "^packages/core/src/renderer/" },
+      to: { path: "^packages/core/src/(?:index\\.ts$|shell/|studio/)" },
+    },
+    {
+      name: "adapters-only-depend-on-core",
+      severity: "error",
+      comment:
+        "Adapters (@wave3d/react, @wave3d/element) may depend on @wave3d/core only — not the studio app or each other.",
+      from: { path: "^packages/(react|element)/" },
+      to: {
+        path: "^(?:apps/|packages/)",
+        pathNot: ["^packages/core/", "^packages/$1/"],
+      },
+    },
+    {
+      name: "studio-ui-does-not-depend-on-app-or-exports",
       severity: "error",
       comment:
         "UI components may use the wave engine, but not app entry points or export orchestration.",
-      from: { path: "^src/ui/" },
-      to: { path: "^(?:src/(?:export|main|preview)|embed/)" },
+      from: { path: "^apps/studio/src/ui/" },
+      to: { path: "^apps/studio/src/(?:export|main|preview)" },
     },
     {
-      name: "exports-do-not-depend-on-ui-or-app",
+      name: "studio-exports-do-not-depend-on-ui-or-app",
       severity: "error",
       comment:
         "Export utilities may use the wave engine, but not UI components or app entry points.",
-      from: { path: "^src/export/" },
-      to: { path: "^(?:src/(?:ui|main|preview)|embed/)" },
-    },
-    {
-      name: "embed-only-uses-wave-core",
-      severity: "error",
-      comment: "The public embed must remain isolated from studio-only code.",
-      from: { path: "^embed/" },
-      to: { path: "^src/(?!wave/)" },
+      from: { path: "^apps/studio/src/export/" },
+      to: { path: "^apps/studio/src/(?:ui|main|preview)" },
     },
   ],
   options: {
@@ -61,7 +72,11 @@ module.exports = {
       path: "node_modules",
       dependencyTypes: ["npm", "npm-dev", "npm-optional", "npm-peer", "npm-bundled", "npm-no-pkg"],
     },
-    includeOnly: ["^(?:src|embed)/"],
+    // Never cruise build output (the bundled dist chunks are legitimately circular).
+    exclude: {
+      path: "(?:^|/)dist/",
+    },
+    includeOnly: ["^(?:apps|packages)/"],
     moduleSystems: ["es6"],
     prefix: `cursor://file/${process.cwd()}/`,
     tsConfig: {

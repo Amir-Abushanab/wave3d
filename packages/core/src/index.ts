@@ -1,10 +1,13 @@
-import { WaveRenderer } from "../src/wave/WaveRenderer";
-import type { WaveRendererOptions } from "../src/wave/WaveRenderer";
-import { createDefaultConfig } from "../src/wave/config";
-import type { StudioConfig } from "../src/wave/config";
+import { WaveRenderer } from "./renderer/WaveRenderer";
+import type { WaveRendererOptions } from "./renderer/WaveRenderer";
+import { createDefaultConfig } from "./config/model";
+import type { StudioConfig } from "./config/model";
 
-export { WaveRenderer, createDefaultConfig };
-export type { StudioConfig, WaveRendererOptions };
+// Re-export the full config model (types, factories, MAX_* constants, presets, normalizers) so
+// consumers can `import { PRESETS, createDefaultConfig, StudioConfig, … } from "@wave3d/core"`.
+export * from "./config/model";
+export { WaveRenderer };
+export type { WaveRendererOptions };
 
 export interface WaveHandle {
   readonly renderer: WaveRenderer;

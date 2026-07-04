@@ -4,8 +4,8 @@
  * palette, so a colour swatch wouldn't distinguish them — the shape does). Generation reuses a
  * single hidden WaveRenderer and runs after the app has painted, so it doesn't block startup.
  */
-import { WaveRenderer } from "../wave/WaveRenderer";
-import type { StudioConfig } from "../wave/config";
+import { WaveRenderer } from "@wave3d/core/renderer";
+import type { StudioConfig } from "@wave3d/core";
 import { createThumbHost, prepThumbConfig, renderThumbFrame } from "./thumbnailRender";
 
 const cache = new Map<string, HTMLCanvasElement>();

@@ -24,11 +24,11 @@ import {
   randomizeLights,
   randomizeGlobal,
   randomizeWave,
-} from "../wave/config";
-import type { StudioConfig, WaveConfig } from "../wave/config";
-import type { WaveRenderer } from "../wave/WaveRenderer";
-import { PALETTE_MAPS, buildPaletteCanvas, paletteMapCanvas } from "../wave/palette";
-import { buildHeroPaletteCanvas } from "../wave/heroPalette";
+} from "@wave3d/core";
+import type { StudioConfig, WaveConfig } from "@wave3d/core";
+import type { WaveRenderer } from "@wave3d/core/renderer";
+import { PALETTE_MAPS, buildPaletteCanvas, paletteMapCanvas } from "@wave3d/core/renderer";
+import { buildHeroPaletteCanvas } from "@wave3d/core/renderer";
 import { GradientEditor } from "./GradientEditor";
 import { MeshGradientEditor } from "./MeshGradientEditor";
 import { PaletteDropdown } from "./PaletteDropdown";

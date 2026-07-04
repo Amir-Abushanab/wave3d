@@ -39,8 +39,8 @@ import {
   DEFAULT_LIGHT_POSITION,
   createLight,
   ensureStudioConfig,
-} from "./config";
-import type { StudioConfig, WaveConfig, BlendMode, LightConfig } from "./config";
+} from "../config/model";
+import type { StudioConfig, WaveConfig, BlendMode, LightConfig } from "../config/model";
 
 const BASE_SEGMENTS = 220; // base segment count along the ribbon; denser = smoother (scaled down per wave — see get segments)
 
@@ -57,6 +57,14 @@ const FRAME_H = 750;
 export interface WaveRendererOptions {
   /** Honor prefers-reduced-motion by freezing animation. Default true. */
   respectReducedMotion?: boolean;
+  /**
+   * Skip the intro time-ramp (the ~1s ease-in of animation on load), rendering at full speed
+   * immediately. The studio passes `import.meta.env.DEV` here so a fresh renderer on every HMR
+   * hot-swap doesn't replay the ease-in (which reads as a "speed up" when you tab back). Default
+   * false — production embeds keep the ease-in. Ignored while paused (a paused frame is always the
+   * full frame). Default false.
+   */
+  skipIntroRamp?: boolean;
 }
 
 /**
@@ -224,6 +232,7 @@ export class WaveRenderer {
   private bloomPass?: UnrealBloomPass;
   private readonly container: HTMLElement;
   private readonly respectReducedMotion: boolean;
+  private readonly skipIntroRamp: boolean;
 
   private config: StudioConfig;
   private waves: Wave[] = [];
@@ -338,6 +347,7 @@ export class WaveRenderer {
     this.container = container;
     this.config = ensureStudioConfig(config);
     this.respectReducedMotion = options.respectReducedMotion ?? true;
+    this.skipIntroRamp = options.skipIntroRamp ?? false;
 
     this.renderer = new THREE.WebGLRenderer({
       // antialias smooths edges; preserveDrawingBuffer keeps the drawing buffer readable so we
@@ -1292,10 +1302,10 @@ export class WaveRenderer {
   /** Advance the per-frame clock uniforms (geometry itself is static). Time model:
    *  time = elapsed·introTimeRamp + timeOffset — the ramp eases the animation in on load. */
   private updateTime(): void {
-    // Skip the ease-in in dev: a fresh renderer (first load, or main.ts's HMR hot-swap) starts
-    // introTimeRamp at 0, and replaying the ramp on every save reads as a "speed up" when you tab
-    // back. Prod builds + the embed (import.meta.env.DEV === false) keep the ease-in.
-    const ramp = this.config.introRamp === false || import.meta.env.DEV ? 1 : this.introTimeRamp;
+    // Skip the ease-in when asked: a fresh renderer (first load, or the studio's HMR hot-swap)
+    // starts introTimeRamp at 0, and replaying the ramp on every save reads as a "speed up" when
+    // you tab back. The studio passes skipIntroRamp in dev; prod builds + the embed keep the ease-in.
+    const ramp = this.config.introRamp === false || this.skipIntroRamp ? 1 : this.introTimeRamp;
     const t = this.time * ramp + (this.config.timeOffset ?? 0);
     // Indexed loop (no per-frame closure) — this runs every frame.
     for (let i = 0; i < this.waves.length; i++) {

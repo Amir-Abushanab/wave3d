@@ -5,8 +5,8 @@
  * history panel asks, i.e. when a row scrolls into view) and sequential (one shared renderer), so
  * it never touches the main 60fps loop and stays cheap even for a long history.
  */
-import { WaveRenderer } from "../wave/WaveRenderer";
-import type { StudioConfig } from "../wave/config";
+import { WaveRenderer } from "@wave3d/core/renderer";
+import type { StudioConfig } from "@wave3d/core";
 import { createThumbHost, prepThumbConfig, renderThumbFrame } from "./thumbnailRender";
 
 const RW = 128; // render size (16:9); displayed much smaller, so this is plenty crisp

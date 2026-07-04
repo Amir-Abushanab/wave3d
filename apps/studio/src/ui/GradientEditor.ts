@@ -1,4 +1,4 @@
-import type { ColorStop } from "../wave/config";
+import type { ColorStop } from "@wave3d/core";
 import { hexToRgb, toHex6 } from "../util/color";
 import { button, div, injectStyleOnce } from "../util/dom";
 import { clamp, clamp01, roundTo } from "../util/math";

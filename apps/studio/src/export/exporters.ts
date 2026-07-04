@@ -1,5 +1,5 @@
-import type { StudioConfig } from "../wave/config";
-import type { WaveRenderer } from "../wave/WaveRenderer";
+import type { StudioConfig } from "@wave3d/core";
+import type { WaveRenderer } from "@wave3d/core/renderer";
 import { IMAGE_FORMATS, pickVideoMime } from "../output/formats";
 import type { ExportSize, ImageFormat, RecordFormat, VideoFormat } from "../output/formats";
 import { base64ToBytes } from "../util/base64";
@@ -182,7 +182,7 @@ export function generateEmbedHTML(
 }
 
 export async function exportEmbed(config: StudioConfig, size: ExportSize): Promise<void> {
-  const runtimeUrl = new URL("./wave-studio-embed.js", document.baseURI);
+  const runtimeUrl = new URL("./wave3d.standalone.js", document.baseURI);
   const response = await fetch(runtimeUrl);
   if (!response.ok) {
     throw new Error(`Could not load the embed runtime (${response.status})`);
