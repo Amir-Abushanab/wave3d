@@ -3,6 +3,7 @@ import type { WaveRenderer } from "@wave3d/core/renderer";
 import { IMAGE_FORMATS, pickVideoMime } from "../output/formats";
 import type { ExportSize, ImageFormat, RecordFormat, VideoFormat } from "../output/formats";
 import { base64ToBytes } from "../util/base64";
+import { createZip } from "./zip";
 import { GIFEncoder, quantize, applyPalette } from "gifenc";
 
 export function downloadBlob(blob: Blob, filename: string): void {
@@ -193,6 +194,64 @@ export async function exportEmbed(config: StudioConfig, size: ExportSize): Promi
     `wave-embed-${size.width}x${size.height}.html`,
     "text/html",
   );
+}
+
+/**
+ * A wallpaper folder (.zip): the embed HTML plus a Wallpaper Engine `project.json` and a Lively
+ * `LivelyInfo.json` and a preview image, so the one zip imports as a live web wallpaper into either
+ * app (see docs/export-targets.md).
+ */
+export async function exportWallpaperFolder(
+  config: StudioConfig,
+  size: ExportSize,
+  renderer: WaveRenderer,
+): Promise<void> {
+  const runtimeUrl = new URL("./wave3d.standalone.js", document.baseURI);
+  const response = await fetch(runtimeUrl);
+  if (!response.ok) {
+    throw new Error(`Could not load the embed runtime (${response.status})`);
+  }
+  const runtimeSource = await response.text();
+  const html = generateEmbedHTML(config, size, runtimeSource);
+  const preview = await renderer.captureImage("image/jpeg", false, 0.85);
+  const previewBytes = new Uint8Array(await preview.arrayBuffer());
+  const description = "An animated 3D gradient wave, exported from Wave Studio.";
+  const projectJson = JSON.stringify(
+    {
+      title: "Wave",
+      type: "web",
+      file: "index.html",
+      preview: "preview.jpg",
+      description,
+      tags: ["Abstract"],
+      visibility: "public",
+    },
+    null,
+    2,
+  );
+  const livelyJson = JSON.stringify(
+    {
+      AppVersion: "0.0.0.0",
+      Title: "Wave",
+      Type: 3,
+      FileName: "index.html",
+      Preview: "preview.jpg",
+      Thumbnail: "preview.jpg",
+      Desc: description,
+      Contact: "",
+      License: "",
+      Arguments: "",
+    },
+    null,
+    2,
+  );
+  const zip = createZip([
+    { name: "index.html", data: html },
+    { name: "project.json", data: projectJson },
+    { name: "LivelyInfo.json", data: livelyJson },
+    { name: "preview.jpg", data: previewBytes },
+  ]);
+  downloadBlob(zip, `wave-wallpaper-${size.width}x${size.height}.zip`);
 }
 
 // ---- Video ----

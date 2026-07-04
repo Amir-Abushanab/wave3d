@@ -35,6 +35,10 @@ export const EXPORT_PRESETS: Record<string, ExportPreset> = {
   "story-portrait": { label: "Story / reel · 9:16", width: 1080, height: 1920 },
   "ultra-hd-4k": { label: "4K UHD · 16:9", width: 3840, height: 2160 },
   "ultra-hd-8k": { label: "8K UHD · 16:9", width: 7680, height: 4320 },
+  // Wallpaper sizes (device-native resolutions) — see docs/export-targets.md.
+  "wallpaper-iphone": { label: "iPhone wallpaper · 19.5:9", width: 1179, height: 2556 },
+  "wallpaper-android": { label: "Android wallpaper · 20:9", width: 1440, height: 3200 },
+  "wallpaper-desktop-5k": { label: "Desktop wallpaper · 5K", width: 5120, height: 2880 },
 };
 
 // ---- Still-image formats ----

@@ -87,6 +87,7 @@ export interface PanelHooks {
   onExportImage?: (format: ImageFormat, quality: number) => void;
   onExportEmbed?: () => void;
   onExportCode?: () => void;
+  onExportWallpaper?: () => void;
   onCopyLink?: () => Promise<boolean> | void;
   onToggleRecord?: (format: RecordFormat) => void;
   /** Fired after any change that mutates the document config, so the app can record undo/redo
@@ -416,6 +417,9 @@ export class ControlPanel {
       .addButton({ title: "🔗 Export embed (.html)" })
       .on("click", () => this.hooks.onExportEmbed?.());
     output.addButton({ title: "⟨⟩ Export code…" }).on("click", () => this.hooks.onExportCode?.());
+    output
+      .addButton({ title: "🖼 Wallpaper folder (.zip)" })
+      .on("click", () => this.hooks.onExportWallpaper?.());
   }
 
   /** "Actions" folder: randomize/reset/save/load/share. */

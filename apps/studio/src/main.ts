@@ -18,6 +18,7 @@ import {
   pickConfigFile,
   exportImage,
   exportEmbed,
+  exportWallpaperFolder,
   Recorder,
   decodeConfigFromHash,
   copyShareLink,
@@ -198,6 +199,9 @@ const panel = new ControlPanel(panelEl, renderer, config, {
   onExportCode: () => {
     codeDialog ??= new CodeExportDialog(() => config, renderer);
     codeDialog.show();
+  },
+  onExportWallpaper: () => {
+    void exportWallpaperFolder(config, exportSize, renderer);
   },
   onToggleRecord: (format) => {
     if (recorder.recording) {
