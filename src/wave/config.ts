@@ -176,6 +176,10 @@ export interface WaveConfig {
   /** Thin-film / holographic hue response that shifts with view angle (0 = off). */
   iridescence: number;
   edgeFade: number;
+  /** Depth tint (solid theme): fade far fragments toward depthTintColor for atmospheric
+   *  separation in multi-wave stacks (0 = off). */
+  depthTint: number;
+  depthTintColor: string;
   // Displacement + twist (the wave shape)
   displaceFrequency: Vec2;
   displaceAmount: number;
@@ -338,6 +342,8 @@ function defaultWave(): WaveConfig {
     roundness: 0.0,
     iridescence: 0,
     edgeFade: 0.04,
+    depthTint: 0,
+    depthTintColor: "#0a2540",
     // Hero deformation on the native 400-unit folded() geometry.
     displaceFrequency: { x: 0.003234, y: 0.00799 },
     displaceAmount: 6.051,
@@ -554,6 +560,8 @@ export function normalizeWave(s: WaveConfig): void {
   if (typeof s.roundness !== "number") s.roundness = 0;
   if (typeof s.iridescence !== "number") s.iridescence = 0;
   if (typeof s.edgeFade !== "number") s.edgeFade = 0.04;
+  if (typeof s.depthTint !== "number") s.depthTint = 0;
+  if (typeof s.depthTintColor !== "string") s.depthTintColor = "#0a2540";
   if (!s.displaceFrequency) s.displaceFrequency = { x: 0.003234, y: 0.00799 };
   if (typeof s.displaceAmount !== "number") s.displaceAmount = 6.051;
   if (typeof s.detailFrequency !== "number") s.detailFrequency = 0.04;
@@ -1210,6 +1218,7 @@ export function randomizeFinish(c: WaveConfig): void {
   c.creaseSharpness = r2(rand(0.45, 0.8));
   c.creaseSoftness = r2(rand(0.8, 1.2));
   c.edgeFade = r2(rand(0, 0.08));
+  c.depthTint = rand(0, 1) < 0.3 ? r2(rand(0.2, 0.6)) : 0; // occasional atmospheric depth fade
   // Wireframe line params (inert unless theme is "wireframe") — randomized too so a wireframe
   // wave's Finish 🎲 refreshes its whole look, not just the solid-shader knobs.
   c.lineAmount = Math.round(rand(200, 900));

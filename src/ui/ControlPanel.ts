@@ -1290,6 +1290,13 @@ export class ControlPanel {
       const bEdgeFade = finF
         .addBinding(wave, "edgeFade", { min: 0, max: 0.5, step: 0.01 })
         .on("change", refresh);
+      // Depth tint — fade far fragments toward a colour for atmospheric depth (esp. wave stacks).
+      const bDepthTint = finF
+        .addBinding(wave, "depthTint", { min: 0, max: 1, step: 0.01, label: "depth tint" })
+        .on("change", refresh);
+      const bDepthTintColor = finF
+        .addBinding(wave, "depthTintColor", { view: "color", label: "depth tint color" })
+        .on("change", refresh);
       const bLineAmount = finF
         .addBinding(wave, "lineAmount", { min: 1, max: 1200, step: 1, label: "line count" })
         .on("change", refresh);
@@ -1318,6 +1325,8 @@ export class ControlPanel {
         bCreaseSharpness,
         bCreaseSoftness,
         bEdgeFade,
+        bDepthTint,
+        bDepthTintColor,
       ];
       const wireOnly = [bLineAmount, bLineThickness, bLineFalloff, bMaxWidth];
       const updateMaterialControls = (): void => {

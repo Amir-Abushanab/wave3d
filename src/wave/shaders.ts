@@ -309,6 +309,11 @@ uniform float uNoiseBandParaPow[MAX_NOISE_BANDS];
 varying vec2 vUv;
 varying vec3 vWorldPos;
 varying vec3 vViewDir;
+#ifdef DEPTH_TINT
+uniform float uDepthTint;
+uniform vec3 uDepthTintColor;
+varying vec4 vClipPosition; // clip-space depth (written by the vertex shader for both programs)
+#endif
 
 // Cheap value hash for the optional grain overlay (distinct from the simplex hash).
 float grainHash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
@@ -415,6 +420,13 @@ void main(){
     }
   }
   col *= 0.55 + clamp(uAmbient, 0.0, 1.0);   // overall level; default 0.45 => x1.0 (neutral)
+
+#ifdef DEPTH_TINT
+  // Depth tint: fade far fragments toward a colour so a multi-wave stack gains atmospheric
+  // separation — near strands keep their colour, far ones recede. Reuses the clip-space depth the
+  // wireframe theme fades with (clamp(z*6), where 1 = far).
+  col = mix(col, uDepthTintColor, clamp(vClipPosition.z * 6.0, 0.0, 1.0) * uDepthTint);
+#endif
 
   if (uTexture > 0.001) col *= 1.0 + (grainHash(vUv * 850.0) - 0.5) * uTexture * 0.25;
 

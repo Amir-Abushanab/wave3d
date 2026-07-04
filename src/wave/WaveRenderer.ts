@@ -495,6 +495,8 @@ export class WaveRenderer {
       uSheen: { value: 1 },
       uRoundness: { value: 0.35 },
       uIridescence: { value: 0 },
+      uDepthTint: { value: 0 }, // solid-theme depth tint (read only under DEPTH_TINT)
+      uDepthTintColor: { value: new THREE.Vector3() },
       uHueShift: { value: 0 },
       uContrast: { value: 1 },
       uSaturation: { value: 1 },
@@ -534,6 +536,7 @@ export class WaveRenderer {
     if (sc?.twistMotion) defines.TWIST_MOTION = "";
     if ((this.config.loopSeconds ?? 0) > 0) defines.LOOP_MOTION = "";
     if ((sc?.detailAmount ?? 0) !== 0) defines.DETAIL_OCTAVE = "";
+    if ((sc?.depthTint ?? 0) > 0) defines.DEPTH_TINT = "";
     return defines;
   }
 
@@ -664,17 +667,12 @@ export class WaveRenderer {
       const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
       const u = wave.material.uniforms;
       if (this.applyBlendMode(wave.material, sc.blendMode)) wave.material.needsUpdate = true;
-      // Recompile the vertex program when its #define set changes: TWIST_MOTION (animated twist
-      // wobble, per wave) and/or LOOP_MOTION (seamless loop, scene-level — same for every wave).
-      const wantMotion = !!sc.twistMotion;
-      const wantLoop = (this.config.loopSeconds ?? 0) > 0;
-      const wantDetail = (sc.detailAmount ?? 0) !== 0;
-      const defs = wave.material.defines ?? {};
-      const hasMotion = "TWIST_MOTION" in defs;
-      const hasLoop = "LOOP_MOTION" in defs;
-      const hasDetail = "DETAIL_OCTAVE" in defs;
-      if (wantMotion !== hasMotion || wantLoop !== hasLoop || wantDetail !== hasDetail) {
-        wave.material.defines = this.waveDefines(sc);
+      // Recompile the program when its #define set changes: TWIST_MOTION / DETAIL_OCTAVE / DEPTH_TINT
+      // (per wave) and LOOP_MOTION (scene-level). Compare the whole set so any combination is handled.
+      const wantDefines = this.waveDefines(sc);
+      const curDefines = wave.material.defines ?? {};
+      if (Object.keys(wantDefines).sort().join(",") !== Object.keys(curDefines).sort().join(",")) {
+        wave.material.defines = wantDefines;
         wave.material.needsUpdate = true;
       }
       // Swap the fragment shader when this wave's theme changes: solid surfaceColor <->
@@ -740,6 +738,8 @@ export class WaveRenderer {
       u.uSheen.value = sc.sheen ?? 1;
       u.uRoundness.value = sc.roundness ?? 0.35;
       u.uIridescence.value = sc.iridescence ?? 0;
+      u.uDepthTint.value = sc.depthTint ?? 0;
+      hexToLinearVec3(sc.depthTintColor ?? "#0a2540", u.uDepthTintColor.value as THREE.Vector3);
       u.uEdgeFade.value = sc.edgeFade;
       // Lights + ambient are scene-level (shared by every wave).
       const lights = this.config.lights ?? [];
