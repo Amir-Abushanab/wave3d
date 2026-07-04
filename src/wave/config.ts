@@ -169,6 +169,8 @@ export interface WaveConfig {
   creaseSoftness: number;
   sheen: number;
   roundness: number;
+  /** Thin-film / holographic hue response that shifts with view angle (0 = off). */
+  iridescence: number;
   edgeFade: number;
   // Displacement + twist (the wave shape)
   displaceFrequency: Vec2;
@@ -325,6 +327,7 @@ function defaultWave(): WaveConfig {
     // SrcColor² blend + the palette, not the derivative white-lift.
     sheen: 0.0,
     roundness: 0.0,
+    iridescence: 0,
     edgeFade: 0.04,
     // Hero deformation on the native 400-unit folded() geometry.
     displaceFrequency: { x: 0.003234, y: 0.00799 },
@@ -536,6 +539,7 @@ export function normalizeWave(s: WaveConfig): void {
   if (typeof s.creaseSoftness !== "number") s.creaseSoftness = 1;
   if (typeof s.sheen !== "number") s.sheen = 0;
   if (typeof s.roundness !== "number") s.roundness = 0;
+  if (typeof s.iridescence !== "number") s.iridescence = 0;
   if (typeof s.edgeFade !== "number") s.edgeFade = 0.04;
   if (!s.displaceFrequency) s.displaceFrequency = { x: 0.003234, y: 0.00799 };
   if (typeof s.displaceAmount !== "number") s.displaceAmount = 6.051;
@@ -1176,6 +1180,7 @@ export function randomizeFinish(c: WaveConfig): void {
   c.texture = r2(rand(0, 0.35));
   c.roundness = r2(rand(0.3, 0.8)); // rounded-solid shading
   c.sheen = r2(rand(0.2, 0.9));
+  c.iridescence = rand(0, 1) < 0.35 ? r2(rand(0.15, 0.6)) : 0; // occasional thin-film sheen
   c.creaseLight = r2(rand(0.4, 1.0)); // crease strength (where streaks appear)
   c.creaseSharpness = r2(rand(0.45, 0.8));
   c.creaseSoftness = r2(rand(0.8, 1.2));

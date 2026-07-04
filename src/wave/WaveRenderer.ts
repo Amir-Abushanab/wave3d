@@ -492,6 +492,7 @@ export class WaveRenderer {
       uDebug: { value: 0 },
       uSheen: { value: 1 },
       uRoundness: { value: 0.35 },
+      uIridescence: { value: 0 },
       uHueShift: { value: 0 },
       uContrast: { value: 1 },
       uSaturation: { value: 1 },
@@ -732,6 +733,7 @@ export class WaveRenderer {
       u.uCreaseSoftness.value = sc.creaseSoftness;
       u.uSheen.value = sc.sheen ?? 1;
       u.uRoundness.value = sc.roundness ?? 0.35;
+      u.uIridescence.value = sc.iridescence ?? 0;
       u.uEdgeFade.value = sc.edgeFade;
       // Lights + ambient are scene-level (shared by every wave).
       const lights = this.config.lights ?? [];

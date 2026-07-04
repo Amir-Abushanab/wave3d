@@ -1254,6 +1254,9 @@ export class ControlPanel {
       const bSheen = finF
         .addBinding(wave, "sheen", { min: 0, max: 2, step: 0.01, label: "sheen" })
         .on("change", refresh);
+      const bIridescence = finF
+        .addBinding(wave, "iridescence", { min: 0, max: 1, step: 0.01, label: "iridescence" })
+        .on("change", refresh);
       const bCreaseLight = finF
         .addBinding(wave, "creaseLight", { min: 0, max: 6, step: 0.01, label: "crease light" })
         .on("change", refresh);
@@ -1299,6 +1302,7 @@ export class ControlPanel {
         bTexture,
         bRoundness,
         bSheen,
+        bIridescence,
         bCreaseLight,
         bCreaseSharpness,
         bCreaseSoftness,

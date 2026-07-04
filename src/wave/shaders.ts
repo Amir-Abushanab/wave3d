@@ -276,6 +276,7 @@ ${colorUniforms}
 uniform float uDebug;         // dev: 1 = show crease, 2 = show derivative normal
 uniform float uSheen;       // white-lift on the flat (low-crease) areas (1 = full)
 uniform float uRoundness;        // pose-robust normal-based roundness/thickness strength
+uniform float uIridescence;      // thin-film hue shift with view angle (0 = off)
 uniform float uFiberCount;
 uniform float uFiberStrength;
 uniform float uTexture;
@@ -360,6 +361,16 @@ void main(){
   vec3 col = waveBaseColor(vUv);
   col = surfaceStreaks(vUv, col, crease);
   col = applyColorGrade(col);
+
+  // Iridescence: a thin-film / holographic hue that shifts with view angle. Reuses the same
+  // camera-facing ratio as roundness (recomputed here, since roundness may be off): grazing parts
+  // of the ribbon (low facing) shift hue most, so the colour flows as the ribbon curves. Skipped
+  // at 0, so the compiled result is unchanged when off.
+  if (uIridescence > 0.001) {
+    vec3 iridN = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
+    float iridFacing = abs(dot(iridN, normalize(vViewDir)));
+    col = hueShift(col, (1.0 - iridFacing) * uIridescence * PI);
+  }
 
   // Sheen: lift the flat (low-crease) areas toward white. This is
   // pose-dependent (it keys off dFdy(uv.y)), so we keep it gentle and add a robust term.
