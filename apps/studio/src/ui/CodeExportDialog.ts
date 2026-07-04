@@ -174,8 +174,12 @@ export class CodeExportDialog {
 
     this.dialog.append(hd, this.codeBox, ft);
     this.dialog.addEventListener("click", (e) => {
+      const target = e.target as Node;
       if (e.target === this.dialog) this.dialog.close();
-      else if (!this.list.contains(e.target as Node) && e.target !== this.trigger) this.closeList();
+      // Close the framework list on any click outside it AND outside the trigger (contains(),
+      // not ===, so clicking the trigger's icon/label/arrow still counts as hitting the trigger
+      // rather than an outside click that would immediately re-close what the trigger just opened).
+      else if (!this.list.contains(target) && !this.trigger.contains(target)) this.closeList();
     });
     document.body.appendChild(this.dialog);
     this.refreshTrigger();
