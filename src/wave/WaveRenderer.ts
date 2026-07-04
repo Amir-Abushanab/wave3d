@@ -1286,8 +1286,20 @@ export class WaveRenderer {
     // back. Prod builds + the embed (import.meta.env.DEV === false) keep the ease-in.
     const ramp = this.config.introRamp === false || import.meta.env.DEV ? 1 : this.introTimeRamp;
     const t = this.time * ramp + (this.config.timeOffset ?? 0);
-    for (const wave of this.waves) {
-      wave.material.uniforms.uTime.value = t;
+    // Indexed loop (no per-frame closure) — this runs every frame.
+    for (let i = 0; i < this.waves.length; i++) {
+      const u = this.waves[i].material.uniforms;
+      u.uTime.value = t;
+      // Palette drift: flow the colour along the ribbon independently of the geometry by drifting
+      // uPaletteOffset over time. Only touch it when nonzero, so refresh()'s static base offset —
+      // and every drift-off preset — is left byte-for-byte unchanged.
+      const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
+      const dx = sc.paletteDriftX ?? 0;
+      const dy = sc.paletteDriftY ?? 0;
+      if (dx !== 0 || dy !== 0) {
+        const base = sc.paletteTextureOffset;
+        (u.uPaletteOffset.value as THREE.Vector2).set(base.x + dx * t, base.y + dy * t);
+      }
     }
     this.postPass.uniforms.uTime.value = t;
   }

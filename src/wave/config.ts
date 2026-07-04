@@ -154,6 +154,10 @@ export interface WaveConfig {
   paletteTextureScale: Vec2;
   paletteTextureOffset: Vec2;
   paletteTextureRotation: number;
+  /** Palette-offset drift per second (animates colour independently of the geometry; 0 = static).
+   *  Applies to any texture palette (not mesh / procedural stops). */
+  paletteDriftX: number;
+  paletteDriftY: number;
   paletteEdgeColor: string;
   paletteEdgeAmount: number;
   hueShift: number;
@@ -309,6 +313,8 @@ function defaultWave(): WaveConfig {
     paletteTextureScale: { x: 1, y: 1 },
     paletteTextureOffset: { x: 0, y: 0 },
     paletteTextureRotation: 0,
+    paletteDriftX: 0,
+    paletteDriftY: 0,
     paletteEdgeColor: "#8e9dff",
     paletteEdgeAmount: 0.3,
     hueShift: -1.81, // hero colorHueShift ≈ -1.81°
@@ -527,6 +533,8 @@ export function normalizeWave(s: WaveConfig): void {
   if (typeof s.paletteSource !== "string") s.paletteSource = "hero";
   if (typeof s.paletteEdgeColor !== "string") s.paletteEdgeColor = "#8e9dff";
   if (typeof s.paletteEdgeAmount !== "number") s.paletteEdgeAmount = 0.3;
+  if (typeof s.paletteDriftX !== "number") s.paletteDriftX = 0;
+  if (typeof s.paletteDriftY !== "number") s.paletteDriftY = 0;
   if (typeof s.hueShift !== "number") s.hueShift = 0;
   if (typeof s.colorContrast !== "number") s.colorContrast = 1;
   if (typeof s.colorSaturation !== "number") s.colorSaturation = 1;
@@ -1123,6 +1131,9 @@ export function randomizeGradient(c: WaveConfig): void {
   const engine = pick(["stops-tex", "stops-tex", "procedural", "hero"]);
   c.usePaletteTexture = engine !== "procedural";
   c.paletteSource = engine === "hero" ? "hero" : "stops";
+  // Occasional slow colour flow along the ribbon (inert on mesh / procedural palettes).
+  c.paletteDriftX = rand(0, 1) < 0.25 ? r2(rand(-0.25, 0.25)) : 0;
+  c.paletteDriftY = 0;
 }
 
 /** "Background" folder: a fresh random gradient (linear/radial/conic) or mesh backdrop. Left out

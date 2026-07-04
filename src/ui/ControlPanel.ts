@@ -1179,6 +1179,14 @@ export class ControlPanel {
           step: 1,
         })
         .on("change", refresh);
+      // Palette drift — animate the colour along the ribbon (offset/sec), independent of the
+      // geometry motion. Applies to any texture palette (hero LUT, maps, custom media).
+      const bPaletteDriftX = gradF
+        .addBinding(wave, "paletteDriftX", { label: "color drift X", min: -1, max: 1, step: 0.01 })
+        .on("change", refresh);
+      const bPaletteDriftY = gradF
+        .addBinding(wave, "paletteDriftY", { label: "color drift Y", min: -1, max: 1, step: 0.01 })
+        .on("change", refresh);
       const bEdgeColor = gradF
         .addBinding(wave, "paletteEdgeColor", { view: "color", label: "edge tint" })
         .on("change", () => {
@@ -1222,6 +1230,9 @@ export class ControlPanel {
         bPaletteOffsetX.hidden = isMesh || !custom;
         bPaletteOffsetY.hidden = isMesh || !custom;
         bPaletteRotation.hidden = isMesh || !custom;
+        // Drift applies to any texture palette (not mesh / procedural stops), not just custom media.
+        bPaletteDriftX.hidden = isMesh || !tex;
+        bPaletteDriftY.hidden = isMesh || !tex;
         bEdgeColor.disabled = !edgeActive;
         bEdgeAmt.disabled = !edgeActive;
         paletteDropdown.refresh();
