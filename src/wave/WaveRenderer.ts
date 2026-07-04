@@ -4,6 +4,7 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 // Editor-only controls are lazy-loaded (see ensureGizmo) so the production embed
 // — which never enters edit mode — doesn't pay for them.
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -219,6 +220,8 @@ export class WaveRenderer {
   private readonly group = new THREE.Group();
   private readonly composer: EffectComposer;
   private readonly postPass: ShaderPass;
+  /** Optional bloom pass — created lazily when bloomStrength first goes >0, removed at 0. */
+  private bloomPass?: UnrealBloomPass;
   private readonly container: HTMLElement;
   private readonly respectReducedMotion: boolean;
 
@@ -1128,6 +1131,34 @@ export class WaveRenderer {
     u.uBlurAmount.value = this.config.blur;
     u.uGrainAmount.value = this.config.grain;
     u.uBlurSamples.value = Math.round(this.config.blurSamples ?? 6);
+    this.applyBloom();
+  }
+
+  /** Insert / tune / remove the bloom pass. strength 0 removes it from the composer entirely, so
+   *  cost and pixels are identical to bloom-off; the pass (and its mip-chain render targets) is
+   *  created lazily the first time bloom is enabled and disposed when turned back off. It sits
+   *  right after the scene RenderPass so it blooms the wave before the grain/blur pass. */
+  private applyBloom(): void {
+    const strength = this.config.bloomStrength ?? 0;
+    if (strength > 0) {
+      if (!this.bloomPass) {
+        const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+        this.bloomPass = new UnrealBloomPass(
+          size,
+          strength,
+          this.config.bloomRadius ?? 0.4,
+          this.config.bloomThreshold ?? 0.85,
+        );
+        this.composer.insertPass(this.bloomPass, 1); // after RenderPass, before postPass/OutputPass
+      }
+      this.bloomPass.strength = strength;
+      this.bloomPass.radius = this.config.bloomRadius ?? 0.4;
+      this.bloomPass.threshold = this.config.bloomThreshold ?? 0.85;
+    } else if (this.bloomPass) {
+      this.composer.removePass(this.bloomPass);
+      this.bloomPass.dispose();
+      this.bloomPass = undefined;
+    }
   }
 
   private onResize = (): void => {
@@ -2393,6 +2424,7 @@ export class WaveRenderer {
       s.geometry.dispose();
       s.palette.dispose();
     }
+    this.bloomPass?.dispose();
     this.composer.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();

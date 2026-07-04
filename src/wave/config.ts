@@ -239,6 +239,11 @@ export interface SceneConfig {
   /** Soft-focus / spin blur amount (post pass). */
   blur: number;
   blurSamples?: number;
+  /** Bloom (post pass, UnrealBloomPass). strength 0 removes the pass entirely, so cost and pixels
+   *  are identical to bloom-off; radius/threshold only take effect once strength > 0. */
+  bloomStrength?: number;
+  bloomRadius?: number;
+  bloomThreshold?: number;
   /** Base ambient light level (0–1). */
   ambient: number;
   lights: LightConfig[];
@@ -561,6 +566,9 @@ export function ensureSceneDefaults(config: StudioConfig): void {
   if (typeof config.grain !== "number") config.grain = 1.1;
   if (typeof config.blur !== "number") config.blur = 0.02;
   if (typeof config.blurSamples !== "number") config.blurSamples = 6;
+  if (typeof config.bloomStrength !== "number") config.bloomStrength = 0;
+  if (typeof config.bloomRadius !== "number") config.bloomRadius = 0.4;
+  if (typeof config.bloomThreshold !== "number") config.bloomThreshold = 0.85;
   if (typeof config.showCameraRig !== "boolean") config.showCameraRig = false;
   if (typeof config.paused !== "boolean") config.paused = false;
   if (typeof config.loopSeconds !== "number") config.loopSeconds = 0;

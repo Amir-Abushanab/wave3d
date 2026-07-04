@@ -494,6 +494,22 @@ export class ControlPanel {
       "change",
       refresh,
     );
+    // Bloom (UnrealBloomPass) — 0 disables the pass entirely (no cost/pixel change). radius &
+    // threshold only bite once strength > 0. Great for the neon/wireframe/additive looks.
+    g.addBinding(cfg, "bloomStrength", { min: 0, max: 3, step: 0.01, label: "bloom" }).on(
+      "change",
+      refresh,
+    );
+    g.addBinding(cfg, "bloomRadius", { min: 0, max: 1, step: 0.01, label: "bloom radius" }).on(
+      "change",
+      refresh,
+    );
+    g.addBinding(cfg, "bloomThreshold", {
+      min: 0,
+      max: 1,
+      step: 0.01,
+      label: "bloom threshold",
+    }).on("change", refresh);
     // Whole-composition mirror (scene-level world-space flip).
     g.addButton({ title: "↔ mirror horizontal" }).on("click", () => {
       cfg.mirrorH = !cfg.mirrorH;
