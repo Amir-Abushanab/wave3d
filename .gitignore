@@ -6,3 +6,6 @@ dist-embed/
 .vite/
 *.log
 scratchpad/
+
+# Local design/planning docs — kept out of the repo
+docs/
