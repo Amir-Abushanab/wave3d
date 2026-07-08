@@ -135,19 +135,6 @@ Or a single `<script>` from a CDN (three bundled):
 
 `three` is a peer dependency of `@wave3d/core` (`>=0.180 <1`); add `@types/three` for TypeScript.
 
-## Contributing
-
-**If you changed a published package** — `@wave3d/core`, `@wave3d/react`, or `@wave3d/element` —
-add a changeset so the next release bumps the version and updates the changelog:
-
-```sh
-pnpm changeset      # pick the package(s) + bump (patch / minor / major) + a one-line summary
-```
-
-Commit the generated `.changeset/*.md` alongside your change. You don't need one for docs, tooling,
-or studio-only (`apps/studio`) changes — a changeset is only for things that affect what people
-`pnpm add`.
-
 ## Deploying & releasing
 
 CI (GitHub Actions) runs `pnpm check` + `pnpm build` on every push and **deploys the studio to
