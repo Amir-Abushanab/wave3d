@@ -89,10 +89,10 @@ export function canExportImageFormat(format: ImageFormat): boolean {
 
 // ---- Recording (video / GIF) formats ----
 
-/** MediaRecorder containers (WebM/MP4). GIF is encoded separately (frame capture), so
- *  RecordFormat is the full set the recording UI offers. */
+/** MediaRecorder containers (WebM/MP4). GIF and animated WebP are encoded separately (frame
+ *  capture), so RecordFormat is the full set the recording UI offers. */
 export type VideoFormat = "webm" | "mp4";
-export type RecordFormat = VideoFormat | "gif";
+export type RecordFormat = VideoFormat | "gif" | "webp";
 
 // MediaRecorder mime candidates per container, best-quality first. MP4/H.264 recording works
 // in Chromium and Safari but not Firefox, so pickVideoMime falls back to WebM when the
@@ -108,6 +108,12 @@ const isMimeSupported = (mime: string): boolean =>
 /** Whether this browser's MediaRecorder can record the given container at all. */
 export function canRecordFormat(format: VideoFormat): boolean {
   return VIDEO_MIME_CANDIDATES[format].some(isMimeSupported);
+}
+
+/** Animated WebP is muxed from browser-encoded WebP frames, so it's offered wherever the canvas
+ *  can encode a still WebP (Chromium, Firefox, Safari 16+). */
+export function canRecordWebpAnimation(): boolean {
+  return canExportImageFormat("webp");
 }
 
 /** Pick a MediaRecorder mime type + file extension for the requested container, falling back

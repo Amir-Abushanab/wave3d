@@ -203,14 +203,14 @@ const panel = new ControlPanel(panelEl, renderer, config, {
   onExportWallpaper: () => {
     void exportWallpaperFolder(config, exportSize, renderer);
   },
-  onToggleRecord: (format) => {
+  onToggleRecord: (format, webpQuality) => {
     if (recorder.recording) {
       stopRecording();
     } else {
       // GIF is composited onto an opaque background (no 1-bit transparency); use the wave's
       // own background, or white when it's transparent.
       const gifBg = config.transparentBackground ? "#ffffff" : config.background;
-      recorder.start(renderer, format, gifBg);
+      recorder.start(renderer, format, { gifBackground: gifBg, webpQuality });
       recordingOverlay.start();
       panel.setRecording(true);
       // Seamless-loop capture: the motion repeats every config.loopSeconds, so recording exactly

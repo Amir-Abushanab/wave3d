@@ -42,6 +42,7 @@ import {
   applyExportPreset,
   canExportImageFormat,
   canRecordFormat,
+  canRecordWebpAnimation,
   captureExportAspectRatio,
   CUSTOM_EXPORT_PRESET,
   EXPORT_PRESETS,
@@ -89,7 +90,7 @@ export interface PanelHooks {
   onExportCode?: () => void;
   onExportWallpaper?: () => void;
   onCopyLink?: () => Promise<boolean> | void;
-  onToggleRecord?: (format: RecordFormat) => void;
+  onToggleRecord?: (format: RecordFormat, webpQuality: number) => void;
   /** Fired after any change that mutates the document config, so the app can record undo/redo
    *  history. Called liberally (continuous during drags) — the History layer coalesces. */
   onEdit?: () => void;
@@ -131,6 +132,7 @@ export class ControlPanel {
     recordFormat: "mp4" as RecordFormat, // MP4 is the most shareable; falls back to WebM if unsupported
     imageFormat: "webp" as ImageFormat, // WebP: small + supports transparency; falls back if unsupported
     imageQuality: 0.92,
+    webpQuality: 0.9, // animated-WebP recording quality (0.1–1)
   };
   /** Remembered expanded/collapsed state of top-level folders, by title, so a
    *  panel rebuild (e.g. on wave-count change) doesn't reset them. */
@@ -391,27 +393,44 @@ export class ControlPanel {
       [imageFormatBinding.element, exportImageBtn.element],
       [imageQualityBinding.element],
     );
-    // Recording controls, boxed into one group. Format picker: WebM always; MP4 if the
-    // browser can record it (Chromium/Safari — Firefox is WebM-only); GIF always (we encode
-    // frames ourselves). The recorder falls back to WebM if a MediaRecorder container fails.
+    // Recording controls, boxed into one group. Format picker: WebM always; MP4 if the browser
+    // can record it (Chromium/Safari — Firefox is WebM-only); GIF always; animated WebP wherever a
+    // still WebP encodes (we mux those ourselves). Falls back to WebM if a MediaRecorder fails.
     const videoOptions: Record<string, string> = { WebM: "webm" };
     if (canRecordFormat("mp4")) videoOptions["MP4"] = "mp4";
     videoOptions["GIF"] = "gif";
+    if (canRecordWebpAnimation()) videoOptions["Animated WebP"] = "webp";
     // Fall back to WebM if the preferred default (MP4) isn't recordable here (e.g. Firefox).
     if (!Object.values(videoOptions).includes(this.state.recordFormat)) {
       this.state.recordFormat = "webm";
     }
+    // Quality slider applies to animated WebP only (WebM/MP4 use a fixed bitrate; GIF is indexed).
+    const recordQualityBinding = output.addBinding(this.state, "webpQuality", {
+      label: "quality",
+      min: 0.1,
+      max: 1,
+      step: 0.01,
+    });
+    const refreshRecordControls = (): void => {
+      recordQualityBinding.hidden = this.state.recordFormat !== "webp";
+      if (this.recordBtn && !this.state.recording) {
+        this.recordBtn.title = this.recordTitle();
+        this.applyIcons();
+      }
+    };
     const formatBinding = output
       .addBinding(this.state, "recordFormat", { label: "format", options: videoOptions })
-      .on("change", () => {
-        if (this.recordBtn && !this.state.recording) {
-          this.recordBtn.title = this.recordTitle();
-          this.applyIcons();
-        }
-      });
+      .on("change", refreshRecordControls);
     this.recordBtn = output.addButton({ title: this.recordTitle() });
-    this.recordBtn.on("click", () => this.hooks.onToggleRecord?.(this.state.recordFormat));
-    this.groupRows("RECORD", [formatBinding.element, this.recordBtn.element]);
+    this.recordBtn.on("click", () =>
+      this.hooks.onToggleRecord?.(this.state.recordFormat, this.state.webpQuality),
+    );
+    refreshRecordControls();
+    this.groupRows(
+      "RECORD",
+      [formatBinding.element, this.recordBtn.element],
+      [recordQualityBinding.element],
+    );
     // Standalone HTML page export goes last: image, then video, then embed, then code snippets.
     output
       .addButton({ title: "🔗 Export embed (.html)" })

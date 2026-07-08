@@ -5,6 +5,7 @@ import type { ExportSize, ImageFormat, RecordFormat, VideoFormat } from "../outp
 import { base64ToBytes } from "../util/base64";
 import { createZip } from "./zip";
 import { GIFEncoder, quantize, applyPalette } from "gifenc";
+import { encodeAnimatedWebp } from "./webpMux";
 
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
@@ -347,25 +348,107 @@ export class GifRecorder {
   }
 }
 
+// ---- Animated WebP ----
+
+// Like GIF, animated WebP isn't a native MediaRecorder container, so we grab frames on a timer.
+// But instead of quantising to 256 colours we let the browser encode each frame to a full-colour
+// WebP (canvas.toBlob) and mux the frames into one animated WebP (see ./webpMux). Full 24-bit
+// colour + alpha — far better than GIF for gradients, at a fraction of the same GIF's size.
+const WEBP_FPS = 30;
+const MAX_WEBP_EDGE = 1280;
+
+export class WebpRecorder {
+  private timer = 0;
+  private active = false;
+  private frames: Promise<Uint8Array>[] = [];
+  private quality = 0.9;
+  private width = 0;
+  private height = 0;
+  private readonly scratch = document.createElement("canvas");
+  private readonly ctx = this.scratch.getContext("2d") as CanvasRenderingContext2D;
+
+  get recording(): boolean {
+    return this.active;
+  }
+
+  start(renderer: WaveRenderer, quality = 0.9): void {
+    if (this.active) return;
+    const src = renderer.canvas;
+    const scale = Math.min(1, MAX_WEBP_EDGE / Math.max(src.width, src.height));
+    this.width = this.scratch.width = Math.max(1, Math.round(src.width * scale));
+    this.height = this.scratch.height = Math.max(1, Math.round(src.height * scale));
+    this.quality = quality;
+    this.frames = [];
+    this.active = true;
+    const delay = Math.round(1000 / WEBP_FPS);
+    const grab = (): void => {
+      if (!this.active) return;
+      // Clear (not fill) so a transparent wave stays transparent in the WebP — unlike GIF.
+      this.ctx.clearRect(0, 0, this.width, this.height);
+      this.ctx.drawImage(src, 0, 0, this.width, this.height);
+      this.frames.push(
+        new Promise<Uint8Array>((resolve) => {
+          this.scratch.toBlob(
+            (blob) => {
+              if (!blob) return resolve(new Uint8Array(0));
+              void blob.arrayBuffer().then((ab) => resolve(new Uint8Array(ab)));
+            },
+            "image/webp",
+            this.quality,
+          );
+        }),
+      );
+    };
+    grab(); // first frame immediately, then on a fixed cadence
+    this.timer = window.setInterval(grab, delay);
+  }
+
+  /** Async: finishing means awaiting the in-flight per-frame encodes, then muxing + downloading. */
+  async stop(): Promise<void> {
+    if (!this.active) return;
+    this.active = false;
+    clearInterval(this.timer);
+    this.timer = 0;
+    const files = (await Promise.all(this.frames)).filter((f) => f.length > 0);
+    this.frames = [];
+    if (files.length === 0) return;
+    const durationMs = Math.round(1000 / WEBP_FPS);
+    const blob = encodeAnimatedWebp(
+      files.map((file) => ({ file, durationMs })),
+      this.width,
+      this.height,
+    );
+    downloadBlob(blob, "wave.webp");
+  }
+}
+
 /**
- * Unified recording facade: routes WebM/MP4 to the MediaRecorder-based VideoRecorder and GIF
- * to the frame-capture GifRecorder, so callers toggle one object regardless of format.
+ * Unified recording facade: routes WebM/MP4 to the MediaRecorder-based VideoRecorder, GIF to the
+ * frame-capture GifRecorder, and animated WebP to the WebpRecorder, so callers toggle one object
+ * regardless of format.
  */
 export class Recorder {
   private readonly video = new VideoRecorder();
   private readonly gif = new GifRecorder();
+  private readonly webp = new WebpRecorder();
 
   get recording(): boolean {
-    return this.video.recording || this.gif.recording;
+    return this.video.recording || this.gif.recording || this.webp.recording;
   }
 
-  start(renderer: WaveRenderer, format: RecordFormat, gifBackground = "#ffffff"): void {
-    if (format === "gif") this.gif.start(renderer, gifBackground);
+  start(
+    renderer: WaveRenderer,
+    format: RecordFormat,
+    options: { gifBackground?: string; webpQuality?: number } = {},
+  ): void {
+    if (format === "gif") this.gif.start(renderer, options.gifBackground ?? "#ffffff");
+    else if (format === "webp") this.webp.start(renderer, options.webpQuality ?? 0.9);
     else this.video.start(renderer, format);
   }
 
   stop(): void {
     if (this.gif.recording) this.gif.stop();
+    else if (this.webp.recording) void this.webp.stop();
     else this.video.stop();
   }
 }
