@@ -50,6 +50,10 @@ import { register } from "@wave3d/element";
 register("my-wave"); // instead of the default <wave-3d>
 ```
 
+## Credits
+
+Created by [Amir Abushanab](https://github.com/Amir-Abushanab).
+
 ## License
 
 [MIT](https://github.com/Amir-Abushanab/wave3d/blob/main/LICENSE)

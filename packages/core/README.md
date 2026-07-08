@@ -51,6 +51,10 @@ const handle = createWave(document.getElementById("wave"), config, {
 - **React** — [`@wave3d/react`](https://www.npmjs.com/package/@wave3d/react): the `<Wave3D>` component.
 - **Vue / Svelte / plain HTML** — [`@wave3d/element`](https://www.npmjs.com/package/@wave3d/element): the `<wave-3d>` custom element.
 
+## Credits
+
+Created by [Amir Abushanab](https://github.com/Amir-Abushanab).
+
 ## License
 
 [MIT](https://github.com/Amir-Abushanab/wave3d/blob/main/LICENSE)

@@ -16,6 +16,7 @@
   "homepage": "https://github.com/Amir-Abushanab/wave3d/tree/main/packages/core#readme",
   "bugs": "https://github.com/Amir-Abushanab/wave3d/issues",
   "license": "MIT",
+  "author": "Amir Abushanab (https://github.com/Amir-Abushanab)",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Amir-Abushanab/wave3d.git",

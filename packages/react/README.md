@@ -43,6 +43,10 @@ Server-render your own poster by passing it as a child — the shell adopts it:
 
 Plus flat shortcuts mapped onto the first wave / scene: `palette`, `sheen`, `iridescence`, `speed`, `opacity`, `blendMode`, `theme`, `background`, `transparentBackground`, `quality`, `dprMax`, `loopSeconds`, `paused`, and more. Precedence: **default ← preset ← flat props ← `config`**.
 
+## Credits
+
+Created by [Amir Abushanab](https://github.com/Amir-Abushanab).
+
 ## License
 
 [MIT](https://github.com/Amir-Abushanab/wave3d/blob/main/LICENSE)

@@ -161,6 +161,10 @@ Commons. Spider-Man and its logo are trademarks of their respective rights holde
 is not affiliated with or endorsed by them. Its comic-panel background is an original generated
 asset.
 
+## Credits
+
+Created by [Amir Abushanab](https://github.com/Amir-Abushanab).
+
 ## License
 
 [MIT](./LICENSE).
