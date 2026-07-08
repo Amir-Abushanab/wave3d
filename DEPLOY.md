@@ -3,7 +3,7 @@
 CI lives in [`.github/workflows`](.github/workflows):
 
 - **`ci.yml`** — on every push / PR to `main`: `pnpm check` (format, lint, typecheck, depcruise, knip, skill validate) + `pnpm build`. On a push to `main` it then deploys the studio to Cloudflare Pages **if** the Cloudflare secrets are set.
-- **`release.yml`** — on a `v*` tag (or a manual run): builds and publishes the `@wave3d/*` packages to npm.
+- **`release.yml`** — on push to `main`, [Changesets](https://github.com/changesets/changesets) opens a "Version Packages" PR from any pending changesets; merging that PR publishes the bumped `@wave3d/*` packages to npm via OIDC / Trusted Publishing.
 
 Both need some one-time account setup, below. Until you do it, CI still runs green — it just skips the deploy.
 
@@ -32,28 +32,40 @@ In the Cloudflare Pages project → _Custom domains_ → add `wave3d.app` (and `
 
 ## 2. Publish the packages → npm
 
-The three packages — `@wave3d/core`, `@wave3d/react`, `@wave3d/element` — publish under the **`@wave3d`** scope.
+The three packages — `@wave3d/core`, `@wave3d/react`, `@wave3d/element` — publish under the **`@wave3d`** scope, versioned **together** (a "fixed" group, so they always share one version). Releases run on [Changesets](https://github.com/changesets/changesets).
 
-One-time:
+### Recording a change
 
-1. **Create the free `@wave3d` organization** on [npmjs.com](https://www.npmjs.com/org/create) (the scope is public; each package already sets `publishConfig.access: "public"`).
-2. **Create an npm access token** (npmjs → _Access Tokens_ → _Generate_ → **Automation**, or a Granular token with publish rights to the `@wave3d` scope).
-3. **Add it as the GitHub repo secret `NPM_TOKEN`.**
-
-To release:
+Whenever you change a published package, add a changeset — it drives the next version bump and changelog:
 
 ```sh
-# bump versions first (all three are 0.1.0 today), then:
-git tag v0.1.0
-git push origin v0.1.0      # → the Release workflow builds + publishes
+pnpm changeset          # pick the packages, the bump (patch/minor/major), write a summary
 ```
 
-Or run the **Release** workflow manually from the Actions tab.
+Commit the generated `.changeset/*.md` file alongside your change.
 
-> Prefer to publish the first release locally? `pnpm -r build`, then
-> `pnpm -r --filter "@wave3d/*" publish` (after `npm login`) does the same thing.
+### First release (one-time, from your laptop)
+
+npm can't do a package's **first** publish over OIDC, so bootstrap `0.1.0` by hand. First create the free **`@wave3d` organization** on [npmjs.com](https://www.npmjs.com/org/create) (the scope is public; each package already sets `publishConfig.access: "public"`), then:
+
+```sh
+npm login               # uses your account's 2FA — nothing stored anywhere
+pnpm install
+pnpm release            # builds + `changeset publish` → publishes @wave3d/{core,react,element}@0.1.0
+```
+
+### Enable tokenless CI releases (one-time, right after the first publish)
+
+On **each** of the three packages' npm pages → _Settings_ → _Trusted Publisher_ → add provider **GitHub Actions**, repository **`Amir-Abushanab/wave3d`**, workflow **`release.yml`**. Now CI publishes over OIDC with **no `NPM_TOKEN`** — nothing to leak or rotate — and every release gets provenance automatically.
+
+### Ongoing releases (automated)
+
+1. Merge PRs that include changesets into `main`.
+2. Changesets opens/updates a **"Version Packages"** PR (bumps the shared version, writes `CHANGELOG.md`).
+3. **Merge that PR** → CI publishes the new version, tags it, and cuts a GitHub Release.
+
+> **Fallback:** pnpm's OIDC support is still maturing — if CI publishing 404s, create a granular **`NPM_TOKEN`** (scoped to `@wave3d`, read-write, no IP allowlist) and uncomment the `NODE_AUTH_TOKEN` line in `release.yml`.
 
 ## What's _not_ wired up here
 
 - **The gallery** is a separate, unbuilt Cloudflare app (see the local `docs/gallery-plan.md` design note) — not part of this deploy.
-- **Versioning** is manual today. If releases get frequent, add [Changesets](https://github.com/changesets/changesets) and have `release.yml` consume it.

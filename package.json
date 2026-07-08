@@ -12,6 +12,7 @@
     "build": "pnpm -r build",
     "build:packages": "pnpm -r --filter \"@wave3d/*\" build",
     "pack:all": "pnpm -r --filter \"@wave3d/*\" exec pnpm pack",
+    "release": "pnpm build:packages && changeset publish",
     "preview": "pnpm --filter wave-studio preview",
     "typecheck": "pnpm -r typecheck",
     "lint": "oxlint .",
@@ -25,6 +26,8 @@
     "ncu": "pnpm dlx npm-check-updates"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^0.7.0",
+    "@changesets/cli": "^2.31.0",
     "@tanstack/intent": "^0.3.4",
     "dependency-cruiser": "^18.0.0",
     "knip": "^6.23.0",

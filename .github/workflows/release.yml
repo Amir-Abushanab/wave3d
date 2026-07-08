@@ -1,20 +1,48 @@
 name: Release
 
-# Publishes the @wave3d/* packages to npm when you push a version tag (e.g. v0.1.0),
-# or via a manual run from the Actions tab. One-time setup (create the @wave3d org +
-# add the NPM_TOKEN secret) is documented in DEPLOY.md.
+# Changesets-driven publishing. On every push to main:
+#   • pending changesets → opens/updates a "Version Packages" PR (bumps versions + changelogs)
+#   • that PR merged      → publishes the bumped @wave3d/* packages to npm, tags, GitHub Release
+#
+# Auth is OIDC / Trusted Publishing — no stored token. One-time prerequisites (see DEPLOY.md):
+#   1. Publish 0.1.0 once from your laptop (`npm login` → `pnpm release`); npm can't do a
+#      package's FIRST publish over OIDC.
+#   2. On each package's npm settings add a Trusted Publisher: repo Amir-Abushanab/wave3d,
+#      workflow release.yml. After that, CI publishes tokenlessly.
+# The preflight job skips publishing until the packages exist on npm, so runs before step 1 stay green.
+
 on:
   push:
-    tags: ["v*"]
-  workflow_dispatch:
+    branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write # version PR, tags, GitHub releases
+  pull-requests: write # the Version Packages PR
+  id-token: write # OIDC trusted publishing + provenance
 
 jobs:
-  publish:
-    name: Publish to npm
+  preflight:
+    name: Publish gate
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write # npm provenance
+    outputs:
+      publish: ${{ steps.gate.outputs.publish }}
+    steps:
+      - id: gate
+        run: |
+          if npm view @wave3d/core version >/dev/null 2>&1; then
+            echo "publish=pnpm release" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::@wave3d/* not on npm yet — managing Version PRs only. Publish 0.1.0 from your laptop, then enable Trusted Publishing (see DEPLOY.md)."
+          fi
+
+  release:
+    name: Version or publish
+    needs: preflight
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -22,12 +50,20 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
-      - run: pnpm -r --filter "@wave3d/*" build
-      - name: Publish
-        # pnpm publishes in dependency order (core before react/element) and rewrites the
-        # workspace:^ ranges to real versions automatically.
-        run: pnpm -r --filter "@wave3d/*" publish --no-git-checks --provenance
+      # Trusted publishing needs npm >= 11.5.1; Node 24 may ship an older npm.
+      - run: npm install -g npm@latest
+      - name: Version Packages PR / publish
+        uses: changesets/action@v1
+        with:
+          version: pnpm changeset version
+          # Empty until the packages exist on npm (see preflight) → PR-only, no publish attempt.
+          publish: ${{ needs.preflight.outputs.publish }}
+          commit: "chore: version packages"
+          title: "chore: version packages"
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+          # Fallback if OIDC publishing misbehaves (pnpm's OIDC support is still maturing):
+          # add a granular NPM_TOKEN secret and uncomment the next line.
+          # NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
