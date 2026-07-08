@@ -2,7 +2,25 @@
   "name": "@wave3d/element",
   "version": "0.1.0",
   "description": "<wave-3d> custom element for @wave3d — a framework-agnostic drop-in animated gradient wave (the Vue/Svelte/plain-HTML story)",
+  "keywords": [
+    "background",
+    "custom-elements",
+    "gradient",
+    "svelte",
+    "three",
+    "vue",
+    "wave",
+    "web-components",
+    "webgl"
+  ],
+  "homepage": "https://github.com/Amir-Abushanab/wave3d/tree/main/packages/element#readme",
+  "bugs": "https://github.com/Amir-Abushanab/wave3d/issues",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Amir-Abushanab/wave3d.git",
+    "directory": "packages/element"
+  },
   "files": [
     "dist"
   ],

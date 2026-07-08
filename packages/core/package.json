@@ -3,9 +3,24 @@
   "version": "0.1.0",
   "description": "Framework-agnostic 3D gradient-wave renderer + config model (the engine behind Wave Studio)",
   "keywords": [
-    "tanstack-intent"
+    "animation",
+    "background",
+    "gradient",
+    "shader",
+    "tanstack-intent",
+    "three",
+    "threejs",
+    "wave",
+    "webgl"
   ],
+  "homepage": "https://github.com/Amir-Abushanab/wave3d/tree/main/packages/core#readme",
+  "bugs": "https://github.com/Amir-Abushanab/wave3d/issues",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Amir-Abushanab/wave3d.git",
+    "directory": "packages/core"
+  },
   "files": [
     "dist",
     "skills"

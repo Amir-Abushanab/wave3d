@@ -2,7 +2,25 @@
   "name": "@wave3d/react",
   "version": "0.1.0",
   "description": "React <Wave3D> component for @wave3d — a drop-in, self-optimizing animated gradient wave",
+  "keywords": [
+    "animation",
+    "background",
+    "component",
+    "gradient",
+    "react",
+    "three",
+    "threejs",
+    "wave",
+    "webgl"
+  ],
+  "homepage": "https://github.com/Amir-Abushanab/wave3d/tree/main/packages/react#readme",
+  "bugs": "https://github.com/Amir-Abushanab/wave3d/issues",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Amir-Abushanab/wave3d.git",
+    "directory": "packages/react"
+  },
   "files": [
     "dist"
   ],

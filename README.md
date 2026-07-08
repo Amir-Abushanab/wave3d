@@ -5,7 +5,7 @@ An open-source, browser-based studio for authoring **3D gradient waves** — the
 Tweak every parameter live, then export the result as a **config**, a **drop-in embed**, a
 **PNG/WebP/JPEG image**, or a **WebM video**.
 
-![Wave Studio](docs/screenshot.png)
+![Wave Studio](assets/screenshot.png)
 
 ## Quick start
 
@@ -135,16 +135,17 @@ Or a single `<script>` from a CDN (three bundled):
 
 `three` is a peer dependency of `@wave3d/core` (`>=0.180 <1`); add `@types/three` for TypeScript.
 
-## Releasing
+## Deploying & releasing
 
-The packages are prepared but not yet published. To release (maintainer):
+CI (GitHub Actions) runs `pnpm check` + `pnpm build` on every push, **deploys the studio to
+Cloudflare Pages** on `main`, and **publishes the packages to npm** on a `v*` tag. The one-time
+account setup (Cloudflare + npm secrets, custom domain) lives in **[DEPLOY.md](DEPLOY.md)**.
 
-1. Create the free `@wave3d` organization on [npmjs.com](https://www.npmjs.com) (the scope is public;
-   each package already sets `publishConfig.access: "public"`).
-2. `pnpm -r build` — builds every package's `dist/` (tsdown for the tree-shakeable entries, Vite for
-   the single-file standalone).
-3. `pnpm -r --filter "@wave3d/*" publish` — pnpm rewrites the `workspace:^` peer ranges to real
-   versions and applies each package's `publishConfig.exports` (pointing at `dist/`) automatically.
+To publish manually instead (maintainer): create the free `@wave3d` organization on
+[npmjs.com](https://www.npmjs.com) (the scope is public; each package already sets
+`publishConfig.access: "public"`), then `pnpm -r build` and
+`pnpm -r --filter "@wave3d/*" publish` — pnpm rewrites the `workspace:^` peer ranges to real
+versions and applies each package's `publishConfig.exports` (pointing at `dist/`) automatically.
 
 ## Tech
 
