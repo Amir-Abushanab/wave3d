@@ -1,9 +1,6 @@
 # Wave Studio
 
-An open-source, browser-based studio for authoring **3D gradient waves** — the glossy, twisting _wave of light_ (a strip swept along a curve, with the gradient running along its length and a satin sheen) seen across Stripe's designs.
-
-Tweak every parameter live, then export the result as a **config**, a **drop-in embed**, a
-**PNG/WebP/JPEG image**, or a **WebM video**.
+A browser studio for authoring **3D gradient waves** — the glossy, twisting _wave of light_ seen across Stripe's designs. Tweak it live, then export a **config**, an **image**, a **video**, or a **drop-in embed**.
 
 ![Wave Studio](assets/screenshot.png)
 
@@ -11,115 +8,43 @@ Tweak every parameter live, then export the result as a **config**, a **drop-in 
 
 ```bash
 pnpm install
-pnpm dev           # open the printed localhost URL
+pnpm dev     # opens the studio at the printed localhost URL
 ```
 
-Requires Node 18+ (developed on Node 24) and [pnpm](https://pnpm.io).
+Requires Node 18+ and [pnpm](https://pnpm.io).
 
-## Using the studio
+## The studio
 
-[TODO: update this]
-The control panel groups every parameter:
+A wave is a strip swept along a curve, driven entirely by one JSON-serializable `WaveConfig`. The panel lets you:
 
-- **Actions** — presets, randomize, reset, and all exports.
-- **Global** — blend mode, strand count, quality, DPR clamp, speed, pause, and animation phase.
-- **Background** — transparency, solid color, editable linear/radial/conic gradients, built-in
-  high-resolution image maps, custom image or looping video upload, cover/contain/stretch fitting,
-  zoom/crop, and X/Y positioning.
-- **Color & Gradient** — linear, radial, conic, and draggable iOS-style mesh gradients; gradient
-  stops and presets (including Mesh Gradient, Palestine Colors, One Piece — Grand Line, and
-  Spider-Man — Webbed City); built-in 2D image maps such as Vaporwave, Kaleidoscope, and Nebula;
-  plus custom image or looping video textures with scale/offset/rotation controls.
-- **Finish** — hue shift, contrast, saturation, fibers, grain, texture, blur, volume, glow, and
-  wireframe controls.
-- **Spine** — the sweep: length, displacement frequency x/y, amount.
-- **Transform** — position, rotation, scale of the whole strand.
-- **Twist** — the fold: frequency x/y, power.
-- **Wave & Light** — width, taper, edge feather, bevel, satin sheen, glow, light direction.
-- **Strands** — per-strand overrides (opacity, hue, width, speed, seed, offset, twist). Multiple strands overlap for depth.
+- **Shape** it — spine sweep, twist, taper, width, edge feather, and light.
+- **Color** it — linear / radial / conic / mesh gradients, palettes, and built-in image maps.
+- **Finish** it — grain, blur, glow, sheen, and hue / contrast / saturation.
+- **Layer** it — multiple strands with per-strand overrides, plus presets, randomize, and undo/redo.
 
 ## Exports
 
-Visual exports live in **Output**; state and sharing tools remain in **Actions**:
+Pick a size preset (or a custom W×H) in **Output**, then export:
 
-| Export                        | What you get                                                                           |
-| ----------------------------- | -------------------------------------------------------------------------------------- |
-| **Save / Load state (.json)** | The full `WaveConfig`. This is the preset format — version it, share it, re-import it. |
-| **Export image**              | An exact-size PNG, WebP, or JPEG still (PNG/WebP preserve transparency).               |
-| **Record / stop (.webm)**     | A video capture at the selected output dimensions.                                     |
-| **Export embed (.html)**      | A standalone responsive page with the complete wave runtime included.                  |
+| Export          | What you get                                                                         |
+| --------------- | ------------------------------------------------------------------------------------ |
+| **Image**       | An exact-size **PNG**, **WebP**, or **JPEG** still (PNG/WebP keep transparency).     |
+| **Video / GIF** | A **WebM** or **MP4** clip, an animated **GIF**, or a full-colour animated **WebP**. |
+| **Embed**       | A self-contained **`.html`** page with the runtime inlined — no other files needed.  |
+| **Config**      | The **`.json`** `WaveConfig` — save it, reload it, or copy a share link.             |
 
-Choose a social, website, or video preset in **Output**, or enter a custom width and height.
-The bordered preview is the shared capture area for image, video, and embed exports; editor
-controls and the size badge are never included. The exported HTML is self-contained and does not
-need a neighboring JavaScript file. Built-in image-map presets are drawn inside the runtime, so
-they remain embedded without remote image requests. Uploaded wave and background images or videos
-are stored as data URLs in the config, so saved states and standalone embeds keep them too. Videos
-can make those files substantially larger than image-only states.
+## Drop it into your own site
 
-### Embedding on your own site
-
-1. Build the runtime once:
-   ```bash
-   pnpm build:embed      # → dist-embed/wave-studio-embed.js  (Three.js bundled in, ~137 kB gzip)
-   ```
-2. Use **Export embed (.html)** in the studio for a standalone file, or wire the runtime up yourself:
-   ```html
-   <div id="wave" style="position:fixed; inset:0"></div>
-   <script type="module">
-     import { mountWave } from "./wave-studio-embed.js";
-     const config = {
-       /* paste your exported wave.json here */
-     };
-     mountWave(document.getElementById("wave"), config);
-   </script>
-   ```
-
-`mountWave(container, config?, options?)` returns `{ renderer, set(config), destroy() }`.
-
-## Performance & accessibility
-
-The renderer is built to be a well-behaved background:
-
-- Clamps `devicePixelRatio` (configurable) and resizes via `ResizeObserver`.
-- Pauses the render loop when offscreen (`IntersectionObserver`) and when the tab is hidden (`visibilitychange`).
-- Honors `prefers-reduced-motion` by freezing on a static frame.
-- Quality levers — strand count, geometry subdivision, and blur samples — are all exposed.
-
-## How it works
-
-Each strand is a wave swept along a smooth spine curve: the curve is sampled, frames are carried along it by parallel transport (no Frenet flips), the cross-section is twisted around the tangent, and the strip is extruded to a tapering width — rebuilt each frame in `WaveGeometry`. The fragment shader colours it with a gradient along the length, overlays fine **stratified lines running across the wave** (`abs(sin(uv.y · lineAmount))`), adds a subtle sheen and rim glow, and feathers the edges and ends. A post pass then applies a **golden-angle soft-focus blur and dither grain**. Everything is driven by a single JSON-serializable `WaveConfig`, so the renderer, the panel, and every export read from the same source of truth.
-
-This is a pnpm monorepo:
-
-- `packages/core/` — **`@wave3d/core`**: the framework-agnostic engine. `config/model.ts` (schema),
-  `renderer/` (`WaveGeometry`, shaders, `WaveRenderer`), `shell/` (the `createWave` poster-fallback
-  drop-in), `presets.ts`, `studio/` (`StudioWaveRenderer` + randomizers), `standalone.ts` (CDN entry).
-- `packages/react/` — **`@wave3d/react`**: the `<Wave3D>` component.
-- `packages/element/` — **`@wave3d/element`**: the `<wave-3d>` custom element (Vue/Svelte/plain HTML).
-- `apps/studio/` — the Wave Studio app (Tweakpane panel in `ui/`, exporters in `export/`).
-
-## Packages
-
-Drop a self-optimizing wave into any site — it shows a poster first, then lazily upgrades to the
-live WebGL wave only when the browser can run it (falling back to the poster on no-WebGL, Save-Data,
-reduced-motion, or context loss), with three.js code-split out of the initial load.
+The engine ships as framework-agnostic packages. Each is a **poster-first, self-optimizing** background: it shows a poster, then upgrades to live WebGL only when the browser can (falling back on no-WebGL, Save-Data, reduced-motion, or context loss), with three.js code-split out of the initial load.
 
 ```sh
-pnpm add @wave3d/react @wave3d/core three   # React ( + @types/three for TS)
-pnpm add @wave3d/element @wave3d/core three  # <wave-3d> for Vue / Svelte / plain HTML
+pnpm add @wave3d/react @wave3d/core three     # React
+pnpm add @wave3d/element @wave3d/core three    # <wave-3d> for Vue / Svelte / plain HTML
 ```
 
 ```tsx
 import { Wave3D } from "@wave3d/react";
 <Wave3D preset="Hero" poster="/wave.png" style={{ width: 480, height: 270 }} />;
-```
-
-```html
-<script type="module">
-  import "@wave3d/element";
-</script>
-<wave-3d preset="Hero" poster="/wave.png" style="width:480px;height:270px"></wave-3d>
 ```
 
 Or a single `<script>` from a CDN (three bundled):
@@ -128,43 +53,25 @@ Or a single `<script>` from a CDN (three bundled):
 <script type="module">
   import { mountWave } from "https://esm.sh/@wave3d/core/standalone";
   mountWave(document.getElementById("wave"), {
-    /* config */
+    /* your exported wave.json */
   });
 </script>
 ```
 
-`three` is a peer dependency of `@wave3d/core` (`>=0.180 <1`); add `@types/three` for TypeScript.
+`three` is a peer dependency (`>=0.180 <1`); add `@types/three` for TypeScript. Per-package docs live in [`@wave3d/core`](packages/core), [`@wave3d/react`](packages/react), and [`@wave3d/element`](packages/element).
+
+## How it works
+
+Each strand is a wave swept along a smooth curve — carried by parallel transport, twisted around the tangent, and extruded to a tapering width — then coloured by a gradient with a satin sheen and a soft-focus blur pass. The renderer, the panel, and every export all read from the same `WaveConfig`. As a background it behaves: it clamps DPR, pauses when offscreen or hidden, and honours `prefers-reduced-motion`.
 
 ## Deploying & releasing
 
-CI (GitHub Actions) runs `pnpm check` + `pnpm build` on every push and **deploys the studio to
-Cloudflare Pages** on `main`. Package releases run on
-[Changesets](https://github.com/changesets/changesets): merging changesets to `main` opens a
-**Version Packages** PR, and merging _that_ PR **publishes the `@wave3d/*` packages to npm** — over
-OIDC / Trusted Publishing, with provenance and no stored token. The three packages share one version
-(a fixed group).
-
-The one-time account setup — Cloudflare + npm, the first local publish, and enabling Trusted
-Publishing — lives in **[DEPLOY.md](DEPLOY.md)**.
-
-## Tech
-
-[Three.js](https://threejs.org) · [Tweakpane](https://tweakpane.github.io/docs/) · [Vite](https://vitejs.dev) · TypeScript.
-
-The bundled classic One Piece logo is sourced from
-[PNGMart](https://www.pngmart.com/image/636405). One Piece and its logo are owned by their
-respective rights holders; this project is not affiliated with or endorsed by them.
-
-The Spider-Man preset uses a modified version of the public-domain
-[2002 movie wordmark](https://commons.wikimedia.org/wiki/File:Spider-Man-Logo.svg) from Wikimedia
-Commons. Spider-Man and its logo are trademarks of their respective rights holders; this project
-is not affiliated with or endorsed by them. Its comic-panel background is an original generated
-asset.
+CI deploys the studio to Cloudflare Pages on `main`, and [Changesets](https://github.com/changesets/changesets) publishes the `@wave3d/*` packages to npm. The setup steps live in **[DEPLOY.md](DEPLOY.md)**.
 
 ## Credits
 
-Created by [Amir Abushanab](https://github.com/Amir-Abushanab).
+Created by [Amir Abushanab](https://github.com/Amir-Abushanab). Built with [Three.js](https://threejs.org), [Tweakpane](https://tweakpane.github.io/docs/), and [Vite](https://vitejs.dev).
 
 ## License
 
-[MIT](./LICENSE).
+[MIT](./LICENSE)
