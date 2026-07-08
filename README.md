@@ -135,17 +135,37 @@ Or a single `<script>` from a CDN (three bundled):
 
 `three` is a peer dependency of `@wave3d/core` (`>=0.180 <1`); add `@types/three` for TypeScript.
 
+## Contributing
+
+A pnpm monorepo — `pnpm install`, then `pnpm dev` for the studio (see [Quick start](#quick-start)).
+Before committing, run the checks (a pre-commit hook and CI enforce them too):
+
+```sh
+pnpm check          # format, lint, typecheck, depcruise, knip, skill validate
+```
+
+**If you changed a published package** — `@wave3d/core`, `@wave3d/react`, or `@wave3d/element` —
+add a changeset so the next release bumps the version and updates the changelog:
+
+```sh
+pnpm changeset      # pick the package(s) + bump (patch / minor / major) + a one-line summary
+```
+
+Commit the generated `.changeset/*.md` alongside your change. You don't need one for docs, tooling,
+or studio-only (`apps/studio`) changes — a changeset is only for things that affect what people
+`pnpm add`.
+
 ## Deploying & releasing
 
-CI (GitHub Actions) runs `pnpm check` + `pnpm build` on every push, **deploys the studio to
-Cloudflare Pages** on `main`, and **publishes the packages to npm** on a `v*` tag. The one-time
-account setup (Cloudflare + npm secrets, custom domain) lives in **[DEPLOY.md](DEPLOY.md)**.
+CI (GitHub Actions) runs `pnpm check` + `pnpm build` on every push and **deploys the studio to
+Cloudflare Pages** on `main`. Package releases run on
+[Changesets](https://github.com/changesets/changesets): merging changesets to `main` opens a
+**Version Packages** PR, and merging _that_ PR **publishes the `@wave3d/*` packages to npm** — over
+OIDC / Trusted Publishing, with provenance and no stored token. The three packages share one version
+(a fixed group).
 
-To publish manually instead (maintainer): create the free `@wave3d` organization on
-[npmjs.com](https://www.npmjs.com) (the scope is public; each package already sets
-`publishConfig.access: "public"`), then `pnpm -r build` and
-`pnpm -r --filter "@wave3d/*" publish` — pnpm rewrites the `workspace:^` peer ranges to real
-versions and applies each package's `publishConfig.exports` (pointing at `dist/`) automatically.
+The one-time account setup — Cloudflare + npm, the first local publish, and enabling Trusted
+Publishing — lives in **[DEPLOY.md](DEPLOY.md)**.
 
 ## Tech
 
