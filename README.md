@@ -137,13 +137,6 @@ Or a single `<script>` from a CDN (three bundled):
 
 ## Contributing
 
-A pnpm monorepo — `pnpm install`, then `pnpm dev` for the studio (see [Quick start](#quick-start)).
-Before committing, run the checks (a pre-commit hook and CI enforce them too):
-
-```sh
-pnpm check          # format, lint, typecheck, depcruise, knip, skill validate
-```
-
 **If you changed a published package** — `@wave3d/core`, `@wave3d/react`, or `@wave3d/element` —
 add a changeset so the next release bumps the version and updates the changelog:
 
