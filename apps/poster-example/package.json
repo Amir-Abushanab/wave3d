@@ -1,0 +1,18 @@
+{
+  "name": "wave3d-poster-example",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite"
+  },
+  "dependencies": {
+    "@wave3d/core": "workspace:*",
+    "@wave3d/element": "workspace:*",
+    "three": "^0.185.0"
+  },
+  "devDependencies": {
+    "@wave3d/vite": "workspace:*",
+    "vite": "^8.1.0"
+  }
+}

@@ -38,6 +38,25 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
 
+  apps/poster-example:
+    dependencies:
+      '@wave3d/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@wave3d/element':
+        specifier: workspace:*
+        version: link:../../packages/element
+      three:
+        specifier: ^0.185.0
+        version: 0.185.0
+    devDependencies:
+      '@wave3d/vite':
+        specifier: workspace:*
+        version: link:../../packages/vite
+      vite:
+        specifier: ^8.1.0
+        version: 8.1.0(@types/node@22.20.0)(jiti@2.7.0)(yaml@2.9.0)
+
   apps/studio:
     dependencies:
       '@wave3d/core':

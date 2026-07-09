@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>@wave3d/vite example</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0b0b0f;
+      }
+      wave-3d {
+        position: fixed;
+        inset: 0;
+      }
+      #second {
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        width: 220px;
+        height: 124px;
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+      }
+    </style>
+  </head>
+  <body>
+    <!-- (1) auto-captured element → public/hero.webp -->
+    <wave-3d
+      preset="Hero"
+      poster="/hero.webp"
+      webgl="force"
+      lazy="false"
+      data-wave3d-poster-out="hero.webp"
+    ></wave-3d>
+    <!-- (2) a createWave() wave with no <wave-3d> node — opted in via registerPoster() → public/second.webp -->
+    <div id="second"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
