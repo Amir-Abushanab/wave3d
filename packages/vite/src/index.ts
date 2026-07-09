@@ -57,7 +57,19 @@ export function wave3dPoster(options: Wave3DPosterOptions = {}): Plugin {
     configureServer(server: ViteDevServer) {
       server.middlewares.use((req, res, next) => {
         if (req.method !== "POST" || !req.url || !req.url.startsWith(ENDPOINT)) return next();
-        const out = new URL(req.url, "http://localhost").searchParams.get("out") ?? "";
+        const params = new URL(req.url, "http://localhost").searchParams;
+        const dup = params.get("dup");
+        if (dup) {
+          // A wave clashed with another on this filename — surface it in the Vite terminal.
+          server.config.logger.warn(
+            `  wave3d-poster: two waves target "${dup}" — give each a unique data-wave3d-poster-out ` +
+              `(or registerPoster filename); the duplicate is ignored.`,
+          );
+          res.statusCode = 204;
+          res.end();
+          return;
+        }
+        const out = params.get("out") ?? "";
         const dest = safeJoin(outAbs, out);
         if (!dest) {
           res.statusCode = 400;
@@ -134,7 +146,23 @@ const OPTS = ${opts};
 const wired = new WeakSet();
 const registry = [];
 const lastHash = new Map(); // out → the config hash we last captured
+const owners = new Map(); // out → the element/target that owns writing it
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// First wave to claim an output filename owns it. A second wave targeting the same file is almost
+// always a mistake — they'd overwrite each other every recapture — so report it (the dev server
+// logs to the Vite terminal) and ignore it, leaving the file stable under its first owner.
+function claim(out, who) {
+  const owner = owners.get(out);
+  if (owner === undefined) {
+    owners.set(out, who);
+    return true;
+  }
+  if (owner === who) return true;
+  // report the clash to the dev server so it logs in the Vite terminal (see the "dup" middleware)
+  fetch(ENDPOINT + "?dup=" + encodeURIComponent(out), { method: "POST" }).catch(() => {});
+  return false;
+}
 
 function configOf(t) {
   if (!t) return null;
@@ -186,8 +214,9 @@ const domEls = () => document.querySelectorAll("wave-3d[" + OUT_ATTR + "]");
 function wireDom() {
   domEls().forEach((el) => {
     if (wired.has(el)) return;
-    wired.add(el);
+    wired.add(el); // mark processed even if it's a rejected duplicate, so we warn only once
     const out = el.getAttribute(OUT_ATTR);
+    if (!claim(out, el)) return; // duplicate filename — left to the first owner
     const go = () => capture(() => el.handle, out);
     el.addEventListener("wave3d-ready", go);
     if (el.handle && el.handle.state === "running") go();
@@ -196,12 +225,16 @@ function wireDom() {
 
 function recaptureAll() {
   wireDom();
-  domEls().forEach((el) => capture(() => el.handle, el.getAttribute(OUT_ATTR)));
+  domEls().forEach((el) => {
+    const out = el.getAttribute(OUT_ATTR);
+    if (owners.get(out) === el) capture(() => el.handle, out); // owner only — skip duplicates
+  });
   registry.forEach((r) => capture(() => r.target, r.out));
 }
 
 window.__wave3dPoster = {
   register(target, out) {
+    if (!claim(out, target)) return; // duplicate filename — left to the first owner
     registry.push({ target, out });
     capture(() => target, out); // waits for the handle to run, captures on its first config
   },
