@@ -43,9 +43,22 @@ export interface WaveOptions {
   loadCore?(): Promise<CoreModule>;
 }
 
+export interface SnapshotOptions {
+  /** Image MIME type. Default `"image/webp"`. */
+  type?: string;
+  /** Encoder quality 0–1 for lossy types. */
+  quality?: number;
+  /** Render with a transparent background. Default true. */
+  transparent?: boolean;
+}
+
 export interface WaveHandle {
   readonly state: WaveState;
   readonly renderer: WaveRenderer | null;
+  /** Capture the current live frame as an image Blob (a poster you can host/cache). Resolves `null`
+   *  until the wave is running (poster / fallback / pre-upgrade) — wait for {@link WaveOptions.onReady}
+   *  (or the element's `wave3d-ready` event) first. */
+  snapshot(options?: SnapshotOptions): Promise<Blob | null>;
   /** Merge a partial config. Staged before upgrade; after, setConfig() then refreshPlayback(). */
   set(config: Partial<StudioConfig>): void;
   play(): void;
@@ -198,6 +211,11 @@ export function createWaveImpl(
     },
     get renderer() {
       return renderer;
+    },
+    snapshot(opts = {}) {
+      if (!renderer) return Promise.resolve(null);
+      const { type = "image/webp", quality, transparent = true } = opts;
+      return renderer.captureImage(type, transparent, quality);
     },
     set(next) {
       if (renderer) {

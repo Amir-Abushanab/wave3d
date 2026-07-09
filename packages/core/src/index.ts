@@ -7,7 +7,13 @@ export * from "./config/model";
 // Explicit (not `export *`) so the internal createWaveImpl — which the standalone build uses to
 // avoid bundling the dynamic-import path — stays off the public surface.
 export { createWave, mountWave } from "./shell/createWave";
-export type { WaveOptions, WaveHandle, WaveState, FallbackReason } from "./shell/createWave";
+export type {
+  WaveOptions,
+  WaveHandle,
+  WaveState,
+  FallbackReason,
+  SnapshotOptions,
+} from "./shell/createWave";
 
 // Type-only re-exports (erased at build time — no runtime three import) so consumers can type
 // `onReady(r)` / renderer options.

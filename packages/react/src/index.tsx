@@ -197,4 +197,10 @@ export function Wave3D(props: Wave3DProps): ReactElement {
 }
 
 export default Wave3D;
-export type { StudioConfig, WaveHandle, WaveRenderer, FallbackReason } from "@wave3d/core";
+export type {
+  StudioConfig,
+  WaveHandle,
+  WaveRenderer,
+  FallbackReason,
+  SnapshotOptions,
+} from "@wave3d/core";

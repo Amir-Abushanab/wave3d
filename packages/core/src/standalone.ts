@@ -28,4 +28,10 @@ export const mountWave = createWave;
 export { WaveRenderer } from "./renderer/WaveRenderer";
 export { PRESETS } from "./presets";
 export * from "./config/model";
-export type { WaveOptions, WaveHandle, WaveState, FallbackReason } from "./shell/createWave";
+export type {
+  WaveOptions,
+  WaveHandle,
+  WaveState,
+  FallbackReason,
+  SnapshotOptions,
+} from "./shell/createWave";

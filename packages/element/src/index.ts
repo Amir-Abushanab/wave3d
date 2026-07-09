@@ -143,4 +143,10 @@ export function register(tag = "wave-3d"): void {
 // importing under Node (SSR) is a no-op rather than a ReferenceError.
 register();
 
-export type { StudioConfig, WaveHandle, WaveRenderer, FallbackReason } from "@wave3d/core";
+export type {
+  StudioConfig,
+  WaveHandle,
+  WaveRenderer,
+  FallbackReason,
+  SnapshotOptions,
+} from "@wave3d/core";
