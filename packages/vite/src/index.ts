@@ -24,8 +24,8 @@ const RECAPTURE_EVENT = "wave3d:recapture";
  * writes it to disk — no headless browser, no Playwright. Each `<wave-3d data-wave3d-poster-out="…">`
  * is snapshotted on `wave3d-ready` and re-snapshotted on every HMR round, so the committed poster
  * stays in sync as you edit the config. React / `mountWave` opt in via `registerPoster` from
- * `@wave3d/vite/client`. Captures are deterministic (fixed frame) and written only when the bytes
- * actually change. `vite build` does nothing here — it just references the committed file.
+ * `@wave3d/vite/client`. Captures are deterministic (fixed frame) and re-written only when the
+ * config actually changes. `vite build` does nothing here — it just references the committed file.
  */
 export function wave3dPoster(options: Wave3DPosterOptions = {}): Plugin {
   const { outDir = "public", type = "image/webp", quality = 0.92, posterTime = 0 } = options;
@@ -69,8 +69,9 @@ export function wave3dPoster(options: Wave3DPosterOptions = {}): Plugin {
         req.on("end", () => {
           try {
             const body = Buffer.concat(chunks);
-            // Exactly-once: skip identical bytes. Deterministic captures of an unchanged wave
-            // produce identical files, so redundant recaptures (or an unrelated edit) are no-ops.
+            // Secondary guard: the client already skips a recapture when the config is unchanged,
+            // but on the first capture of a session it has no record yet — so skip identical bytes
+            // here too (a deterministic frame matching the committed poster is a no-op).
             if (existsSync(dest) && readFileSync(dest).equals(body)) {
               res.statusCode = 204;
               res.end();
@@ -115,8 +116,8 @@ function safeJoin(baseAbs: string, rel: string): string | null {
  * The injected client module. Snapshots each opted-in wave and POSTs the blob back to disk:
  *  - `<wave-3d data-wave3d-poster-out="…">` elements are auto-discovered (handle is on the node);
  *  - React / mountWave register a handle or renderer via `window.__wave3dPoster` (see ./client).
- * Captures use a fixed frame and poll until the frame settles, so a config change (which re-renders /
- * rebuilds geometry asynchronously) yields exactly one write of the final frame.
+ * A recapture is skipped when the target's config is unchanged since the last one written (keyed on a
+ * config hash, not the pixels), so GPU-nondeterministic presets don't churn the file.
  */
 function clientScript(
   endpoint: string,
@@ -132,45 +133,52 @@ const ENDPOINT = ${JSON.stringify(endpoint)};
 const OPTS = ${opts};
 const wired = new WeakSet();
 const registry = [];
+const lastHash = new Map(); // out → the config hash we last captured
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+function configOf(t) {
+  if (!t) return null;
+  if (typeof t.getConfig === "function") return t.getConfig();                     // WaveRenderer
+  if (t.renderer && typeof t.renderer.getConfig === "function")                    // WaveHandle
+    return t.renderer.getConfig();
+  return null;
+}
+
 function snapshotOf(t) {
-  if (t && typeof t.snapshot === "function") return t.snapshot(OPTS);            // WaveHandle
-  if (t && typeof t.captureImage === "function")                                 // WaveRenderer
+  if (t && typeof t.snapshot === "function") return t.snapshot(OPTS);              // WaveHandle
+  if (t && typeof t.captureImage === "function")                                   // WaveRenderer
     return t.captureImage(OPTS.type, true, OPTS.quality, OPTS.time);
   return Promise.resolve(null);
 }
 
-async function hashOf(blob) {
-  const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+async function sha256(str) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
   return String.fromCharCode.apply(null, new Uint8Array(digest));
 }
 
-async function post(out, blob) {
+// Capture a target's poster only when its CONFIG changes. Keying on the config (not the rendered
+// bytes) means GPU-nondeterministic presets — which draw different pixels every frame — don't churn
+// the file on every recapture. Waits for the wave to run, lets an HMR config change settle into the
+// render, then snapshots. (In-memory per dev session; a committed sidecar could persist it + fold in
+// the engine version so a core upgrade that changes rendering also regenerates.)
+async function capture(getTarget, out) {
+  await sleep(300); // let an HMR config update apply + the render settle before reading it
+  const deadline = performance.now() + 8000;
+  let config = configOf(getTarget());
+  while (config === null && performance.now() < deadline) {
+    await sleep(300);
+    config = configOf(getTarget());
+  }
+  if (config === null) return; // never became ready
+  const hash = await sha256(JSON.stringify(config));
+  if (hash === lastHash.get(out)) return; // config unchanged → nothing to write
+  const blob = await snapshotOf(getTarget());
+  if (!blob) return;
+  lastHash.set(out, hash);
   await fetch(ENDPOINT + "?out=" + encodeURIComponent(out), {
     method: "POST", headers: { "content-type": blob.type }, body: blob,
   }).catch(() => {});
   console.info("[wave3d-poster] captured " + out + " (" + blob.size + " B)");
-}
-
-// Capture until the frame settles. A config change re-renders (and can rebuild geometry) async, and
-// a handle may still be upgrading, so poll — POSTing only when the frame actually changes — until two
-// consecutive snapshots match, or an ~8s budget runs out. The server writes only on a real byte
-// change, so this converges to a single write of the settled frame (and none for a no-op edit).
-async function captureStable(getTarget, out) {
-  const deadline = performance.now() + 8000;
-  let last = null;
-  let stable = 0;
-  while (performance.now() < deadline && stable < 2) {
-    let blob = null;
-    try { blob = await snapshotOf(getTarget()); } catch {}
-    if (blob) {
-      const h = await hashOf(blob);
-      if (h === last) stable++;
-      else { stable = 0; last = h; await post(out, blob); }
-    } else stable = 0; // not running yet
-    if (stable < 2) await sleep(400);
-  }
 }
 
 const domEls = () => document.querySelectorAll("wave-3d[" + OUT_ATTR + "]");
@@ -180,7 +188,7 @@ function wireDom() {
     if (wired.has(el)) return;
     wired.add(el);
     const out = el.getAttribute(OUT_ATTR);
-    const go = () => captureStable(() => el.handle, out);
+    const go = () => capture(() => el.handle, out);
     el.addEventListener("wave3d-ready", go);
     if (el.handle && el.handle.state === "running") go();
   });
@@ -188,14 +196,14 @@ function wireDom() {
 
 function recaptureAll() {
   wireDom();
-  domEls().forEach((el) => captureStable(() => el.handle, el.getAttribute(OUT_ATTR)));
-  registry.forEach((r) => captureStable(() => r.target, r.out));
+  domEls().forEach((el) => capture(() => el.handle, el.getAttribute(OUT_ATTR)));
+  registry.forEach((r) => capture(() => r.target, r.out));
 }
 
 window.__wave3dPoster = {
   register(target, out) {
     registry.push({ target, out });
-    captureStable(() => target, out); // polls until the handle is running, then until it settles
+    capture(() => target, out); // waits for the handle to run, captures on its first config
   },
 };
 (window.__wave3dPosterQueue || []).forEach((a) => window.__wave3dPoster.register(a[0], a[1]));
