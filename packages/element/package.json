@@ -1,6 +1,6 @@
 {
   "name": "@wave3d/element",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "<wave-3d> custom element for @wave3d — a framework-agnostic drop-in animated gradient wave (the Vue/Svelte/plain-HTML story)",
   "keywords": [
     "background",

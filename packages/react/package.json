@@ -1,6 +1,6 @@
 {
   "name": "@wave3d/react",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "React <Wave3D> component for @wave3d — a drop-in, self-optimizing animated gradient wave",
   "keywords": [
     "animation",
