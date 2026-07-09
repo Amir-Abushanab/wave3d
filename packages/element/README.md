@@ -7,10 +7,10 @@ Poster-first and lazy: it shows a poster immediately, then upgrades to live WebG
 ## Install
 
 ```sh
-pnpm add @wave3d/element @wave3d/core three
+pnpm add @wave3d/element three
 ```
 
-`@wave3d/core` and `three` are peer dependencies.
+`three` is a peer dependency; `@wave3d/core` is bundled in.
 
 ## Usage
 

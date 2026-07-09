@@ -63,7 +63,7 @@ export function generateSnippet(
 
   switch (target) {
     case "react":
-      return `${posterNote}// pnpm add @wave3d/react @wave3d/core three
+      return `${posterNote}// pnpm add @wave3d/react three
 import { Wave3D } from "@wave3d/react";
 
 export default function Wave() {
@@ -76,7 +76,7 @@ export default function Wave() {
 }`;
 
     case "vue":
-      return `${posterNote}<!-- pnpm add @wave3d/element @wave3d/core three -->
+      return `${posterNote}<!-- pnpm add @wave3d/element three -->
 <!-- main.ts: import "@wave3d/element";  (and in Vue, tell the compiler <wave-3d> is a custom
      element: app.config.compilerOptions.isCustomElement = (t) => t === "wave-3d") -->
 <template>
@@ -87,7 +87,7 @@ export default function Wave() {
 </template>`;
 
     case "svelte":
-      return `${posterNote}<!-- pnpm add @wave3d/element @wave3d/core three -->
+      return `${posterNote}<!-- pnpm add @wave3d/element three -->
 <script>
   import "@wave3d/element";
 </script>

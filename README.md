@@ -38,8 +38,8 @@ Pick a size preset (or a custom W×H) in **Output**, then export:
 The engine ships as framework-agnostic packages. Each is a **poster-first, self-optimizing** background: it shows a poster, then upgrades to live WebGL only when the browser can (falling back on no-WebGL, Save-Data, reduced-motion, or context loss), with three.js code-split out of the initial load.
 
 ```sh
-pnpm add @wave3d/react @wave3d/core three     # React
-pnpm add @wave3d/element @wave3d/core three    # <wave-3d> for Vue / Svelte / plain HTML
+pnpm add @wave3d/react three     # React
+pnpm add @wave3d/element three   # <wave-3d> for Vue / Svelte / plain HTML
 ```
 
 ```tsx

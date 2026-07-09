@@ -7,10 +7,10 @@ Poster-first and lazy: it renders a server-safe `<div>`, then on the client moun
 ## Install
 
 ```sh
-pnpm add @wave3d/react @wave3d/core three   # + @types/three for TypeScript
+pnpm add @wave3d/react three   # + @types/three for TypeScript
 ```
 
-`react` (`>=18`), `@wave3d/core`, and `three` are peer dependencies.
+`react` (`>=18`) and `three` are peer dependencies; `@wave3d/core` is bundled in.
 
 ## Usage
 

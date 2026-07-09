@@ -33,9 +33,9 @@ load**. Framework-agnostic core, with React and web-component adapters.
 ## Install
 
 ```sh
-pnpm add @wave3d/react @wave3d/core three     # React
-pnpm add @wave3d/element @wave3d/core three   # <wave-3d> for Vue / Svelte / plain HTML
-pnpm add @wave3d/core three                   # framework-agnostic createWave
+pnpm add @wave3d/react three     # React
+pnpm add @wave3d/element three   # <wave-3d> for Vue / Svelte / plain HTML
+pnpm add @wave3d/core three      # framework-agnostic createWave
 ```
 
 `three` is a **peer dependency** of `@wave3d/core` (`>=0.180 <1`). For TypeScript, also add

@@ -15,7 +15,7 @@ importers:
         version: 0.7.0
       '@changesets/cli':
         specifier: ^2.31.0
-        version: 2.31.0
+        version: 2.31.0(@types/node@22.20.0)
       '@tanstack/intent':
         specifier: ^0.3.4
         version: 0.3.4
@@ -61,7 +61,7 @@ importers:
         version: 0.185.0
       vite:
         specifier: ^8.1.0
-        version: 8.1.0(jiti@2.7.0)(yaml@2.9.0)
+        version: 8.1.0(@types/node@22.20.0)(jiti@2.7.0)(yaml@2.9.0)
 
   packages/core:
     devDependencies:
@@ -76,25 +76,47 @@ importers:
         version: 0.185.0
       vite:
         specifier: ^8.1.0
-        version: 8.1.0(jiti@2.7.0)(yaml@2.9.0)
+        version: 8.1.0(@types/node@22.20.0)(jiti@2.7.0)(yaml@2.9.0)
 
   packages/element:
-    devDependencies:
+    dependencies:
+      '@types/three':
+        specifier: '>=0.180'
+        version: 0.185.0
       '@wave3d/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../core
+      three:
+        specifier: '>=0.180 <1'
+        version: 0.185.0
 
   packages/react:
+    dependencies:
+      '@types/three':
+        specifier: '>=0.180'
+        version: 0.185.0
+      '@wave3d/core':
+        specifier: workspace:^
+        version: link:../core
+      three:
+        specifier: '>=0.180 <1'
+        version: 0.185.0
     devDependencies:
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.17
-      '@wave3d/core':
-        specifier: workspace:*
-        version: link:../core
       react:
         specifier: ^19.0.0
         version: 19.2.7
+
+  packages/vite:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.0
+      vite:
+        specifier: ^8.1.0
+        version: 8.1.0(@types/node@22.20.0)(jiti@2.7.0)(yaml@2.9.0)
 
 packages:
 
@@ -884,6 +906,9 @@ packages:
 
   '@types/node@12.20.55':
     resolution: {integrity: sha512-J8xLz7q2OFulZ2cyGTLE1TbbZcjpno7FaN6zdJNrgAdrJ+DZzh/uFR6YrTb4C+nXakvud8Q4+rbhoIWlYQbUFQ==}
+
+  '@types/node@22.20.0':
+    resolution: {integrity: sha512-QWlFW2wf3nTjC13/DqRnBpR4ZO36VJH/JVBkA/vcnmbTBNQIlnObqyqZE1tUR7+Ni23Lda8R1BxMfbXRpCUx5g==}
 
   '@types/react@19.2.17':
     resolution: {integrity: sha512-MXfmqaVPEVgkBT/aY0aGCkRWWtByiYQXo3xdQ8r5RzuFrPiRn8Gar2tQdXSUQ2GKV3bkXckek89V8wQBY2Q/Aw==}
@@ -1778,6 +1803,9 @@ packages:
   unconfig-core@7.5.0:
     resolution: {integrity: sha512-Su3FauozOGP44ZmKdHy2oE6LPjk51M/TRRjHv2HNCWiDvfvCoxC2lno6jevMA91MYAdCdwP05QnWdWpSbncX/w==}
 
+  undici-types@6.21.0:
+    resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
+
   unist-util-is@6.0.1:
     resolution: {integrity: sha512-LsiILbtBETkDz8I9p1dQ0uyRUWuaQzd/cuEeS1hoRSyW5E5XGmTzlwY1OrNzzakGowI9Dr/I8HVaw4hTtnxy8g==}
 
@@ -1940,7 +1968,7 @@ snapshots:
     transitivePeerDependencies:
       - encoding
 
-  '@changesets/cli@2.31.0':
+  '@changesets/cli@2.31.0(@types/node@22.20.0)':
     dependencies:
       '@changesets/apply-release-plan': 7.1.1
       '@changesets/assemble-release-plan': 6.0.10
@@ -1956,7 +1984,7 @@ snapshots:
       '@changesets/should-skip-package': 0.1.2
       '@changesets/types': 6.1.0
       '@changesets/write': 0.4.0
-      '@inquirer/external-editor': 1.0.3
+      '@inquirer/external-editor': 1.0.3(@types/node@22.20.0)
       '@manypkg/get-packages': 1.1.3
       ansi-colors: 4.1.3
       enquirer: 2.4.1
@@ -2090,10 +2118,12 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
-  '@inquirer/external-editor@1.0.3':
+  '@inquirer/external-editor@1.0.3(@types/node@22.20.0)':
     dependencies:
       chardet: 2.2.0
       iconv-lite: 0.7.3
+    optionalDependencies:
+      '@types/node': 22.20.0
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
@@ -2517,6 +2547,10 @@ snapshots:
       '@types/unist': 3.0.3
 
   '@types/node@12.20.55': {}
+
+  '@types/node@22.20.0':
+    dependencies:
+      undici-types: 6.21.0
 
   '@types/react@19.2.17':
     dependencies:
@@ -3372,6 +3406,8 @@ snapshots:
       '@quansync/fs': 1.0.0
       quansync: 1.0.0
 
+  undici-types@6.21.0: {}
+
   unist-util-is@6.0.1:
     dependencies:
       '@types/unist': 3.0.3
@@ -3407,7 +3443,7 @@ snapshots:
       '@types/unist': 3.0.3
       vfile-message: 4.0.3
 
-  vite@8.1.0(jiti@2.7.0)(yaml@2.9.0):
+  vite@8.1.0(@types/node@22.20.0)(jiti@2.7.0)(yaml@2.9.0):
     dependencies:
       lightningcss: 1.32.0
       picomatch: 4.0.4
@@ -3415,6 +3451,7 @@ snapshots:
       rolldown: 1.1.3
       tinyglobby: 0.2.17
     optionalDependencies:
+      '@types/node': 22.20.0
       fsevents: 2.3.3
       jiti: 2.7.0
       yaml: 2.9.0

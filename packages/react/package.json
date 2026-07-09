@@ -43,13 +43,21 @@
     "typecheck": "tsc --noEmit",
     "build": "tsdown"
   },
+  "dependencies": {
+    "@wave3d/core": "workspace:^"
+  },
   "devDependencies": {
     "@types/react": "^19.0.0",
-    "@wave3d/core": "workspace:*",
     "react": "^19.0.0"
   },
   "peerDependencies": {
-    "@wave3d/core": "workspace:^",
-    "react": ">=18"
+    "@types/three": ">=0.180",
+    "react": ">=18",
+    "three": ">=0.180 <1"
+  },
+  "peerDependenciesMeta": {
+    "@types/three": {
+      "optional": true
+    }
   }
 }
