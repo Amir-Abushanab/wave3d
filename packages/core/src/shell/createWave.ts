@@ -50,6 +50,9 @@ export interface SnapshotOptions {
   quality?: number;
   /** Render with a transparent background. Default true. */
   transparent?: boolean;
+  /** Render a fixed animation-time for a reproducible frame (default: the live frame). Poster
+   *  captures should pass `0` — the frame the wave opens on, so the file doesn't churn per capture. */
+  time?: number;
 }
 
 export interface WaveHandle {
@@ -214,8 +217,8 @@ export function createWaveImpl(
     },
     snapshot(opts = {}) {
       if (!renderer) return Promise.resolve(null);
-      const { type = "image/webp", quality, transparent = true } = opts;
-      return renderer.captureImage(type, transparent, quality);
+      const { type = "image/webp", quality, transparent = true, time } = opts;
+      return renderer.captureImage(type, transparent, quality, time);
     },
     set(next) {
       if (renderer) {

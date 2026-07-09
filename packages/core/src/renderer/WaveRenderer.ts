@@ -1363,11 +1363,26 @@ export class WaveRenderer {
    *  off-frame. Camera-relative: it's "left on screen" no matter how the view is rotated/zoomed,
    *  because it's built from the camera's right/up axes and the frame's visible world size. */
 
-  async captureImage(mime: string, transparent = true, quality?: number): Promise<Blob> {
-    const prev = this.config.transparentBackground;
-    if (transparent !== prev) {
+  async captureImage(
+    mime: string,
+    transparent = true,
+    quality?: number,
+    time?: number,
+  ): Promise<Blob> {
+    const prevBg = this.config.transparentBackground;
+    if (transparent !== prevBg) {
       this.config.transparentBackground = transparent;
       this.applyBackground();
+    }
+    // Deterministic frame: render at a fixed animation-time (with the ease-in ramp forced full) so
+    // a captured poster is reproducible instead of whatever frame happened to be on screen — pass
+    // time = 0 for the frame the wave opens on. Restored in `finally`. Undefined = the live frame.
+    const fixTime = time !== undefined;
+    const prevTime = this.time;
+    const prevRamp = this.introTimeRamp;
+    if (fixTime) {
+      this.time = time;
+      this.introTimeRamp = 1;
     }
     let blob: Blob | null = null;
     try {
@@ -1378,9 +1393,13 @@ export class WaveRenderer {
       );
     } finally {
       this.capturing = false;
-      if (transparent !== prev) {
-        this.config.transparentBackground = prev;
+      if (transparent !== prevBg) {
+        this.config.transparentBackground = prevBg;
         this.applyBackground();
+      }
+      if (fixTime) {
+        this.time = prevTime;
+        this.introTimeRamp = prevRamp;
       }
       this.renderOnce();
     }
