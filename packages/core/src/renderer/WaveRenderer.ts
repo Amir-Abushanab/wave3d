@@ -250,7 +250,7 @@ export class WaveRenderer {
   private readonly clipTmpA = new THREE.Vector3();
   private readonly clipTmpB = new THREE.Vector3();
 
-  private readonly clock = new THREE.Clock();
+  private readonly timer = new THREE.Timer();
   private time = 0;
   private rafId = 0;
   protected running = false;
@@ -1202,8 +1202,9 @@ export class WaveRenderer {
 
     if (shouldAnimate && !this.running) {
       this.running = true;
-      this.clock.start();
-      this.clock.getDelta();
+      // Reset the delta baseline (as Clock.start() + a discarded getDelta() used to) so the first
+      // frame advances by ~one frame, not by the whole idle/pause gap that elapsed while stopped.
+      this.timer.update();
       this.rafId = requestAnimationFrame(this.loop);
     } else if (!shouldAnimate && this.running) {
       this.running = false;
@@ -1220,13 +1221,14 @@ export class WaveRenderer {
 
   private loop = (): void => {
     if (!this.running) return;
-    this.time += this.clock.getDelta();
+    this.timer.update();
+    this.time += this.timer.getDelta();
     if (this.introTimeRamp < 1) this.introTimeRamp = Math.min(1, this.introTimeRamp + 0.016); // ~1s to full at 60fps
     this.renderOnce();
     this.rafId = requestAnimationFrame(this.loop);
   };
 
-  /** Advance the per-frame clock uniforms (geometry itself is static). Time model:
+  /** Advance the per-frame time uniforms (geometry itself is static). Time model:
    *  time = elapsed·introTimeRamp + timeOffset — the ramp eases the animation in on load. */
   private updateTime(): void {
     // Skip the ease-in when asked: a fresh renderer (first load, or the studio's HMR hot-swap)
