@@ -2,13 +2,49 @@
   "name": "@wave3d/vite",
   "version": "0.0.0",
   "description": "Vite plugin: auto-capture a wave3d poster from the dev browser and write it to disk, HMR-synced (no headless browser).",
+  "keywords": [
+    "gradient",
+    "poster",
+    "three",
+    "vite",
+    "vite-plugin",
+    "wave",
+    "webgl"
+  ],
+  "homepage": "https://github.com/Amir-Abushanab/wave3d/tree/main/packages/vite#readme",
+  "bugs": "https://github.com/Amir-Abushanab/wave3d/issues",
+  "license": "MIT",
+  "author": "Amir Abushanab (https://github.com/Amir-Abushanab)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Amir-Abushanab/wave3d.git",
+    "directory": "packages/vite"
+  },
+  "files": [
+    "dist"
+  ],
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
     "./client": "./src/client.ts"
   },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./client": {
+        "types": "./dist/client.d.ts",
+        "default": "./dist/client.js"
+      }
+    },
+    "access": "public"
+  },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "tsdown"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
