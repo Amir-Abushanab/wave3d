@@ -22,7 +22,13 @@ import { createWave } from "@wave3d/core";
 const handle = createWave(document.getElementById("wave"), config, {
   poster: "/wave.png",
 });
-// handle.set(nextConfig) · handle.pause() · handle.play() · handle.destroy()
+// handle.set(nextConfig) · handle.pause() · handle.play() · handle.snapshot() · handle.destroy()
+```
+
+Capture the live frame as an image — a poster you can host and reuse for reduced-motion / no-WebGL / Save-Data visitors — with `handle.snapshot()` (resolves `null` until running):
+
+```ts
+const blob = await handle.snapshot(); // options: { type?, quality?, transparent? } — WebP, transparent
 ```
 
 ## Single `<script>` from a CDN (three bundled)

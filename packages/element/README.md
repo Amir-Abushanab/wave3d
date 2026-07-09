@@ -43,6 +43,20 @@ Also a `config` **property** (merged last, over the attributes) and a read-only 
 - `wave3d-ready` — `detail` is the live `WaveRenderer`.
 - `wave3d-fallback` — `detail` is the fallback reason.
 
+## Capture a poster
+
+Grab the live frame as an image once the wave is running — e.g. to generate the `poster` that reduced-motion, no-WebGL, and Save-Data visitors see:
+
+```js
+const wave = document.querySelector("wave-3d");
+wave.addEventListener("wave3d-ready", async () => {
+  const blob = await wave.handle.snapshot(); // WebP of the current frame, transparent
+  // host / cache `blob`, then use it as the poster
+});
+```
+
+`handle.snapshot(options?)` resolves `null` until the wave is running. Options: `type` (default `"image/webp"`), `quality`, `transparent` (default `true`).
+
 ## Custom tag name
 
 ```ts

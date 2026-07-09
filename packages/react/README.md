@@ -28,6 +28,20 @@ Server-render your own poster by passing it as a child — the shell adopts it:
 </Wave3D>
 ```
 
+## Capture a poster
+
+`onReady` hands you the live `WaveRenderer` — capture the current frame as an image (e.g. to generate the `poster` that reduced-motion / no-WebGL / Save-Data visitors see):
+
+```tsx
+<Wave3D
+  preset="Hero"
+  onReady={async (renderer) => {
+    const blob = await renderer.captureImage("image/webp"); // transparent by default
+    // host / cache `blob`, then serve it as the poster
+  }}
+/>
+```
+
 ## Props
 
 | Prop                     | Type                                      | Notes                                                                       |

@@ -125,7 +125,10 @@ The shell shows a poster immediately, then crossfades to the live wave.
 
 - **Poster source:** the `poster` option/prop (URL or data-URI), or — for SSR — an
   `<img data-wave3d-poster>` you render inside the container; the shell **adopts** it (no hydration
-  flash). React: pass it as a child. Generate a poster from the studio's Export code dialog.
+  flash). React: pass it as a child.
+- **Make a poster:** the studio's Export dialog, or capture the live frame at runtime — once
+  running, `handle.snapshot()` (core/element) or `onReady(renderer)` → `renderer.captureImage()`
+  (React) resolves an image Blob you can host and feed back as the `poster`.
 - **`onFallback(reason)`** fires when the shell keeps the poster instead of upgrading; reasons:
   `"no-webgl" | "reduced-motion" | "save-data" | "context-lost" | "load-error"`.
 - **`onStateChange(state)`**: `"poster" → "loading" → "running"`, or `"fallback"`.
