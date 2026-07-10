@@ -14,6 +14,12 @@ name: Release
 on:
   push:
     branches: [main]
+    # Only when something publishable changes. A studio-only / docs / CI push has nothing to
+    # publish, so skip the whole workflow rather than attempt a (crash-prone) no-op re-publish.
+    paths:
+      - "packages/**"
+      - ".changeset/**"
+  workflow_dispatch: {}
 
 concurrency:
   group: release
