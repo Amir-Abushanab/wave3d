@@ -18,7 +18,7 @@ export default defineConfig({
   dts: true,
   sourcemap: true,
   unbundle: true,
-  external: ["three", /^three\//],
+  deps: { neverBundle: ["three", /^three\//] },
   platform: "browser",
   target: "es2022",
   outDir: "dist",

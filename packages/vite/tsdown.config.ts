@@ -8,7 +8,7 @@ export default defineConfig({
   format: "esm",
   dts: true,
   sourcemap: true,
-  external: ["vite", /^node:/],
+  deps: { neverBundle: ["vite", /^node:/] },
   platform: "neutral",
   target: "es2022",
   outDir: "dist",
