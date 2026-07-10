@@ -60,9 +60,11 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter wave-studio build
+      # cloudflare/wrangler-action auto-installs wrangler via `pnpm add`, which pnpm refuses at a
+      # workspace root (ERR_PNPM_ADDING_TO_ROOT). Invoke wrangler directly instead — `pnpm dlx` runs
+      # it from a temp store without touching the workspace, and wrangler reads the CLOUDFLARE_* env.
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy apps/studio/dist --project-name=wave-studio --branch=main
+        run: pnpm dlx wrangler pages deploy apps/studio/dist --project-name=wave-studio --branch=main
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
