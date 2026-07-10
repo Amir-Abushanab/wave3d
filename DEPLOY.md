@@ -18,7 +18,7 @@ One-time:
 3. **Add two GitHub repo secrets** (repo → _Settings_ → _Secrets and variables_ → _Actions_):
    - `CLOUDFLARE_API_TOKEN`
    - `CLOUDFLARE_ACCOUNT_ID`
-4. _(Optional — the first deploy auto-creates the project otherwise.)_ Create it explicitly:
+4. _(Not needed — the workflow creates the project on its first deploy. Do it by hand only if you prefer.)_ Create it explicitly:
    ```sh
    pnpm dlx wrangler login
    pnpm dlx wrangler pages project create wave-studio --production-branch=main

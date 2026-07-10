@@ -64,7 +64,10 @@ jobs:
       # workspace root (ERR_PNPM_ADDING_TO_ROOT). Invoke wrangler directly instead — `pnpm dlx` runs
       # it from a temp store without touching the workspace, and wrangler reads the CLOUDFLARE_* env.
       - name: Deploy to Cloudflare Pages
-        run: pnpm dlx wrangler pages deploy apps/studio/dist --project-name=wave-studio --branch=main
+        run: |
+          # wrangler doesn't auto-create the Pages project — create it once (no-op once it exists).
+          pnpm dlx wrangler pages project create wave-studio --production-branch=main || true
+          pnpm dlx wrangler pages deploy apps/studio/dist --project-name=wave-studio --branch=main
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
