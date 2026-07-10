@@ -32,7 +32,7 @@ In the Cloudflare Pages project → _Custom domains_ → add `wave3d.app` (and `
 
 ## 2. Publish the packages → npm
 
-The three packages — `@wave3d/core`, `@wave3d/react`, `@wave3d/element` — publish under the **`@wave3d`** scope, versioned **together** (a "fixed" group, so they always share one version). Releases run on [Changesets](https://github.com/changesets/changesets).
+The **`@wave3d`**-scoped packages publish via [Changesets](https://github.com/changesets/changesets). `@wave3d/core`, `@wave3d/react`, and `@wave3d/element` are a **fixed** group — they always share one version; **`@wave3d/vite`** (the dev-time Vite plugin) versions independently.
 
 ### Recording a change
 
@@ -56,7 +56,16 @@ pnpm release            # builds + `changeset publish` → publishes @wave3d/{co
 
 ### Enable tokenless CI releases (one-time, right after the first publish)
 
-On **each** of the three packages' npm pages → _Settings_ → _Trusted Publisher_ → add provider **GitHub Actions**, repository **`Amir-Abushanab/wave3d`**, workflow **`release.yml`**. Now CI publishes over OIDC with **no `NPM_TOKEN`** — nothing to leak or rotate — and every release gets provenance automatically.
+On **each** package's npm page → _Settings_ → _Trusted Publisher_ → add provider **GitHub Actions**, repository **`Amir-Abushanab/wave3d`**, workflow **`release.yml`** (leave _Environment_ blank). Now CI publishes over OIDC with **no `NPM_TOKEN`** — nothing to leak or rotate — and every release gets provenance automatically.
+
+### Adding a new package
+
+A new package needs the same one-time bootstrap as the originals. The preflight gate keys off `@wave3d/core` (already on npm), so CI will _try_ to publish the newcomer — but npm can't do a package's **first** publish over OIDC, so the Release workflow **fails** on it until you bootstrap by hand:
+
+1. `npm login` → `pnpm release` from your laptop — publishes the new package's first version (plus any pending bumps).
+2. Add its **Trusted Publisher** on npmjs.com — same values as above (GitHub Actions · `Amir-Abushanab/wave3d` · `release.yml`).
+
+After that it releases tokenlessly via CI like the rest.
 
 ### Ongoing releases (automated)
 
