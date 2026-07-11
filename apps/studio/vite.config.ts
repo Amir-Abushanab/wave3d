@@ -8,7 +8,7 @@ export default defineConfig({
   // The HTML exporter fetches this asset and inlines it into the downloaded file.
   publicDir: "../../packages/core/dist/standalone",
   // Dev only: proxy /gallery to the gallery's own dev server (:5174) so dev matches the deployed
-  // layout, where the studio is at / and the gallery at /gallery/. `pnpm dev:site` runs both.
+  // layout, where the studio is at / and the gallery at /gallery/. `pnpm dev` runs both servers.
   server: {
     proxy: {
       "/gallery": { target: "http://localhost:5174", ws: true },
