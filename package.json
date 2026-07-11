@@ -22,7 +22,8 @@
     "depcruise": "dependency-cruiser apps packages",
     "knip": "knip",
     "skill:validate": "intent validate packages/core/skills",
-    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm depcruise && pnpm knip && pnpm skill:validate",
+    "gallery:validate": "node scripts/validate-gallery.mjs",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm depcruise && pnpm knip && pnpm skill:validate && pnpm gallery:validate",
     "ncu": "pnpm dlx npm-check-updates"
   },
   "devDependencies": {

@@ -90,6 +90,7 @@ export interface PanelHooks {
   onExportCode?: () => void;
   onExportWallpaper?: () => void;
   onCopyLink?: () => Promise<boolean> | void;
+  onPublishToGallery?: () => void;
   onToggleRecord?: (format: RecordFormat, webpQuality: number) => void;
   /** Fired after any change that mutates the document config, so the app can record undo/redo
    *  history. Called liberally (continuous during drags) — the History layer coalesces. */
@@ -479,6 +480,9 @@ export class ControlPanel {
       linkBtn.title = ok === false ? "✓ URL updated (copy it)" : "✓ Link copied!";
       setTimeout(() => (linkBtn.title = "🔗 Copy share link"), 1600);
     });
+    actions
+      .addButton({ title: "✨ Publish to gallery" })
+      .on("click", () => this.hooks.onPublishToGallery?.());
   }
 
   /** "Global" folder: preset picker, quality/DPR, playback, post fx, mirror. */

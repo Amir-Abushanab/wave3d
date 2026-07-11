@@ -6,6 +6,7 @@ import { randomizeConfig } from "@wave3d/core/studio";
 import { PRESETS } from "./presets";
 import { ControlPanel } from "./ui/ControlPanel";
 import { CodeExportDialog } from "./ui/CodeExportDialog";
+import { publishToGallery } from "./publishToGallery";
 import { OutputResizeHandle } from "./ui/OutputResizeHandle";
 import { RecordingOverlay } from "./ui/RecordingOverlay";
 import { HistoryControls } from "./ui/HistoryControls";
@@ -179,6 +180,7 @@ const panel = new ControlPanel(panelEl, renderer, config, {
   onRandomize: () => applyConfig(randomizeConfig(config), "—", true, "Randomize All"),
   onReset: () => applyConfig(makeDefault(), DEFAULT_PRESET, true, "Reset"),
   onCopyLink: () => copyShareLink(config),
+  onPublishToGallery: () => publishToGallery(config),
   onExportConfig: () => exportConfigJSON(config),
   onImportConfig: async () => {
     try {
