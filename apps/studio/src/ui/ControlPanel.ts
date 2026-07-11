@@ -156,6 +156,7 @@ export class ControlPanel {
   private presetDropdown?: PaletteDropdown;
   /** The Output → record button, so its label can flip Record ⇄ Stop while recording. */
   private recordBtn?: ReturnType<FolderApi["addButton"]>;
+  private recordCapHint?: HTMLElement;
 
   constructor(
     private readonly container: HTMLElement,
@@ -203,6 +204,22 @@ export class ControlPanel {
    *  "🎬 Record (.<fmt>)" for the chosen container. */
   private recordTitle(): string {
     return this.state.recording ? "⏹ Stop recording" : `🎬 Record (.${this.state.recordFormat})`;
+  }
+
+  /** Under the record button: when a seamless loop is set, the recording auto-stops after exactly
+   *  one loop (see main.ts onToggleRecord). Surface that cap; hide it when looping is off (records
+   *  until Stop). Format-independent: the cap applies to WebM/MP4/GIF/WebP alike. */
+  private refreshRecordCapHint(): void {
+    const hint = this.recordCapHint;
+    if (!hint) return;
+    const loop = this.config.loopSeconds ?? 0;
+    if (loop > 0) {
+      const s = String(Math.round(loop * 10) / 10);
+      hint.textContent = `⏱ Auto-stops after ${s}s (one loop)`;
+      hint.hidden = false;
+    } else {
+      hint.hidden = true;
+    }
   }
 
   /** Wrap Tweakpane rows in a labelled, bordered box. `inline` rows share one flex line; any
@@ -411,8 +428,12 @@ export class ControlPanel {
       max: 1,
       step: 0.01,
     });
+    // Under the record row: surface the loop auto-stop cap (see main.ts onToggleRecord).
+    this.recordCapHint = document.createElement("div");
+    this.recordCapHint.className = "wv-ctl-hint";
     const refreshRecordControls = (): void => {
       recordQualityBinding.hidden = this.state.recordFormat !== "webp";
+      this.refreshRecordCapHint();
       if (this.recordBtn && !this.state.recording) {
         this.recordBtn.title = this.recordTitle();
         this.applyIcons();
@@ -429,7 +450,7 @@ export class ControlPanel {
     this.groupRows(
       "RECORD",
       [formatBinding.element, this.recordBtn.element],
-      [recordQualityBinding.element],
+      [recordQualityBinding.element, this.recordCapHint],
     );
     // Standalone HTML page export goes last: image, then video, then embed, then code snippets.
     output
@@ -512,7 +533,10 @@ export class ControlPanel {
     // motion character differs — that's the trade-off for a clean loop.
     g.addBinding(cfg, "loopSeconds", { min: 0, max: 30, step: 0.5, label: "loop (s, 0=off)" }).on(
       "change",
-      refresh,
+      () => {
+        refresh();
+        this.refreshRecordCapHint(); // keep the record-cap hint in sync with the loop length
+      },
     );
     // Post-processing (one pass over the whole composite — scene-level, shared by all waves).
     g.addBinding(cfg, "grain", { min: 0, max: 3, step: 0.01 }).on("change", refresh);
