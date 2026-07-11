@@ -1,6 +1,6 @@
 {
   "name": "@wave3d/react",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Drop-in animated 3D gradient wave for React: the <Wave3D> component",
   "keywords": [
     "animation",
