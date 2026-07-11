@@ -7,7 +7,7 @@
  */
 import { WaveRenderer } from "@wave3d/core/renderer";
 import type { StudioConfig } from "@wave3d/core";
-import { createThumbHost, prepThumbConfig, renderThumbFrame } from "./thumbnailRender";
+import { createThumbHost, prepThumbConfig, renderThumbFrame } from "@wave3d/core/studio";
 
 const RW = 128; // render size (16:9); displayed much smaller, so this is plenty crisp
 const RH = 72;

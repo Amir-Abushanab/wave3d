@@ -6,7 +6,7 @@
  */
 import { WaveRenderer } from "@wave3d/core/renderer";
 import type { StudioConfig } from "@wave3d/core";
-import { createThumbHost, prepThumbConfig, renderThumbFrame } from "./thumbnailRender";
+import { createThumbHost, prepThumbConfig, renderThumbFrame } from "@wave3d/core/studio";
 
 const cache = new Map<string, HTMLCanvasElement>();
 let started = false;

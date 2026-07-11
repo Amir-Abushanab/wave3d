@@ -1,10 +1,9 @@
 /**
  * Offscreen thumbnail rendering: turn a config into a still frame with one hidden, reused
- * WaveRenderer. A copy of apps/studio/src/ui/thumbnailRender.ts.
- * TODO: lift this into @wave3d/core/studio so the studio and gallery share a single copy.
+ * WaveRenderer. Used by the studio's preset + history thumbnails and by the wave gallery grid.
  */
-import type { WaveRenderer } from "@wave3d/core/renderer";
-import type { StudioConfig } from "@wave3d/core";
+import type { WaveRenderer } from "../renderer/WaveRenderer";
+import type { StudioConfig } from "../config/model";
 
 /** A hidden host div that is in layout (so clientWidth/Height are real) but off-screen. */
 export function createThumbHost(width: number, height: number): HTMLDivElement {
@@ -14,7 +13,8 @@ export function createThumbHost(width: number, height: number): HTMLDivElement {
   return host;
 }
 
-/** Mutate `cfg` for a thumbnail still: static frame, opaque, white page behind solid themes. */
+/** Mutate `cfg` for a thumbnail still: static frame, opaque, white page behind solid themes
+ *  (wireframe keys its between-line colour off the dark page background, so keep it). */
 export function prepThumbConfig(cfg: StudioConfig): void {
   cfg.paused = true;
   cfg.transparentBackground = false;
@@ -31,6 +31,7 @@ export function renderThumbFrame(
   renderer.renderOnce(); // 2nd pass so any shader recompile (theme/blend variant) is applied
   const gl = host.querySelector("canvas");
   if (!gl) return null;
+  // Copy to a 2D canvas before encoding (reliable read of the WebGL drawing buffer).
   const out = document.createElement("canvas");
   out.width = gl.width;
   out.height = gl.height;
