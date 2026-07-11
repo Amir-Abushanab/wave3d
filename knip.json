@@ -10,6 +10,9 @@
       "project": ["src/**/*.ts"],
       "ignoreDependencies": ["@tweakpane/core"]
     },
+    "apps/gallery": {
+      "project": ["src/**/*.ts"]
+    },
     "packages/react": {
       "project": ["src/**/*.{ts,tsx}"]
     },
