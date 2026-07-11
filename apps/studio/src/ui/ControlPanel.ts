@@ -483,6 +483,11 @@ export class ControlPanel {
     actions
       .addButton({ title: "✨ Publish to gallery" })
       .on("click", () => this.hooks.onPublishToGallery?.());
+    // The gallery lives at /gallery/ on the same origin (dev proxy + combined build), so a plain
+    // same-origin navigation works in both. Same tab: the studio and gallery are one site.
+    actions
+      .addButton({ title: "🌊 Browse the gallery" })
+      .on("click", () => window.location.assign("/gallery/"));
   }
 
   /** "Global" folder: preset picker, quality/DPR, playback, post fx, mirror. */
