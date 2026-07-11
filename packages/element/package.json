@@ -1,6 +1,6 @@
 {
   "name": "@wave3d/element",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Drop-in animated 3D gradient wave for Vue, Svelte, or plain HTML: the <wave-3d> custom element",
   "keywords": [
     "background",
