@@ -9,6 +9,7 @@
     "prepare": "git config core.hooksPath .githooks",
     "hooks:install": "git config core.hooksPath .githooks",
     "dev": "pnpm --filter wave-studio dev",
+    "dev:site": "pnpm --parallel --filter wave-studio --filter wave-gallery dev",
     "build": "pnpm -r build",
     "build:site": "pnpm --filter wave-studio build && pnpm --filter wave-gallery build && node scripts/combine-site.mjs",
     "build:packages": "pnpm -r --filter \"@wave3d/*\" build",
