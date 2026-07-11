@@ -1,8 +1,8 @@
 {
-  "title": "Hero",
-  "author": "stripe",
+  "title": "Palestine",
+  "author": "Amir-Abushanab",
   "config": {
-    "background": "#ffffff",
+    "background": "#f2efe8",
     "transparentBackground": true,
     "backgroundMode": "color",
     "backgroundPalette": [
@@ -84,8 +84,8 @@
       "y": -200,
       "z": 0
     },
-    "cameraZoom": 0.55,
-    "grain": 1.1,
+    "cameraZoom": 0.6,
+    "grain": 0.35,
     "blur": 0.02,
     "blurSamples": 6,
     "ambient": 0.45,
@@ -165,7 +165,7 @@
         ],
         "meshGradientSoftness": 0.62,
         "usePaletteTexture": true,
-        "paletteSource": "hero",
+        "paletteSource": "palestine",
         "paletteTextureScale": {
           "x": 1,
           "y": 1
@@ -179,7 +179,7 @@
         "paletteDriftY": 0,
         "paletteEdgeColor": "#8e9dff",
         "paletteEdgeAmount": 0.3,
-        "hueShift": -0.09125212324151055,
+        "hueShift": 0,
         "colorContrast": 1,
         "colorSaturation": 1,
         "fiberCount": 600,
@@ -225,16 +225,16 @@
           "z": -11.1
         },
         "rotation": {
-          "x": -25.75960951128668,
-          "y": -6.73741071294335,
-          "z": 107.3956101897781
+          "x": 7.472822601034245,
+          "y": -25.56883214992998,
+          "z": -159.36420155016293
         },
         "scale": {
           "x": 9,
           "y": 8,
           "z": 5
         },
-        "blendMode": "squared",
+        "blendMode": "normal",
         "speed": 0.04,
         "opacity": 1,
         "seed": 0

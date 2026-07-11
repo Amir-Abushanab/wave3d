@@ -486,7 +486,7 @@ export class ControlPanel {
     // The gallery lives at /gallery/ on the same origin (dev proxy + combined build), so a plain
     // same-origin navigation works in both. Same tab: the studio and gallery are one site.
     actions
-      .addButton({ title: "🌊 Browse the gallery" })
+      .addButton({ title: "🏄 Surf the gallery" })
       .on("click", () => window.location.assign("/gallery/"));
   }
 
