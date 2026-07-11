@@ -4,16 +4,14 @@ Design 3D gradient waves in your browser: the glossy, twisting _wave of light_ f
 
 **▶ [Open the studio](https://wave-studio.pages.dev)** · runs in the browser, nothing to install.
 
-![Wave Studio](assets/screenshot.png)
+![Wave Studio](assets/hero.webp)
 
 ## ⚡ From studio to site in 4 steps
 
 1. **Play.** [Open the studio](https://wave-studio.pages.dev) and tweak a preset until it looks right.
-2. **Export.** Click **⟨⟩ Export code**, pick your framework, and hit **Copy**. Grab **Download poster.png** while you're there.
+2. **Export.** Click **⟨⟩ Export code**, pick your framework, and hit **Copy**. Grab **Download poster.png** while you're there as it will be used as a fallback.
 3. **Install.** The snippet's top line is the command to run, e.g. `pnpm add @wave3d/react three`.
 4. **Paste.** Drop the snippet into your app. What you saw in the studio is what renders.
-
-Your exact config is baked into the snippet, so there's nothing to wire up.
 
 ## 🎛️ What the studio does
 
@@ -44,7 +42,7 @@ Pick a size in **Output**, then export any of these:
 Skipping the studio? The engine ships as framework-agnostic packages:
 
 ```sh
-pnpm add @wave3d/react three     # React
+pnpm add @wave3d/react three     # React convenience wrapper
 pnpm add @wave3d/element three   # <wave-3d> for Vue, Svelte, or plain HTML
 ```
 
@@ -65,17 +63,13 @@ Or one `<script>` from a CDN, with three bundled in:
 </script>
 ```
 
-Every package is poster-first: it shows a still, then upgrades to live WebGL only when the browser can handle it, and falls back to the poster on no-WebGL, Save-Data, reduced motion, or a lost context. `three.js` is code-split out of the initial load.
+Every package is poster-first: it shows a still, then upgrades to live WebGL only when the browser can handle it, and falls back to the poster on no-WebGL, Save-Data, reduced motion, or a lost context. `three.js` is code-split out of the initial load to minimize performance impact.
 
 `three` is a peer dependency (`>=0.180 <1`); add `@types/three` for TypeScript. Per-package docs: [`@wave3d/core`](packages/core), [`@wave3d/react`](packages/react), [`@wave3d/element`](packages/element).
 
 ## 🛠️ How it works
 
 Each strand is a wave swept along a smooth curve, carried by parallel transport, twisted around the tangent, and extruded to a tapering width, then colored by a gradient with a satin sheen and a soft-focus blur. The renderer, the studio panel, and every export all read from the same config. As a background it behaves: it clamps DPR, pauses when offscreen or hidden, and honors `prefers-reduced-motion`.
-
-## 🚀 Deploy & release
-
-CI deploys the studio to Cloudflare Pages on `main`, and [Changesets](https://github.com/changesets/changesets) publishes the `@wave3d/*` packages to npm. Setup lives in [DEPLOY.md](DEPLOY.md).
 
 ## Credits
 

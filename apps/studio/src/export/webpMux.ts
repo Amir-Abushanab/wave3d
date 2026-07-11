@@ -68,8 +68,12 @@ const u32le = (b: Uint8Array, o: number): number =>
 
 /**
  * Pull a frame's image sub-chunks (an optional ALPH plus the VP8/VP8L bitstream — each with its
- * own header + padding) out of a canvas-encoded WebP file, dropping the RIFF header and any
- * container-level VP8X. These bytes are exactly what an ANMF chunk carries.
+ * own header + padding) out of a canvas-encoded WebP file. These bytes are exactly what an ANMF
+ * chunk carries. We keep *only* those image chunks and drop everything else — the RIFF header and
+ * any container-level metadata (VP8X, and crucially ICCP/EXIF/XMP). Chrome's
+ * `canvas.toBlob("image/webp")` emits an extended file with an embedded colour profile (ICCP) on
+ * colour-managed displays; left inside an ANMF frame that metadata is invalid and makes the whole
+ * animation unreadable to libwebp and Chrome, so it must be stripped.
  */
 function frameImageChunks(file: Uint8Array): { data: Uint8Array; hasAlpha: boolean } {
   let off = 12; // skip "RIFF" <u32 size> "WEBP"
@@ -79,7 +83,7 @@ function frameImageChunks(file: Uint8Array): { data: Uint8Array; hasAlpha: boole
     const cc = String.fromCharCode(file[off], file[off + 1], file[off + 2], file[off + 3]);
     const size = u32le(file, off + 4);
     const end = off + 8 + size + (size & 1); // chunk = header + payload + odd-pad
-    if (cc !== "VP8X") {
+    if (cc === "ALPH" || cc === "VP8 " || cc === "VP8L") {
       parts.push(file.subarray(off, Math.min(end, file.length)));
       if (cc === "ALPH") hasAlpha = true;
     }
