@@ -1,4 +1,4 @@
-/** Shared numeric helpers. Dependency-free — safe to import from src/wave/* (the embed bundle). */
+/** Shared numeric helpers. No DOM. */
 
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));

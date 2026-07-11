@@ -1,4 +1,4 @@
-/** Dependency-free — safe to import from src/wave/* (the embed bundle). */
+/** Base64 helpers. No DOM. */
 
 /** Decode base64 — standard or url-safe alphabet — into bytes. */
 export function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {

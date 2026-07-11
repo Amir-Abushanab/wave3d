@@ -2,7 +2,7 @@
   "name": "wave-studio",
   "version": "0.1.1",
   "private": true,
-  "description": "Open-source studio for authoring 3D gradient waves",
+  "description": "Design 3D gradient waves in the browser and export them as code, images, or video",
   "license": "MIT",
   "type": "module",
   "scripts": {

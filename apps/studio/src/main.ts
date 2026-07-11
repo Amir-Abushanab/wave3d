@@ -85,7 +85,7 @@ function flashExportInfo(width: number, height: number): void {
 }
 
 // The app's default wave (what loads on startup and on "Reset to default").
-const DEFAULT_PRESET = "Stripe Hero";
+const DEFAULT_PRESET = "Hero";
 const makeDefault = (): StudioConfig => PRESETS[DEFAULT_PRESET]();
 
 // A shared link (#w=…) overrides the default on load — applied async (gzip decode) below.

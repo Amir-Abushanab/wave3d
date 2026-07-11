@@ -2,7 +2,7 @@
   "name": "wave3d-workspace",
   "version": "0.1.0",
   "private": true,
-  "description": "Monorepo for the @wave3d packages and the Wave Studio app",
+  "description": "Wave Studio and the @wave3d packages that power it",
   "license": "MIT",
   "type": "module",
   "scripts": {

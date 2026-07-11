@@ -1,10 +1,10 @@
 # @wave3d/element
 
-The `<wave-3d>` custom element — a framework-agnostic drop-in animated **3D gradient wave** for Vue, Svelte, or plain HTML.
+The `<wave-3d>` custom element: a drop-in animated **3D gradient wave** for Vue, Svelte, or plain HTML. Design one in [Wave Studio](https://wave-studio.pages.dev), export the snippet for your framework, paste it in.
 
-Poster-first and lazy: it shows a poster immediately, then upgrades to live WebGL only when the browser can run it (falling back to the poster on no-WebGL, Save-Data, reduced-motion, or context loss), with `three.js` code-split out of the initial load.
+Poster-first: it shows a poster immediately, then upgrades to live WebGL only when the browser can run it. It falls back to the poster on no-WebGL, Save-Data, reduced motion, or a lost context, with `three.js` code-split out of the initial load.
 
-## Install
+## 📦 Install
 
 ```sh
 pnpm add @wave3d/element three
@@ -14,7 +14,7 @@ pnpm add @wave3d/element three
 
 ## Usage
 
-Importing the package registers `<wave-3d>` automatically:
+Importing the package registers `<wave-3d>` for you:
 
 ```html
 <script type="module">
@@ -31,27 +31,27 @@ Importing the package registers `<wave-3d>` automatically:
 | `preset`  | a built-in preset name (lazy-loads the presets chunk) |
 | `config`  | an inline JSON config                                 |
 | `src`     | URL to a config JSON to fetch                         |
-| `poster`  | poster image shown before / instead of WebGL          |
-| `paused`  | pause / resume the animation                          |
+| `poster`  | poster image shown before or instead of WebGL         |
+| `paused`  | pause or resume the animation                         |
 | `lazy`    | defer the upgrade until visible                       |
 | `webgl`   | `auto` \| `force` \| `off`                            |
 
-Also a `config` **property** (merged last, over the attributes) and a read-only `handle` getter. Config precedence: **default ← `preset` ← `src` ← `config` attribute ← `config` property**.
+There's also a `config` **property** (merged last, over the attributes) and a read-only `handle` getter. Precedence: **default → `preset` → `src` → `config` attribute → `config` property**.
 
 ## Events
 
-- `wave3d-ready` — `detail` is the live `WaveRenderer`.
-- `wave3d-fallback` — `detail` is the fallback reason.
+- `wave3d-ready`: `detail` is the live `WaveRenderer`.
+- `wave3d-fallback`: `detail` is the fallback reason.
 
 ## Capture a poster
 
-Grab the live frame as an image once the wave is running — e.g. to generate the `poster` that reduced-motion, no-WebGL, and Save-Data visitors see:
+Grab the live frame once the wave is running, e.g. to generate the poster that reduced-motion, no-WebGL, and Save-Data visitors see:
 
 ```js
 const wave = document.querySelector("wave-3d");
 wave.addEventListener("wave3d-ready", async () => {
   const blob = await wave.handle.snapshot(); // WebP of the current frame, transparent
-  // host / cache `blob`, then use it as the poster
+  // host or cache `blob`, then use it as the poster
 });
 ```
 
@@ -66,7 +66,7 @@ register("my-wave"); // instead of the default <wave-3d>
 
 ## Credits
 
-Created by [Amir Abushanab](https://github.com/Amir-Abushanab).
+Built by [Amir Abushanab](https://github.com/Amir-Abushanab).
 
 ## License
 

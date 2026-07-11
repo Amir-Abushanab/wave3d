@@ -1,4 +1,4 @@
-/** Shared DOM helpers for the studio UI. Not imported by src/wave/* — keeps the embed bundle lean. */
+/** Shared DOM helpers for the studio UI. */
 
 /** Append a <style> to <head> once; repeat calls with the same id are no-ops. */
 export function injectStyleOnce(id: string, css: string): void {

@@ -1,4 +1,4 @@
-/** Shared colour-string helpers. Dependency-free — safe to import from src/wave/* (the embed bundle). */
+/** Shared colour-string helpers. No DOM. */
 
 /** Normalize #rgb / #rrggbb(aa) to exactly "#rrggbb" (the only form <input type=color> accepts). */
 export function toHex6(hex: string): string {

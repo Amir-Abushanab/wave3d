@@ -8,6 +8,5 @@
   "trailingComma": "all",
   "endOfLine": "lf",
   "proseWrap": "preserve",
-  "sortPackageJson": true,
-  "ignorePatterns": ["dependency-graph.*"]
+  "sortPackageJson": true
 }
