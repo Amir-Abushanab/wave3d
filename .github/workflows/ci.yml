@@ -47,7 +47,7 @@ jobs:
           fi
 
   deploy-studio:
-    name: Deploy studio → Cloudflare Pages
+    name: Deploy studio + gallery → Cloudflare Pages
     needs: preflight
     if: needs.preflight.outputs.deploy == 'true'
     runs-on: ubuntu-latest
@@ -59,7 +59,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter wave-studio build
+      # Build both apps into one tree: studio at the root, gallery under /gallery/ (see build:site).
+      - run: pnpm build:site
       # cloudflare/wrangler-action auto-installs wrangler via `pnpm add`, which pnpm refuses at a
       # workspace root (ERR_PNPM_ADDING_TO_ROOT). Invoke wrangler directly instead — `pnpm dlx` runs
       # it from a temp store without touching the workspace, and wrangler reads the CLOUDFLARE_* env.
@@ -67,6 +68,7 @@ jobs:
         run: |
           # wrangler doesn't auto-create the Pages project — create it once (no-op once it exists).
           pnpm dlx wrangler pages project create wave-studio --production-branch=main || true
+          # apps/studio/dist now contains the gallery at /gallery/ (combine-site.mjs).
           pnpm dlx wrangler pages deploy apps/studio/dist --project-name=wave-studio --branch=main
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

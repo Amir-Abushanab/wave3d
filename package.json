@@ -10,6 +10,7 @@
     "hooks:install": "git config core.hooksPath .githooks",
     "dev": "pnpm --filter wave-studio dev",
     "build": "pnpm -r build",
+    "build:site": "pnpm --filter wave-studio build && pnpm --filter wave-gallery build && node scripts/combine-site.mjs",
     "build:packages": "pnpm -r --filter \"@wave3d/*\" build",
     "pack:all": "pnpm -r --filter \"@wave3d/*\" exec pnpm pack",
     "release": "pnpm build:packages && node scripts/publish-if-needed.mjs",

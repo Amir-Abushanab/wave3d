@@ -7,9 +7,9 @@ CI lives in [`.github/workflows`](.github/workflows):
 
 Both need some one-time account setup, below. Until you do it, CI still runs green — it just skips the deploy.
 
-## 1. Deploy the studio → Cloudflare Pages
+## 1. Deploy the studio + gallery → Cloudflare Pages
 
-The studio is a static Vite SPA (`apps/studio`, `base: "./"`), deployed to Cloudflare Pages as project **`wave-studio`**.
+The studio (`apps/studio`, served at `/`) and the wave gallery (`apps/gallery`, served at `/gallery/`) are static Vite builds. `pnpm build:site` builds both and combines them into one tree (the studio at the root, the gallery copied under `dist/gallery`), deployed to Cloudflare Pages as project **`wave-studio`**.
 
 One-time:
 
@@ -24,7 +24,7 @@ One-time:
    pnpm dlx wrangler pages project create wave-studio --production-branch=main
    ```
 
-Then **push to `main`** → CI builds and deploys. The live URL is `https://wave-studio.pages.dev` until you add a custom domain.
+Then **push to `main`** → CI builds and deploys. The live URLs are `https://wave-studio.pages.dev` (studio) and `https://wave-studio.pages.dev/gallery/` (gallery), until you add a custom domain.
 
 ### Custom domain (wave3d.app)
 
