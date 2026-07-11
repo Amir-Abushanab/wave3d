@@ -12,7 +12,7 @@
     "build": "pnpm -r build",
     "build:packages": "pnpm -r --filter \"@wave3d/*\" build",
     "pack:all": "pnpm -r --filter \"@wave3d/*\" exec pnpm pack",
-    "release": "pnpm build:packages && changeset publish",
+    "release": "pnpm build:packages && node scripts/publish-if-needed.mjs",
     "preview": "pnpm --filter wave-studio preview",
     "typecheck": "pnpm -r typecheck",
     "lint": "oxlint .",
