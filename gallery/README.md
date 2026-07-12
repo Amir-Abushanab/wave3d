@@ -1,14 +1,14 @@
 # Wave gallery
 
 Community wave designs. Every file in [`waves/`](./waves) is one wave: a `title`, your GitHub
-handle, and a `config` (a Wave Studio `StudioConfig`). A static gallery site (coming) renders them
-and links each one back into the studio to remix.
+handle, and a `config` (a Wave Studio `StudioConfig`). The gallery renders each as a live wave and
+links it back into the studio to remix.
 
 ## Submit a wave
 
 **Easiest:** in [Wave Studio](https://wave-studio.pages.dev), design a wave and hit **✨ Publish to
-gallery** (under Actions). It copies your submission and opens GitHub's new-file page. Paste, set
-your title + handle, and open the PR.
+gallery** (under Actions). It opens GitHub's new-file page with the wave **prefilled** — set your
+title + handle, choose **Create a new branch**, and open the PR.
 
 **By hand:** add a `waves/<slug>.json` and open a pull request:
 

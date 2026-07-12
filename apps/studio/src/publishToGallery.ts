@@ -4,47 +4,38 @@ import { showToast } from "./ui/Toast";
 const REPO = "Amir-Abushanab/wave3d";
 
 /**
- * "Publish to gallery": copy a gallery submission (the current config, with title/handle
- * placeholders) to the clipboard and open GitHub's new-file page for gallery/waves/. The
- * contributor pastes it, fills in the title + their handle, and opens the PR.
+ * "Publish to gallery": open GitHub's new-file page for gallery/waves/ with the current wave
+ * prefilled (title + handle are placeholders to edit). Also copies the same JSON as a fallback for
+ * when a big config overruns GitHub's URL length. The clipboard write starts before window.open so
+ * it runs while this document still has focus.
  *
- * Copy-and-open rather than a prefilled `?value=` URL, because a full config overruns GitHub's URL
- * length limit. The clipboard write is kicked off before window.open so it runs while this document
- * still has focus (opening the new tab steals it).
+ * If you have write access GitHub defaults to committing to `main`, so the toast nudges you to pick
+ * "Create a new branch" (which opens a PR). Contributors without write access get an auto-fork + PR.
  */
 export function publishToGallery(config: StudioConfig): void {
-  const submission = { title: "My wave", author: "your-github-handle", config };
-  const json = JSON.stringify(submission, null, 2) + "\n";
-  const url = `https://github.com/${REPO}/new/main?filename=gallery/waves/my-wave.json`;
+  // Title/handle on their own lines (easy to edit) with the config compacted onto one, so the whole
+  // thing stays short enough to prefill via GitHub's ?value=. (gallery/waves is excluded from oxfmt,
+  // so the compact config doesn't trip format:check.)
+  const json = `{\n  "title": "My wave",\n  "author": "your-github-handle",\n  "config": ${JSON.stringify(config)}\n}\n`;
 
-  let copy: Promise<void> | undefined;
+  const base = `https://github.com/${REPO}/new/main?filename=gallery/waves/my-wave.json`;
+  const prefilled = `${base}&value=${encodeURIComponent(json)}`;
+  const fits = prefilled.length < 8000; // very long URLs get truncated; fall back to a paste
+
   try {
-    copy = navigator.clipboard.writeText(json);
+    void navigator.clipboard.writeText(json);
   } catch {
-    copy = undefined;
+    /* no clipboard (insecure context) — the prefill or the console log below covers it */
   }
-  window.open(url, "_blank", "noopener");
+  window.open(fits ? prefilled : base, "_blank", "noopener");
+  if (!fits) console.log(json);
 
-  // Custom images end up as data: URIs and the gallery validator rejects them; flag it here too.
-  const note = /data:(image|video)\//i.test(json)
-    ? " Note: custom images aren't allowed (the gallery is procedural). Switch to a built-in map."
+  const steps = ' Set your title + handle, then pick "Create a new branch" to open a PR.';
+  const imgNote = /data:(image|video)\//i.test(json)
+    ? " (Custom images aren't allowed — the gallery is procedural.)"
     : "";
-  const fail = (): void => {
-    console.log(json);
-    showToast({ message: "Couldn't copy the wave; its JSON is in the console." });
-  };
-  if (copy) {
-    void copy.then(
-      () =>
-        showToast({
-          message:
-            "Wave copied. Paste it into the file, set your title + handle, then open the PR." +
-            note,
-          duration: 6500,
-        }),
-      fail,
-    );
-  } else {
-    fail();
-  }
+  showToast({
+    message: (fits ? "Wave prefilled." : "Config copied — paste it in.") + steps + imgNote,
+    duration: 7000,
+  });
 }
