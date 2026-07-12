@@ -70,7 +70,7 @@ const app = document.getElementById("app")!;
 app.innerHTML = `
   <header class="hero">
     <h1>🌊 Wave gallery</h1>
-    <p>Community waves, each one a <code>StudioConfig</code>. <a href="/">Make your own →</a></p>
+    <p>Community waves. <a href="/">Make your own →</a></p>
   </header>
   <main class="grid"></main>`;
 
