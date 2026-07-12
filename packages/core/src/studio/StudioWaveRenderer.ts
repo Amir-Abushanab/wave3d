@@ -395,6 +395,14 @@ export class StudioWaveRenderer extends WaveRenderer {
     if (!this.running) this.renderOnce();
   }
 
+  /** Studio-only scroll preview (the studio page doesn't scroll): override the `scroll` source with
+   *  a fixed 0..1 value, or pass null to return to the live container-progress read. NEVER touches
+   *  config. No-op until interaction is enabled (the controller exists). */
+  setScrollPreview(v: number | null): void {
+    if (this.interaction) this.interaction.scrollOverride = v;
+    if (!this.running) this.renderOnce();
+  }
+
   duplicateOffset(): { x: number; y: number; z: number } {
     this.camera.updateMatrixWorld();
     const worldW = (this.camera.right - this.camera.left) / this.camera.zoom; // visible world span

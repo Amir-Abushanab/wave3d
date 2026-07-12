@@ -83,6 +83,35 @@ const CONTROL_HINTS: Record<string, string> = {
 
   // --- Output ---
   "lock ratio": "Keeps width and height proportional when you change either one.",
+
+  // --- Interaction ---
+  enabled:
+    "Turns the interactive layer on: a pointer field that follows the cursor plus input→param bindings. Off = a normal, non-interactive wave (identical pixels).",
+  hump: "How strongly the wave swells under the cursor — negative dents it. Same units as Displace amount.",
+  radius:
+    "Reach of the pointer effects, as a fraction of viewport height. Larger = a broader area reacts.",
+  swoosh: "Sweeps the surface toward where the cursor is moving — a velocity-driven smear.",
+  agitate: "Adds fast local churn (an extra noise octave) right around the cursor.",
+  ripple: "Amplitude of the rings that radiate out from each click. 0 keeps ripples off entirely.",
+  thin: "Near the cursor: wireframe strands taper to hairlines; a solid surface turns locally translucent.",
+  "hue shift": "Rotates the colour near the cursor around the hue wheel (degrees).",
+  lighten: "Brightens (or, negative, darkens) the surface near the cursor.",
+  smoothing:
+    "How much the response lags its input — larger is smoother/slower, 0 is instant (seconds).",
+  touch: "Also follow touch input. Off by default so touch-scrolling a page isn't hijacked.",
+  interaction:
+    "How strongly THIS wave responds to the interaction layer — 0 inert, 1 full. Stagger across a stack for depth/parallax.",
+  source: "The input signal that drives this binding (scroll, hover, pointer, press, appear…).",
+  target: "The wave or scene parameter this binding drives.",
+  "from = base":
+    "Keep the value at input 0 equal to the wave's authored value, so at rest it looks unchanged.",
+  from: "Value at input 0 (used only when 'from = base' is off).",
+  to: "Value at input 1 (the input's maximum).",
+  wave: "Which wave this binding drives — or all of them.",
+  "scroll: live":
+    "Read the real container scroll progress. Turn off to preview a fixed value with the slider below.",
+  "scroll (preview only)":
+    "Studio-only: fake a scroll position (0–1) to preview scroll bindings. Never saved to the config.",
 };
 
 /** Overrides for labels that mean different things in different folders. Keyed `Folder label`. */

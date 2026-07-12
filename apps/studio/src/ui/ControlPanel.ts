@@ -15,7 +15,13 @@ import {
   MAX_NOISE_BANDS,
   MAX_WAVES,
 } from "@wave3d/core";
-import type { StudioConfig, WaveConfig } from "@wave3d/core";
+import type {
+  StudioConfig,
+  WaveConfig,
+  InteractionBinding,
+  InteractionSource,
+  InteractionTarget,
+} from "@wave3d/core";
 import {
   randomizeGradient,
   randomizeColor,
@@ -117,6 +123,29 @@ type VecRows = (
   opts: { min?: number; max?: number; step?: number },
   axisLabels?: [string, string, string],
 ) => void;
+
+/** Panel-local model for one interaction binding slot (custom:* is not authorable — see below). */
+interface UiSlot {
+  source: string; // "off" | InteractionSource
+  target: InteractionTarget;
+  fromBase: boolean;
+  from: number;
+  to: number;
+  wave: number; // -1 = all waves
+  smoothing: number;
+}
+/** Build a slot's UI model from a loaded binding (or a blank slot when undefined). */
+function interactionSlotFrom(b: InteractionBinding | undefined): UiSlot {
+  return {
+    source: b ? b.source : "off",
+    target: b?.target ?? "displaceAmount",
+    fromBase: !b || b.from === undefined,
+    from: b?.from ?? 0,
+    to: b?.to ?? 1,
+    wave: b?.wave ?? -1,
+    smoothing: b?.smoothing ?? 0.25,
+  };
+}
 
 export class ControlPanel {
   private pane!: Pane;
@@ -876,6 +905,187 @@ export class ControlPanel {
     }
   }
 
+  /** The optional interactivity layer: a pointer field + two input→param binding slots + a
+   *  studio-only scroll preview. Collapsed by default; absent from a config until first enabled,
+   *  so untouched presets stay byte-identical. See the interaction docs in @wave3d/core. */
+  private buildInteractionFolder(mkFolder: MkFolder, cfg: StudioConfig, refresh: () => void): void {
+    const folder = mkFolder("Interaction", false);
+
+    // Concrete panel-local pointer model — Tweakpane binds by reference, so every field must exist.
+    // When interaction is on we attach THIS object as cfg.interaction.pointer, so a slider edit
+    // flows straight through; while off it just retains the values for a later re-enable.
+    const src = cfg.interaction?.pointer;
+    const uiPointer = {
+      hump: src?.hump ?? 6,
+      radius: src?.radius ?? 0.3,
+      swoosh: src?.swoosh ?? 0,
+      agitate: src?.agitate ?? 0,
+      ripple: src?.ripple ?? 0,
+      thin: src?.thin ?? 0,
+      hueShift: src?.hueShift ?? 0,
+      lighten: src?.lighten ?? 0,
+      smoothing: src?.smoothing ?? 0.12,
+      touch: src?.touch ?? false,
+    };
+    if (cfg.interaction) cfg.interaction.pointer = uiPointer; // rebind the live config to it
+
+    // Two slots author the non-custom bindings; custom:* (developer API) and any overflow past two
+    // are preserved verbatim so a studio edit never silently drops them.
+    const loaded = cfg.interaction?.bindings ?? [];
+    const authorable = loaded.filter((b) => !b.source.startsWith("custom:"));
+    const preserved = loaded
+      .filter((b) => b.source.startsWith("custom:"))
+      .concat(authorable.slice(2));
+
+    const slots: UiSlot[] = [
+      interactionSlotFrom(authorable[0]),
+      interactionSlotFrom(authorable[1]),
+    ];
+
+    const enableState = { on: !!cfg.interaction && cfg.interaction.enabled !== false };
+
+    const buildBindings = (): InteractionBinding[] => {
+      const out: InteractionBinding[] = [];
+      for (const s of slots) {
+        if (s.source === "off") continue;
+        const b: InteractionBinding = {
+          source: s.source as InteractionSource,
+          target: s.target,
+          to: s.to,
+        };
+        if (!s.fromBase) b.from = s.from;
+        if (s.wave >= 0) b.wave = s.wave;
+        if (s.smoothing !== 0.25) b.smoothing = s.smoothing;
+        out.push(b);
+      }
+      out.push(...preserved);
+      return out;
+    };
+
+    // Enabling writes a CONCRETE object; disabling flips enabled:false (values preserved). Never
+    // creating the block until first enable keeps untouched presets free of an interaction key.
+    const commit = (): void => {
+      if (enableState.on) {
+        cfg.interaction = { enabled: true, pointer: uiPointer, bindings: buildBindings() };
+      } else if (cfg.interaction) {
+        cfg.interaction.enabled = false;
+      }
+      refresh();
+    };
+    const pointerChanged = (): void => {
+      if (enableState.on) refresh(); // uiPointer === cfg.interaction.pointer, so the edit is live
+    };
+    const bindingsChanged = (): void => {
+      if (enableState.on && cfg.interaction) {
+        cfg.interaction.bindings = buildBindings();
+        refresh();
+      }
+    };
+
+    folder.addBinding(enableState, "on", { label: "enabled" }).on("change", commit);
+
+    const pf = folder.addFolder({ title: "Pointer field", expanded: true });
+    pf.addBinding(uiPointer, "hump", { min: -30, max: 30, step: 0.1 }).on("change", pointerChanged);
+    pf.addBinding(uiPointer, "radius", { min: 0.05, max: 1, step: 0.01 }).on(
+      "change",
+      pointerChanged,
+    );
+    pf.addBinding(uiPointer, "swoosh", { min: 0, max: 30, step: 0.1 }).on("change", pointerChanged);
+    pf.addBinding(uiPointer, "agitate", { min: 0, max: 15, step: 0.1 }).on(
+      "change",
+      pointerChanged,
+    );
+    pf.addBinding(uiPointer, "ripple", { min: 0, max: 20, step: 0.1 }).on("change", pointerChanged);
+    pf.addBinding(uiPointer, "thin", { min: 0, max: 1, step: 0.01 }).on("change", pointerChanged);
+    pf.addBinding(uiPointer, "hueShift", { label: "hue shift", min: -180, max: 180, step: 1 }).on(
+      "change",
+      pointerChanged,
+    );
+    pf.addBinding(uiPointer, "lighten", { min: -1, max: 1, step: 0.01 }).on(
+      "change",
+      pointerChanged,
+    );
+    pf.addBinding(uiPointer, "smoothing", { min: 0, max: 1, step: 0.01 }).on(
+      "change",
+      pointerChanged,
+    );
+    pf.addBinding(uiPointer, "touch").on("change", pointerChanged);
+
+    // Two fixed binding slots (custom:* is a developer API, documented — not authorable here).
+    const sourceOptions: Record<string, string> = {
+      Off: "off",
+      Scroll: "scroll",
+      Hover: "hover",
+      "Pointer X": "pointerX",
+      "Pointer Y": "pointerY",
+      "Pointer speed": "pointerSpeed",
+      Press: "press",
+      "Scroll velocity": "scrollVelocity",
+      Appear: "appear",
+    };
+    const targetOptions: Record<string, InteractionTarget> = {
+      "Displace amount": "displaceAmount",
+      "Detail amount": "detailAmount",
+      "Twist power X": "twistPowerX",
+      "Twist power Y": "twistPowerY",
+      "Twist power Z": "twistPowerZ",
+      "Twist freq X": "twistFrequencyX",
+      "Twist freq Y": "twistFrequencyY",
+      "Twist freq Z": "twistFrequencyZ",
+      "Hue shift": "hueShift",
+      "Gradient shift": "gradientShift",
+      Saturation: "colorSaturation",
+      Opacity: "opacity",
+      "Line thickness": "lineThickness",
+      "Line amount": "lineAmount",
+      "Fiber strength": "fiberStrength",
+      Sheen: "sheen",
+      Iridescence: "iridescence",
+      "Position X": "positionX",
+      "Position Y": "positionY",
+      "Time offset (scene)": "timeOffset",
+      "Camera zoom (scene)": "cameraZoom",
+      "Blur (scene)": "blur",
+      "Grain (scene)": "grain",
+    };
+    const waveOptions: Record<string, number> = { All: -1 };
+    cfg.waves.forEach((_, i) => {
+      waveOptions[`Wave ${i + 1}`] = i;
+    });
+
+    const bindingsF = folder.addFolder({ title: "Bindings", expanded: false });
+    slots.forEach((slot, i) => {
+      const bf = bindingsF.addFolder({ title: `Binding ${i + 1}`, expanded: i === 0 });
+      bf.addBinding(slot, "source", { options: sourceOptions }).on("change", bindingsChanged);
+      bf.addBinding(slot, "target", { options: targetOptions }).on("change", bindingsChanged);
+      bf.addBinding(slot, "fromBase", { label: "from = base" }).on("change", bindingsChanged);
+      bf.addBinding(slot, "from", { step: 0.01 }).on("change", bindingsChanged);
+      bf.addBinding(slot, "to", { step: 0.01 }).on("change", bindingsChanged);
+      bf.addBinding(slot, "wave", { options: waveOptions }).on("change", bindingsChanged);
+      bf.addBinding(slot, "smoothing", { min: 0, max: 1, step: 0.01 }).on(
+        "change",
+        bindingsChanged,
+      );
+    });
+
+    // Scroll preview: the studio page doesn't scroll, so fake a `scroll` value to author scroll
+    // bindings. Studio-only — NEVER touches config; drives StudioWaveRenderer.setScrollPreview.
+    const scrollPrev = { live: true, preview: 0 };
+    const applyScroll = (): void =>
+      this.renderer.setScrollPreview(scrollPrev.live ? null : scrollPrev.preview);
+    const previewF = folder.addFolder({ title: "Scroll preview", expanded: false });
+    previewF.addBinding(scrollPrev, "live", { label: "scroll: live" }).on("change", applyScroll);
+    previewF
+      .addBinding(scrollPrev, "preview", {
+        label: "scroll (preview only)",
+        min: 0,
+        max: 1,
+        step: 0.01,
+      })
+      .on("change", applyScroll);
+    applyScroll(); // sync the renderer to the fresh (live) preview state on (re)build
+  }
+
   private rebuildPanel(): void {
     // Remember which folders are open so the rebuild doesn't reset them.
     for (const f of this.folders) this.foldState[f.title] = f.api.expanded;
@@ -1036,6 +1246,7 @@ export class ControlPanel {
     this.buildBackgroundFolder(pane, mkFolder, randomBtn, cfg, refresh);
     camFolder = this.buildCameraFolder(mkFolder, cfg);
     this.buildLightsFolder(mkFolder, randomBtn, vec, cfg, refresh);
+    this.buildInteractionFolder(mkFolder, cfg, refresh);
 
     // ---- Waves ----
     // Each WaveConfig is a COMPLETE wave: its own colour/gradient, finish, displacement, twist,
@@ -1078,6 +1289,12 @@ export class ControlPanel {
       }).on("change", refresh);
       sf.addBinding(wave, "speed", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
       sf.addBinding(wave, "seed", { min: 0, max: 20, step: 0.1 }).on("change", refresh);
+      sf.addBinding(wave, "interactionInfluence", {
+        label: "interaction",
+        min: 0,
+        max: 2,
+        step: 0.01,
+      }).on("change", refresh);
 
       // --- Color & Gradient ---
       const gradF = sf.addFolder({ title: "Color & Gradient", expanded: true });

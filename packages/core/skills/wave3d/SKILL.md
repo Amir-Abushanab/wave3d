@@ -109,6 +109,18 @@ Omitted fields fall back to `createDefaultConfig()`.
 The studio's **Export code** button generates a ready-made snippet (a minimal config diff + a
 poster) for every entry — the fastest way to hand a designed wave to a developer.
 
+## Interactivity (optional)
+
+An optional `interaction` block adds a **pointer field** (localized swell / swoosh / agitation /
+click ripples / strand-thinning / hue-lighten under the cursor) plus **bindings** that smoothly
+drive parameters from inputs — `scroll`, `hover`, `pointerX` / `pointerY`, `pointerSpeed`, `press`,
+`scrollVelocity`, `appear`, or a developer-fed `custom:*` (via `handle.setInteractionInput(name,
+value)` / `renderer.setInteractionInput`). It is **off by default and additive**: omit the block and
+the wave renders byte-for-byte as before. Each binding rests at the authored value and moves toward
+`to` as its input rises 0→1 — `{ source: "scroll", target: "timeOffset", to: 40 }` scrubs the wave
+with the page; a per-wave `interactionInfluence` (0–2) staggers the response across a stack for
+depth. In React it's the flat `interaction` prop; the studio's **Interaction** panel authors it.
+
 ## Presets
 
 13 built-in presets (`@wave3d/core/presets`): **Hero**, **Wave 2**, **Wave 3**, **Wave 4**,

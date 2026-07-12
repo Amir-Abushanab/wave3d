@@ -13,6 +13,15 @@ import {
 } from "./shaders";
 import { WaveGeometry } from "./WaveGeometry";
 import {
+  InteractionController,
+  interactionActive,
+  pointerFxActive,
+  ripplesActive,
+  BINDING_TARGETS,
+  RIPPLE_SLOTS,
+} from "./interaction";
+import type { InteractionSample } from "./interaction";
+import {
   buildPaletteTexture,
   configurePaletteTexture,
   paletteSignature,
@@ -250,6 +259,20 @@ export class WaveRenderer {
   private readonly clipTmpA = new THREE.Vector3();
   private readonly clipTmpB = new THREE.Vector3();
 
+  // ---- Interaction layer (optional; created only when config.interaction is active) ----
+  /** Created by syncInteraction() when interaction turns on, disposed when it turns off. */
+  protected interaction?: InteractionController;
+  /** Extra ortho-zoom MULTIPLIER from a cameraZoom binding (1 = none); applied in applyZoom(). */
+  private interactionZoom = 1;
+  /** Extra time-offset DELTA from a timeOffset binding (0 = none); added in updateTime(). */
+  private interactionTimeOffset = 0;
+  /** Scene-binding out-params: appliers write into this, applyBindings() reads it back. */
+  private readonly interactionSceneOut = { timeOffset: 0, zoom: 1 };
+  // Per-frame scratch for mapping NDC pointer velocity → a world-space swoosh vector (no alloc).
+  private readonly itRight = new THREE.Vector3();
+  private readonly itUp = new THREE.Vector3();
+  private readonly itVel = new THREE.Vector3();
+
   private readonly timer = new THREE.Timer();
   private time = 0;
   private rafId = 0;
@@ -394,6 +417,15 @@ export class WaveRenderer {
       bandParams.push(new THREE.Vector4());
       bandParaPow.push(0);
     }
+    // Click-ripple ring buffer (read only under POINTER_RIPPLES). Sized to RIPPLE_SLOTS.
+    const rippleOrigin: THREE.Vector2[] = [];
+    const rippleAge: number[] = [];
+    const rippleAmp: number[] = [];
+    for (let i = 0; i < RIPPLE_SLOTS; i++) {
+      rippleOrigin.push(new THREE.Vector2());
+      rippleAge.push(0);
+      rippleAmp.push(0);
+    }
     return {
       // Deformation (vertex)
       uTime: { value: 0 },
@@ -464,6 +496,23 @@ export class WaveRenderer {
       uLineDerivativePower: { value: 0.95 },
       uMaxWidth: { value: 1232 },
       uClearColor: { value: new THREE.Vector3(1, 1, 1) },
+      // Interaction / pointer field. ALWAYS present in JS (read only under POINTER_FX /
+      // POINTER_RIPPLES); three uploads them only when the compiled program declares them, so their
+      // presence never affects a non-interactive wave (byte-identity precedent: uDetailAmount).
+      uPointer: { value: new THREE.Vector2(0, 0) }, // smoothed pointer NDC
+      uPointerVel: { value: new THREE.Vector3(0, 0, 0) }, // smoothed pointer velocity, world units/s
+      uPointerActive: { value: 0 }, // presence ramp × per-wave influence
+      uPointerRadius: { value: 0.6 }, // falloff radius in NDC-y (config radius × 2)
+      uPointerAspect: { value: 1 }, // drawing-buffer dw/dh
+      uPointerHump: { value: 0 },
+      uPointerSwoosh: { value: 0 },
+      uPointerAgitate: { value: 0 },
+      uPointerThin: { value: 0 },
+      uPointerHue: { value: 0 },
+      uPointerLighten: { value: 0 },
+      uRippleOrigin: { value: rippleOrigin },
+      uRippleAge: { value: rippleAge },
+      uRippleAmp: { value: rippleAmp },
     };
   }
 
@@ -474,9 +523,19 @@ export class WaveRenderer {
     const defines: Record<string, string> = {};
     if (sc?.twistMotion) defines.TWIST_MOTION = "";
     if ((this.config.loopSeconds ?? 0) > 0) defines.LOOP_MOTION = "";
-    if ((sc?.detailAmount ?? 0) !== 0) defines.DETAIL_OCTAVE = "";
+    // A detailAmount binding also needs the octave compiled (else it no-ops on a wave authored at
+    // 0). Broadened to all waves — a wave whose uDetailAmount stays 0 just adds `0.0 * noise` = 0,
+    // so the result is byte-identical; the define only ever appears when interaction is on.
+    const bindsDetail =
+      this.config.interaction?.bindings?.some((b) => b.target === "detailAmount") ?? false;
+    if ((sc?.detailAmount ?? 0) !== 0 || bindsDetail) defines.DETAIL_OCTAVE = "";
     if ((sc?.depthTint ?? 0) > 0) defines.DEPTH_TINT = "";
     if ((sc?.edgeFeather ?? 0.1) !== 0.1) defines.EDGE_FEATHER = "";
+    // Pointer field (config-only, so input never triggers a recompile). Ripples nest inside.
+    if (pointerFxActive(this.config)) {
+      defines.POINTER_FX = "";
+      if (ripplesActive(this.config)) defines.POINTER_RIPPLES = "";
+    }
     return defines;
   }
 
@@ -594,6 +653,7 @@ export class WaveRenderer {
   refresh(): void {
     this.applyBackground();
     this.applyPost();
+    this.syncInteraction(); // create/dispose the interaction controller as config toggles it
     // Once an external driver (orbit / edit gizmo) owns the camera, don't fight it here; the shell
     // (no orbit) applies the saved camera position/target so it matches the authored view.
     if (!this.isCameraExternallyDriven()) {
@@ -740,6 +800,22 @@ export class WaveRenderer {
       wave.mesh.position.set(sc.position.x, sc.position.y, sc.position.z);
       u.uOpacity.value = sc.opacity;
     });
+
+    // Static pointer-field params (scene-level, identical per wave; config-derived). The dynamic
+    // pointer state (position/velocity/presence/ripples) is pushed per frame in applyInteraction().
+    const pf = this.config.interaction?.pointer;
+    if (pf && pointerFxActive(this.config)) {
+      for (const wave of this.waves) {
+        const u = wave.material.uniforms;
+        u.uPointerRadius.value = (pf.radius ?? 0.3) * 2; // config radius = fraction of viewport H
+        u.uPointerHump.value = pf.hump ?? 6;
+        u.uPointerSwoosh.value = pf.swoosh ?? 0;
+        u.uPointerAgitate.value = pf.agitate ?? 0;
+        u.uPointerThin.value = pf.thin ?? 0;
+        u.uPointerHue.value = pf.hueShift ?? 0;
+        u.uPointerLighten.value = pf.lighten ?? 0;
+      }
+    }
 
     this.updatePaletteTextures();
     this.syncVideoPlayback();
@@ -1214,6 +1290,7 @@ export class WaveRenderer {
     // frozen mid-ease, by forcing introTimeRamp = 1.
     if (!this.running) {
       this.introTimeRamp = 1;
+      this.interaction?.settle(); // collapse pointer/input to rest before the one settled frame
       this.renderOnce();
     }
     this.syncVideoPlayback();
@@ -1222,7 +1299,9 @@ export class WaveRenderer {
   private loop = (): void => {
     if (!this.running) return;
     this.timer.update();
-    this.time += this.timer.getDelta();
+    const dt = this.timer.getDelta();
+    this.time += dt;
+    this.interaction?.update(dt); // advance smoothed input by the SAME delta (no time-model change)
     if (this.introTimeRamp < 1) this.introTimeRamp = Math.min(1, this.introTimeRamp + 0.016); // ~1s to full at 60fps
     this.renderOnce();
     this.rafId = requestAnimationFrame(this.loop);
@@ -1235,7 +1314,7 @@ export class WaveRenderer {
     // starts introTimeRamp at 0, and replaying the ramp on every save reads as a "speed up" when
     // you tab back. The studio passes skipIntroRamp in dev; prod builds + the embed keep the ease-in.
     const ramp = this.config.introRamp === false || this.skipIntroRamp ? 1 : this.introTimeRamp;
-    const t = this.time * ramp + (this.config.timeOffset ?? 0);
+    const t = this.time * ramp + (this.config.timeOffset ?? 0) + this.interactionTimeOffset;
     // Indexed loop (no per-frame closure) — this runs every frame.
     for (let i = 0; i < this.waves.length; i++) {
       const u = this.waves[i].material.uniforms;
@@ -1258,11 +1337,124 @@ export class WaveRenderer {
   renderOnce(): void {
     this.updateBackgroundVideoFrame();
     this.updateTime();
+    this.applyInteraction(); // write pointer + binding uniforms (no-op when off / capturing)
     this.updateClipPlanes(); // keep near/far bracketing the scene so no camera angle clips the wave
     this.composer.render();
     // Editor overlays (gizmo/helpers + camera-rig minimap) draw on top of the composed frame —
     // the studio subclass plugs them in here; the base renders nothing extra.
     this.onAfterRenderFrame();
+  }
+
+  /** Create/dispose the interaction controller as config toggles interaction on/off. Called from
+   *  refresh(); the compiled define set (POINTER_FX etc.) is handled separately by waveDefines(). */
+  private syncInteraction(): void {
+    const active = interactionActive(this.config);
+    if (active && !this.interaction) {
+      this.interaction = new InteractionController(this.container, () => this.config.interaction);
+    } else if (!active && this.interaction) {
+      this.interaction.dispose();
+      this.interaction = undefined;
+      this.interactionTimeOffset = 0;
+      this.interactionZoom = 1;
+    }
+  }
+
+  /** Per-frame interaction write: dynamic pointer-field uniforms + bindings. No-op without a
+   *  controller, and skipped while capturing so exported posters are deterministic (no input state). */
+  private applyInteraction(): void {
+    if (!this.interaction || this.capturing) return;
+    const s = this.interaction.sample();
+    if (pointerFxActive(this.config)) this.applyPointerField(s);
+    this.applyBindings(s);
+  }
+
+  /** Write the dynamic pointer-field uniforms (position / velocity / presence / ripples). */
+  private applyPointerField(s: InteractionSample): void {
+    this.camera.updateMatrixWorld();
+    const dw = this.camera.right - this.camera.left;
+    const dh = this.camera.top - this.camera.bottom;
+    const aspect = dh !== 0 ? dw / dh : 1;
+    // Map the NDC velocity to a world vector along the camera's screen axes (ortho frustum size /
+    // current zoom), so swoosh sweeps in the on-screen direction of motion at any view/zoom.
+    const zoom = this.camera.zoom || 1;
+    this.itRight.setFromMatrixColumn(this.camera.matrixWorld, 0);
+    this.itUp.setFromMatrixColumn(this.camera.matrixWorld, 1);
+    this.itVel
+      .copy(this.itRight)
+      .multiplyScalar((s.velNdc.x * dw) / (2 * zoom))
+      .addScaledVector(this.itUp, (s.velNdc.y * dh) / (2 * zoom));
+    for (let i = 0; i < this.waves.length; i++) {
+      const u = this.waves[i].material.uniforms;
+      (u.uPointer.value as THREE.Vector2).copy(s.ndc);
+      (u.uPointerVel.value as THREE.Vector3).copy(this.itVel);
+      u.uPointerAspect.value = aspect;
+      const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
+      u.uPointerActive.value = s.presence * (sc.interactionInfluence ?? 1);
+      const rOrigin = u.uRippleOrigin.value as THREE.Vector2[];
+      const rAge = u.uRippleAge.value as number[];
+      const rAmp = u.uRippleAmp.value as number[];
+      for (let r = 0; r < RIPPLE_SLOTS; r++) {
+        rOrigin[r].copy(s.ripples[r].origin);
+        rAge[r] = s.ripples[r].age;
+        rAmp[r] = s.ripples[r].amp;
+      }
+    }
+  }
+
+  /** Evaluate input→param bindings via the applier table: value = mix(from ?? base, to, source). */
+  private applyBindings(s: InteractionSample): void {
+    const bindings = this.config.interaction?.bindings ?? [];
+    // Seed scene out-params at the authored base; scene appliers overwrite only what they drive, so
+    // with no scene binding these stay at base → interactionTimeOffset 0 / interactionZoom 1.
+    this.interactionSceneOut.timeOffset = this.config.timeOffset ?? 0;
+    this.interactionSceneOut.zoom = this.config.cameraZoom ?? 1;
+    const sceneArgs = { post: this.postPass.uniforms, out: this.interactionSceneOut };
+    for (let i = 0; i < bindings.length; i++) {
+      const b = bindings[i];
+      const applier = BINDING_TARGETS[b.target];
+      const src = s.bindingValues[i] ?? 0;
+      if (applier.scope === "scene") {
+        applier.apply(
+          THREE.MathUtils.lerp(b.from ?? applier.base(this.config), b.to, src),
+          sceneArgs,
+        );
+      } else if (b.wave !== undefined) {
+        const wave = this.waves[b.wave];
+        const sc = this.config.waves[b.wave];
+        if (wave && sc) {
+          applier.apply(THREE.MathUtils.lerp(b.from ?? applier.base(sc), b.to, src), {
+            u: wave.material.uniforms,
+            mesh: wave.mesh,
+          });
+        }
+      } else {
+        for (let wi = 0; wi < this.waves.length; wi++) {
+          const wave = this.waves[wi];
+          const sc = this.config.waves[wi] ?? this.config.waves[this.config.waves.length - 1];
+          applier.apply(THREE.MathUtils.lerp(b.from ?? applier.base(sc), b.to, src), {
+            u: wave.material.uniforms,
+            mesh: wave.mesh,
+          });
+        }
+      }
+    }
+    // interactionTimeOffset is the DELTA over config.timeOffset (updateTime adds both together).
+    this.interactionTimeOffset =
+      this.interactionSceneOut.timeOffset - (this.config.timeOffset ?? 0);
+    // interactionZoom is a MULTIPLIER over config.cameraZoom (applyZoom multiplies both). Inert while
+    // an external driver owns the camera (studio orbit writes camera.zoom back into config).
+    if (!this.isCameraExternallyDriven()) {
+      const nextZoom = this.interactionSceneOut.zoom / (this.config.cameraZoom || 1);
+      if (nextZoom !== this.interactionZoom) {
+        this.interactionZoom = nextZoom;
+        this.applyZoom();
+      }
+    }
+  }
+
+  /** Feed a `custom:<name>` interaction input (developer API). No-op when interaction is off. */
+  setInteractionInput(name: string, value: number): void {
+    this.interaction?.setInput(name, value);
   }
 
   /** Re-evaluate play/pause after `config.paused` changes. */
@@ -1307,7 +1499,11 @@ export class WaveRenderer {
   protected applyZoom(): void {
     const dw = this.camera.right - this.camera.left; // device px (set in resize)
     const dh = this.camera.top - this.camera.bottom;
-    this.camera.zoom = Math.max(dw / FRAME_W, dh / FRAME_H) * (this.config.cameraZoom ?? 1);
+    // A cameraZoom binding multiplies in here — but NOT while an external driver owns the camera
+    // (studio orbit inverts camera.zoom back into config via writeCameraToConfig, so an unguarded
+    // factor would get baked into saved configs). interactionZoom stays 1 unless a binding drives it.
+    const bound = this.isCameraExternallyDriven() ? 1 : this.interactionZoom;
+    this.camera.zoom = Math.max(dw / FRAME_W, dh / FRAME_H) * (this.config.cameraZoom ?? 1) * bound;
     this.camera.updateProjectionMatrix();
   }
 
@@ -1327,6 +1523,14 @@ export class WaveRenderer {
    *  gl_Position.z, looks the same at any camera distance instead of washing out. Runs each frame;
    *  it's a handful of vector ops over 1–8 meshes with no allocation. */
   private updateClipPlanes(): void {
+    // Extra wave-local displacement the pointer field can add (hump + agitation + ripple), folded
+    // into every wave's safe radius so the deformed surface never crosses the fitted near/far
+    // planes. 0 when the pointer field is off → clip planes byte-identical to a non-interactive wave.
+    let pointerDisp = 0;
+    const pf = this.config.interaction?.pointer;
+    if (pf && pointerFxActive(this.config)) {
+      pointerDisp = Math.abs(pf.hump ?? 6) + (pf.agitate ?? 0) + (pf.ripple ?? 0);
+    }
     this.clipBox.makeEmpty();
     for (const wave of this.waves) {
       const mesh = wave.mesh;
@@ -1336,7 +1540,7 @@ export class WaveRenderer {
       // The twist pivot (the mesh's local origin) in world space = the safe sphere's centre.
       const center = this.clipTmpA.setFromMatrixPosition(mesh.matrixWorld);
       const disp = Math.abs(Number(wave.material.uniforms.uDispAmount.value) || 0);
-      const localRadius = bs.center.length() + bs.radius + disp;
+      const localRadius = bs.center.length() + bs.radius + disp + pointerDisp;
       const radius = localRadius * mesh.matrixWorld.getMaxScaleOnAxis() * 1.2;
       // Enclose this wave's sphere by adding its axis-aligned bounding cube corners.
       this.clipBox.expandByPoint(this.clipTmpB.copy(center).addScalar(radius));
@@ -1435,6 +1639,8 @@ export class WaveRenderer {
   dispose(): void {
     cancelAnimationFrame(this.rafId);
     this.running = false;
+    this.interaction?.dispose();
+    this.interaction = undefined;
     this.resizeObserver.disconnect();
     this.intersectionObserver.disconnect();
     this.motionQuery.removeEventListener("change", this.onMotionChange);

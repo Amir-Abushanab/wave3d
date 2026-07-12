@@ -8,6 +8,7 @@ import type {
   WaveConfig,
   ColorStop,
   BlendMode,
+  InteractionConfig,
   WaveHandle,
   WaveOptions,
   WaveRenderer,
@@ -37,6 +38,8 @@ interface FlatSceneProps {
   loopSeconds?: number;
   introRamp?: boolean;
   paused?: boolean;
+  /** Optional interactivity layer (pointer field + input→param bindings). Off when omitted. */
+  interaction?: InteractionConfig;
 }
 
 export interface Wave3DProps extends FlatWaveProps, FlatSceneProps {
@@ -99,6 +102,7 @@ function buildConfig(base: StudioConfig, props: Wave3DProps): Partial<StudioConf
   if (props.loopSeconds !== undefined) base.loopSeconds = props.loopSeconds;
   if (props.introRamp !== undefined) base.introRamp = props.introRamp;
   if (props.paused !== undefined) base.paused = props.paused;
+  if (props.interaction !== undefined) base.interaction = props.interaction;
   return { ...base, ...props.config };
 }
 
@@ -123,6 +127,7 @@ function configKey(props: Wave3DProps): string {
     "loopSeconds",
     "introRamp",
     "paused",
+    "interaction",
   ] as const;
   for (const k of keys) if (props[k] !== undefined) flat[k] = props[k];
   return JSON.stringify({

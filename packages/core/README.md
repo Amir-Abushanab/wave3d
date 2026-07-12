@@ -46,6 +46,34 @@ const blob = await handle.snapshot(); // resolves null until running. options: {
 </script>
 ```
 
+## Interactive waves
+
+Add an optional `interaction` block for cursor-follow effects and inputs that drive parameters. It's off by default — omit it and the wave (and its compiled shader) stays byte-for-byte unchanged.
+
+```ts
+createWave(el, {
+  interaction: {
+    // Pointer field: swell + click ripples + strand thinning under the cursor.
+    pointer: { hump: 8, ripple: 6, thin: 0.4 },
+    bindings: [
+      { source: "scroll", target: "timeOffset", to: 40 }, // scrub the wave as the page scrolls
+      { source: "hover", target: "displaceAmount", to: 12 }, // taller folds while hovered
+    ],
+  },
+});
+```
+
+Each binding rests at the authored value (`from` defaults to it) and moves toward `to` as its input rises 0→1 — sources: `scroll`, `hover`, `pointerX` / `pointerY`, `pointerSpeed`, `press`, `scrollVelocity`, `appear`, and `custom:*`. Pair `scroll → timeOffset` with a low `speed` for a wave that scrubs _with_ the page instead of drifting on its own; set a per-wave `interactionInfluence` (0–2) to stagger the response across a stack for depth. In React it's the flat `interaction` prop on `<Wave3D>`.
+
+Feed your own signal with a `custom:` source and `setInteractionInput`:
+
+```ts
+const h = createWave(el, {
+  interaction: { bindings: [{ source: "custom:audio", target: "displaceAmount", to: 30 }] },
+});
+analyser.onLevel = (v) => h.setInteractionInput("audio", v); // v in 0..1
+```
+
 ## Entry points
 
 | Import                    | What                                                           |

@@ -21,6 +21,7 @@ A wave is a strip swept along a curve, driven by one JSON config. The panel lets
 - **Color** it: linear, radial, conic, or mesh gradients, palettes, and image maps.
 - **Finish** it: grain, blur, glow, sheen, and hue / contrast / saturation.
 - **Layer** it: multiple strands with per-strand overrides, plus presets, randomize, and undo/redo.
+- **Make it react**: an optional pointer field + inputs (scroll, hover, click, `custom:*`) that drive parameters live — off by default, so a plain wave is unchanged.
 
 Prefer to run it locally? `pnpm install && pnpm dev` opens the studio at the printed localhost URL (needs Node 18+ and [pnpm](https://pnpm.io)).
 
