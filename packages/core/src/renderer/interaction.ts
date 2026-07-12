@@ -1,22 +1,24 @@
-// The optional interactivity runtime for the wave renderer: a pointer field (localized cursor
-// effects) + input→param bindings. It lives in renderer/ so it stays below the shell/studio/index
-// layers (depcruise); it may import only `three`, ../config/model, and ../util/math.
+// The optional interactivity runtime for the wave renderer: a per-wave pointer field (localized
+// cursor effects) + per-wave and scene input→param bindings, driven by ONE shared cursor/scroll.
+// It lives in renderer/ so it stays below the shell/studio/index layers (depcruise); it may import
+// only `three`, ../config/model, and ../util/math.
 //
-// Split of responsibility with WaveRenderer: this controller owns ALL input + smoothing (pointer
-// position / presence / press / velocity, scroll progress + velocity, the `appear` latch, custom
-// inputs, click ripples, and each binding's smoothed 0..1 source value). The renderer reads
-// sample() once per frame and writes uniforms — the pointer field directly, and bindings via the
-// BINDING_TARGETS applier table below. Bindings NEVER mutate `config` (guardrail): each base value
-// is read live from config, so any refresh() restores the authored look and removing a binding
-// needs no undo step.
+// Split of responsibility with WaveRenderer: this controller owns ALL input + smoothing (the one
+// cursor's position / presence / press / velocity, scroll progress + velocity, the `appear` latch,
+// custom inputs, click ripples, and every binding's smoothed 0..1 source value — keyed by binding
+// identity so scene + per-wave binding lists all get their own smoothing). The renderer reads
+// sample() / bindingValue() once per frame and writes uniforms — the pointer field per wave, and
+// bindings via the WAVE_APPLIERS / SCENE_APPLIERS tables. Bindings NEVER mutate `config`.
 import * as THREE from "three";
 import { clamp01 } from "../util/math";
 import type {
-  InteractionConfig,
   InteractionSource,
-  InteractionTarget,
+  SceneInteractionBinding,
+  SceneInteractionTarget,
   StudioConfig,
   WaveConfig,
+  WaveInteractionBinding,
+  WaveInteractionTarget,
 } from "../config/model";
 
 /** Click-ripple ring-buffer size. MUST match the `[4]` array sizes in shaders.ts (POINTER_RIPPLES). */
@@ -29,12 +31,14 @@ const SCROLL_VELOCITY_TAU = 0.15; // scroll-velocity smoothing (seconds)
 const DEFAULT_POINTER_TAU = 0.12; // pointer-follow smoothing default (seconds)
 const DEFAULT_BINDING_TAU = 0.25; // per-binding source smoothing default (seconds)
 
+type AnyBinding = WaveInteractionBinding | SceneInteractionBinding;
+
 /** Frame-rate-independent exponential smoothing factor for time constant `tau` (seconds). */
 function alpha(tau: number, dt: number): number {
   return tau > 0 ? 1 - Math.exp(-dt / tau) : 1;
 }
 
-// ---- Binding applier table ------------------------------------------------------------------
+// ---- Binding applier tables -----------------------------------------------------------------
 
 /** What a wave-scoped applier writes into: one wave's uniforms + its mesh transform. */
 export interface WaveApplyArgs {
@@ -47,198 +51,211 @@ export interface SceneApplyArgs {
   post: Record<string, THREE.IUniform>;
   out: { timeOffset: number; zoom: number };
 }
-type WaveApplier = {
-  scope: "wave";
+interface WaveApplier {
   base(w: WaveConfig): number;
   apply(value: number, a: WaveApplyArgs): void;
-};
-type SceneApplier = {
-  scope: "scene";
+}
+interface SceneApplier {
   base(c: StudioConfig): number;
   apply(value: number, a: SceneApplyArgs): void;
-};
-export type BindingApplier = WaveApplier | SceneApplier;
+}
 
-const waveTarget = (
+const waveApplier = (
   base: (w: WaveConfig) => number,
   apply: (value: number, a: WaveApplyArgs) => void,
-): WaveApplier => ({ scope: "wave", base, apply });
-const sceneTarget = (
+): WaveApplier => ({ base, apply });
+const sceneApplier = (
   base: (c: StudioConfig) => number,
   apply: (value: number, a: SceneApplyArgs) => void,
-): SceneApplier => ({ scope: "scene", base, apply });
+): SceneApplier => ({ base, apply });
 
 /**
- * The curated map from a binding target to (its scope, how to read the authored base value, how to
- * write the modulated value). Each base() mirrors the exact fallback refresh() / applyPost() /
- * applyZoom() / updateTime() use, so a binding at rest (from omitted, source 0) writes the same
- * value the renderer already had — no visible jump. This object is the runtime source of truth for
- * the {@link InteractionTarget} union (enforced by `satisfies` below): add a target here and the
- * const list in model.ts must match, or this stops compiling.
+ * Per-wave binding targets → (how to read the authored base value, how to write the modulated one).
+ * Each base() mirrors the exact fallback refresh() uses, so a binding at rest (from omitted, source
+ * 0) writes the same value the renderer already had — no visible jump. This object is the runtime
+ * source of truth for {@link WaveInteractionTarget} (enforced by `satisfies`).
  */
-export const BINDING_TARGETS = {
-  displaceAmount: waveTarget(
+export const WAVE_APPLIERS = {
+  displaceAmount: waveApplier(
     (w) => w.displaceAmount,
     (v, a) => {
       a.u.uDispAmount.value = v;
     },
   ),
-  detailAmount: waveTarget(
+  detailAmount: waveApplier(
     (w) => w.detailAmount ?? 0,
     (v, a) => {
       a.u.uDetailAmount.value = v;
     },
   ),
-  twistPowerX: waveTarget(
+  twistPowerX: waveApplier(
     (w) => w.twistPower.x,
     (v, a) => {
       a.u.uTwPowX.value = v;
     },
   ),
-  twistPowerY: waveTarget(
+  twistPowerY: waveApplier(
     (w) => w.twistPower.y,
     (v, a) => {
       a.u.uTwPowY.value = v;
     },
   ),
-  twistPowerZ: waveTarget(
+  twistPowerZ: waveApplier(
     (w) => w.twistPower.z,
     (v, a) => {
       a.u.uTwPowZ.value = v;
     },
   ),
-  twistFrequencyX: waveTarget(
+  twistFrequencyX: waveApplier(
     (w) => w.twistFrequency.x,
     (v, a) => {
       a.u.uTwFreqX.value = v;
     },
   ),
-  twistFrequencyY: waveTarget(
+  twistFrequencyY: waveApplier(
     (w) => w.twistFrequency.y,
     (v, a) => {
       a.u.uTwFreqY.value = v;
     },
   ),
-  twistFrequencyZ: waveTarget(
+  twistFrequencyZ: waveApplier(
     (w) => w.twistFrequency.z,
     (v, a) => {
       a.u.uTwFreqZ.value = v;
     },
   ),
-  hueShift: waveTarget(
+  hueShift: waveApplier(
     (w) => w.hueShift,
     (v, a) => {
       a.u.uHueShift.value = v;
     },
   ),
-  gradientShift: waveTarget(
+  gradientShift: waveApplier(
     (w) => w.gradientShift ?? 0,
     (v, a) => {
       a.u.uGradShift.value = v;
     },
   ),
-  colorSaturation: waveTarget(
+  colorSaturation: waveApplier(
     (w) => w.colorSaturation,
     (v, a) => {
       a.u.uSaturation.value = v;
     },
   ),
-  opacity: waveTarget(
+  opacity: waveApplier(
     (w) => w.opacity,
     (v, a) => {
       a.u.uOpacity.value = v;
     },
   ),
-  lineThickness: waveTarget(
+  lineThickness: waveApplier(
     (w) => w.lineThickness ?? 1,
     (v, a) => {
       a.u.uLineThickness.value = v;
     },
   ),
-  lineAmount: waveTarget(
+  lineAmount: waveApplier(
     (w) => w.lineAmount ?? 425,
     (v, a) => {
       a.u.uLineAmount.value = v;
     },
   ),
-  fiberStrength: waveTarget(
+  fiberStrength: waveApplier(
     (w) => w.fiberStrength,
     (v, a) => {
       a.u.uFiberStrength.value = v;
     },
   ),
-  sheen: waveTarget(
+  sheen: waveApplier(
     (w) => w.sheen ?? 1,
     (v, a) => {
       a.u.uSheen.value = v;
     },
   ),
-  iridescence: waveTarget(
+  iridescence: waveApplier(
     (w) => w.iridescence ?? 0,
     (v, a) => {
       a.u.uIridescence.value = v;
     },
   ),
-  positionX: waveTarget(
+  positionX: waveApplier(
     (w) => w.position.x,
     (v, a) => {
       a.mesh.position.x = v;
     },
   ),
-  positionY: waveTarget(
+  positionY: waveApplier(
     (w) => w.position.y,
     (v, a) => {
       a.mesh.position.y = v;
     },
   ),
-  timeOffset: sceneTarget(
+} satisfies Record<WaveInteractionTarget, WaveApplier>;
+
+/** Scene-level binding targets. base() mirrors updateTime() / applyZoom() / applyPost() fallbacks. */
+export const SCENE_APPLIERS = {
+  timeOffset: sceneApplier(
     (c) => c.timeOffset ?? 0,
     (v, a) => {
       a.out.timeOffset = v;
     },
   ),
-  cameraZoom: sceneTarget(
+  cameraZoom: sceneApplier(
     (c) => c.cameraZoom ?? 1,
     (v, a) => {
       a.out.zoom = v;
     },
   ),
-  blur: sceneTarget(
+  blur: sceneApplier(
     (c) => c.blur,
     (v, a) => {
       a.post.uBlurAmount.value = v;
     },
   ),
-  grain: sceneTarget(
+  grain: sceneApplier(
     (c) => c.grain,
     (v, a) => {
       a.post.uGrainAmount.value = v;
     },
   ),
-} satisfies Record<InteractionTarget, BindingApplier>;
+} satisfies Record<SceneInteractionTarget, SceneApplier>;
 
 // ---- Active-state predicates (keyed off config only, so input never triggers a recompile) ----
 
-/** True when the interaction layer should run at all (pointer field on, OR any bindings present). */
+/** The global master switch: only `scene.interaction.enabled === false` turns the whole layer off. */
+function notDisabled(cfg: StudioConfig): boolean {
+  return cfg.interaction?.enabled !== false;
+}
+
+/** Whether a wave has a pointer field (hover effects, or a click ripple). */
+function waveHasPointerField(w: WaveConfig): boolean {
+  const it = w.interaction;
+  return !!it && (!!it.hover || (it.press?.ripple ?? 0) > 0);
+}
+
+/** Whether this wave has an active pointer field → its POINTER_FX shader path compiles. */
+export function wavePointerFxActive(cfg: StudioConfig, w: WaveConfig): boolean {
+  return notDisabled(cfg) && waveHasPointerField(w);
+}
+
+/** Whether this wave has active click ripples → its nested POINTER_RIPPLES path compiles. */
+export function waveRipplesActive(cfg: StudioConfig, w: WaveConfig): boolean {
+  return notDisabled(cfg) && (w.interaction?.press?.ripple ?? 0) > 0;
+}
+
+/** Whether ANY wave has a pointer field (so the renderer bothers writing the shared pointer uniforms). */
+export function anyPointerFxActive(cfg: StudioConfig): boolean {
+  return notDisabled(cfg) && cfg.waves.some(waveHasPointerField);
+}
+
+/** Whether the interaction layer should run at all (any wave interaction, or any scene binding). */
 export function interactionActive(cfg: StudioConfig): boolean {
-  const it = cfg.interaction;
-  if (!it || it.enabled === false) return false;
-  const pointerOn = !!it.pointer && it.pointer.enabled !== false;
-  const hasBindings = Array.isArray(it.bindings) && it.bindings.length > 0;
-  return pointerOn || hasBindings;
-}
-
-/** True when the pointer FIELD is active → the POINTER_FX shader path compiles (bindings alone don't
- *  need it: they drive existing uniforms directly). */
-export function pointerFxActive(cfg: StudioConfig): boolean {
-  const it = cfg.interaction;
-  if (!it || it.enabled === false) return false;
-  return !!it.pointer && it.pointer.enabled !== false;
-}
-
-/** True when click ripples are active → the nested POINTER_RIPPLES loop compiles. */
-export function ripplesActive(cfg: StudioConfig): boolean {
-  return pointerFxActive(cfg) && (cfg.interaction?.pointer?.ripple ?? 0) > 0;
+  if (!notDisabled(cfg)) return false;
+  if ((cfg.interaction?.bindings?.length ?? 0) > 0) return true;
+  return cfg.waves.some((w) => {
+    const it = w.interaction;
+    return !!it && (!!it.hover || (it.press?.ripple ?? 0) > 0 || (it.bindings?.length ?? 0) > 0);
+  });
 }
 
 // ---- Sample shape + the controller ----------------------------------------------------------
@@ -246,31 +263,29 @@ export function ripplesActive(cfg: StudioConfig): boolean {
 interface RippleSlot {
   origin: THREE.Vector2; // NDC
   age: number; // seconds since spawn
-  amp: number; // envelope × strength (0 = free slot)
+  amp: number; // 0..1 decay envelope (0 = free slot)
 }
 interface RippleState extends RippleSlot {
-  strength: number; // amplitude at spawn (envelope multiplies this)
+  active: boolean;
 }
 
-/** A per-frame snapshot the renderer reads to drive uniforms. Fields are LIVE references into the
- *  controller's state — read them synchronously each frame; don't retain them. */
+/** A per-frame snapshot of the pointer-field state. Fields are LIVE references into the controller's
+ *  state — read them synchronously each frame; don't retain them. */
 export interface InteractionSample {
   /** Smoothed pointer position, NDC (-1..1). */
   ndc: THREE.Vector2;
   /** Smoothed pointer velocity, NDC units/s (the renderer maps this to world space for swoosh). */
   velNdc: THREE.Vector2;
-  /** Smoothed pointer presence 0..1 (× per-wave influence → uPointerActive). */
+  /** Smoothed pointer presence 0..1 (→ uPointerActive). */
   presence: number;
-  /** Click-ripple ring buffer (amp 0 = free slot). */
+  /** Click-ripple ring buffer (amp = shared 0..1 envelope; 0 = free slot). */
   ripples: readonly RippleSlot[];
-  /** Smoothed 0..1 source value per active binding, index-parallel to config.interaction.bindings. */
-  bindingValues: readonly number[];
 }
 
 /**
- * Owns pointer/scroll/press/appear/custom input and all smoothing. Constructed by the renderer when
- * {@link interactionActive} first turns true, disposed when it turns false. All listeners are passive
- * and container-scoped (the poster overlay passes events through).
+ * Owns the one cursor's input + scroll + press/appear/custom and all smoothing. Constructed by the
+ * renderer when {@link interactionActive} first turns true, disposed when it turns false. All
+ * listeners are passive and container-scoped (the poster overlay passes events through).
  */
 export class InteractionController {
   /** Studio-only scroll preview: when non-null, overrides the computed scroll progress. */
@@ -291,26 +306,21 @@ export class InteractionController {
   private appearLatched = false;
   private readonly customInputs = new Map<string, number>();
   private readonly ripples: RippleState[] = [];
-  // Per-binding smoothing state, index-parallel to config.interaction.bindings.
-  private readonly bindingValues: number[] = [];
-  private readonly bindingInit: boolean[] = [];
-  private readonly bindingSource: (InteractionSource | undefined)[] = [];
+  // Per-binding smoothing state, keyed by binding-object identity (covers scene + every wave list).
+  private readonly bindingState = new Map<
+    AnyBinding,
+    { value: number; source: InteractionSource }
+  >();
   private readonly out: InteractionSample;
 
   constructor(
     private readonly container: HTMLElement,
-    private readonly cfg: () => InteractionConfig | undefined,
+    private readonly cfg: () => StudioConfig | undefined,
   ) {
     for (let i = 0; i < RIPPLE_SLOTS; i++) {
-      this.ripples.push({ origin: new THREE.Vector2(), age: 0, amp: 0, strength: 0 });
+      this.ripples.push({ origin: new THREE.Vector2(), age: 0, amp: 0, active: false });
     }
-    this.out = {
-      ndc: this.ndc,
-      velNdc: this.velNdc,
-      presence: 0,
-      ripples: this.ripples,
-      bindingValues: this.bindingValues,
-    };
+    this.out = { ndc: this.ndc, velNdc: this.velNdc, presence: 0, ripples: this.ripples };
     const opts = { passive: true } as const;
     container.addEventListener("pointerenter", this.onPointerEnter, opts);
     container.addEventListener("pointermove", this.onPointerMove, opts);
@@ -320,9 +330,9 @@ export class InteractionController {
     container.addEventListener("pointerup", this.onPointerUp, opts);
   }
 
-  /** Ignore coarse (touch) pointers unless the config opts in with pointer.touch. */
+  /** Ignore coarse (touch) pointers unless the scene opts in with interaction.touch. */
   private ignore(e: PointerEvent): boolean {
-    return e.pointerType === "touch" && this.cfg()?.pointer?.touch !== true;
+    return e.pointerType === "touch" && this.cfg()?.interaction?.touch !== true;
   }
 
   private setNdcTarget(e: PointerEvent): void {
@@ -361,8 +371,9 @@ export class InteractionController {
     this.pressTarget = 1;
     this.presenceTarget = 1;
     this.setNdcTarget(e);
-    const ripple = this.cfg()?.pointer?.ripple ?? 0;
-    if (ripple > 0) this.spawnRipple(ripple);
+    // Spawn a ripple only if some wave actually wants ripples (else it is wasted state).
+    const cfg = this.cfg();
+    if (cfg && cfg.waves.some((w) => (w.interaction?.press?.ripple ?? 0) > 0)) this.spawnRipple();
   };
   private onPointerUp = (e: PointerEvent): void => {
     if (this.ignore(e)) return;
@@ -373,17 +384,18 @@ export class InteractionController {
     }
   };
 
-  /** Spawn a ripple at the click NDC, reusing a free slot or evicting the oldest. */
-  private spawnRipple(strength: number): void {
-    let slot = this.ripples.find((r) => r.amp <= 0);
+  /** Spawn a normalized ripple (envelope 0..1) at the click NDC; per-wave amplitude scales it in the
+   *  shader. Reuses a free slot or evicts the oldest. */
+  private spawnRipple(): void {
+    let slot = this.ripples.find((r) => !r.active);
     if (!slot) {
       slot = this.ripples[0];
       for (const r of this.ripples) if (r.age > slot.age) slot = r;
     }
     slot.origin.copy(this.ndcTarget);
     slot.age = 0;
-    slot.strength = strength;
-    slot.amp = strength; // envelope at age 0 = 1
+    slot.amp = 1;
+    slot.active = true;
   }
 
   /** Advance all smoothed state by `dt` seconds. Called from the render loop with the same delta. */
@@ -391,7 +403,7 @@ export class InteractionController {
     const cfg = this.cfg();
     if (!cfg) return;
     const d = Math.max(dt, 0);
-    const kPointer = alpha(cfg.pointer?.smoothing ?? DEFAULT_POINTER_TAU, d);
+    const kPointer = alpha(cfg.interaction?.smoothing ?? DEFAULT_POINTER_TAU, d);
 
     // Pointer position + presence + press.
     this.ndcPrev.copy(this.ndc);
@@ -421,39 +433,42 @@ export class InteractionController {
 
     // Ripples: age + quadratic-decay envelope.
     for (const r of this.ripples) {
-      if (r.amp <= 0 && r.strength <= 0) continue;
+      if (!r.active) continue;
       r.age += d;
       const env = Math.max(0, 1 - r.age / RIPPLE_LIFETIME);
-      r.amp = r.strength * env * env;
-      if (r.amp <= 0) r.strength = 0;
+      r.amp = env * env;
+      if (r.amp <= 0) r.active = false;
     }
 
     this.updateBindings(cfg, d);
   }
 
-  private updateBindings(cfg: InteractionConfig, dt: number): void {
-    const bindings = cfg.bindings ?? [];
-    if (this.bindingValues.length > bindings.length) {
-      this.bindingValues.length = bindings.length;
-      this.bindingInit.length = bindings.length;
-      this.bindingSource.length = bindings.length;
-    }
-    for (let i = 0; i < bindings.length; i++) {
-      const b = bindings[i];
+  private updateBindings(cfg: StudioConfig, dt: number): void {
+    const seen = new Set<AnyBinding>();
+    const visit = (b: AnyBinding): void => {
+      seen.add(b);
       const raw = this.rawSource(b.source);
-      // (Re)initialise on first sight or when the slot's source changes (studio dropdown edit):
-      // `appear` ramps from 0 (entrance), every other source snaps to its current value.
-      if (!this.bindingInit[i] || this.bindingSource[i] !== b.source) {
-        this.bindingValues[i] = b.source === "appear" ? 0 : raw;
-        this.bindingInit[i] = true;
-        this.bindingSource[i] = b.source;
+      let st = this.bindingState.get(b);
+      // (Re)initialise on first sight or when the slot's source changed (studio edit): `appear`
+      // ramps from 0 (entrance), every other source snaps to its current value.
+      if (!st || st.source !== b.source) {
+        st = { value: b.source === "appear" ? 0 : raw, source: b.source };
+        this.bindingState.set(b, st);
       }
-      this.bindingValues[i] +=
-        (raw - this.bindingValues[i]) * alpha(b.smoothing ?? DEFAULT_BINDING_TAU, dt);
-    }
+      st.value += (raw - st.value) * alpha(b.smoothing ?? DEFAULT_BINDING_TAU, dt);
+    };
+    for (const b of cfg.interaction?.bindings ?? []) visit(b);
+    for (const w of cfg.waves) for (const b of w.interaction?.bindings ?? []) visit(b);
+    // Prune state for bindings that no longer exist (edited/removed slots).
+    for (const key of this.bindingState.keys()) if (!seen.has(key)) this.bindingState.delete(key);
   }
 
-  /** The current raw (unsmoothed by the per-binding tau) 0..1 value of a source signal. */
+  /** The current smoothed 0..1 value of a binding's source (0 if the binding is unknown). */
+  bindingValue(b: AnyBinding): number {
+    return this.bindingState.get(b)?.value ?? 0;
+  }
+
+  /** The current raw (un-per-binding-smoothed) 0..1 value of a source signal. */
   private rawSource(source: InteractionSource): number {
     switch (source) {
       case "scroll":
@@ -485,7 +500,7 @@ export class InteractionController {
     return clamp01((vh - rect.top) / (vh + rect.height));
   }
 
-  /** A frame's worth of state for the renderer (live references — read synchronously). */
+  /** The pointer-field state for the renderer (live references — read synchronously). */
   sample(): InteractionSample {
     this.out.presence = this.presence;
     return this.out;
@@ -515,21 +530,20 @@ export class InteractionController {
     for (const r of this.ripples) {
       r.age = 0;
       r.amp = 0;
-      r.strength = 0;
+      r.active = false;
     }
     const rawScroll = this.scrollOverride ?? this.computeScroll();
     this.scroll = this.scrollPrev = rawScroll;
     this.scrollVel = 0;
     this.appearLatched = true;
     const cfg = this.cfg();
-    const bindings = cfg?.bindings ?? [];
-    this.bindingValues.length = bindings.length;
-    this.bindingInit.length = bindings.length;
-    this.bindingSource.length = bindings.length;
-    for (let i = 0; i < bindings.length; i++) {
-      this.bindingValues[i] = this.rawSource(bindings[i].source);
-      this.bindingInit[i] = true;
-      this.bindingSource[i] = bindings[i].source;
+    if (cfg) {
+      this.bindingState.clear();
+      const snap = (b: AnyBinding): void => {
+        this.bindingState.set(b, { value: this.rawSource(b.source), source: b.source });
+      };
+      for (const b of cfg.interaction?.bindings ?? []) snap(b);
+      for (const w of cfg.waves) for (const b of w.interaction?.bindings ?? []) snap(b);
     }
   }
 
@@ -542,5 +556,6 @@ export class InteractionController {
     c.removeEventListener("pointerdown", this.onPointerDown);
     c.removeEventListener("pointerup", this.onPointerUp);
     this.customInputs.clear();
+    this.bindingState.clear();
   }
 }

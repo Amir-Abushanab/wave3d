@@ -8,7 +8,7 @@ import type {
   WaveConfig,
   ColorStop,
   BlendMode,
-  InteractionConfig,
+  WaveInteractionConfig,
   WaveHandle,
   WaveOptions,
   WaveRenderer,
@@ -27,6 +27,9 @@ interface FlatWaveProps {
   opacity?: number;
   blendMode?: BlendMode;
   theme?: "solid" | "wireframe";
+  /** Per-wave interactivity for the first wave (hover field / click / bindings). Off when omitted.
+   *  Scene-level shared inputs + scene bindings go through the `config` prop. */
+  interaction?: WaveInteractionConfig;
 }
 
 /** Flat props mapped onto the scene. */
@@ -38,8 +41,6 @@ interface FlatSceneProps {
   loopSeconds?: number;
   introRamp?: boolean;
   paused?: boolean;
-  /** Optional interactivity layer (pointer field + input→param bindings). Off when omitted. */
-  interaction?: InteractionConfig;
 }
 
 export interface Wave3DProps extends FlatWaveProps, FlatSceneProps {
@@ -94,6 +95,7 @@ function buildConfig(base: StudioConfig, props: Wave3DProps): Partial<StudioConf
   if (props.opacity !== undefined) w.opacity = props.opacity;
   if (props.blendMode !== undefined) w.blendMode = props.blendMode;
   if (props.theme !== undefined) w.theme = props.theme;
+  if (props.interaction !== undefined) w.interaction = props.interaction;
   if (props.background !== undefined) base.background = props.background;
   if (props.transparentBackground !== undefined)
     base.transparentBackground = props.transparentBackground;
@@ -102,7 +104,6 @@ function buildConfig(base: StudioConfig, props: Wave3DProps): Partial<StudioConf
   if (props.loopSeconds !== undefined) base.loopSeconds = props.loopSeconds;
   if (props.introRamp !== undefined) base.introRamp = props.introRamp;
   if (props.paused !== undefined) base.paused = props.paused;
-  if (props.interaction !== undefined) base.interaction = props.interaction;
   return { ...base, ...props.config };
 }
 

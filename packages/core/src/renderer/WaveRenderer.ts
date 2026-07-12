@@ -15,9 +15,11 @@ import { WaveGeometry } from "./WaveGeometry";
 import {
   InteractionController,
   interactionActive,
-  pointerFxActive,
-  ripplesActive,
-  BINDING_TARGETS,
+  anyPointerFxActive,
+  wavePointerFxActive,
+  waveRipplesActive,
+  WAVE_APPLIERS,
+  SCENE_APPLIERS,
   RIPPLE_SLOTS,
 } from "./interaction";
 import type { InteractionSample } from "./interaction";
@@ -510,6 +512,7 @@ export class WaveRenderer {
       uPointerThin: { value: 0 },
       uPointerHue: { value: 0 },
       uPointerLighten: { value: 0 },
+      uPointerRipple: { value: 0 }, // this wave's ripple amplitude (scales the shared envelope)
       uRippleOrigin: { value: rippleOrigin },
       uRippleAge: { value: rippleAge },
       uRippleAmp: { value: rippleAmp },
@@ -523,18 +526,17 @@ export class WaveRenderer {
     const defines: Record<string, string> = {};
     if (sc?.twistMotion) defines.TWIST_MOTION = "";
     if ((this.config.loopSeconds ?? 0) > 0) defines.LOOP_MOTION = "";
-    // A detailAmount binding also needs the octave compiled (else it no-ops on a wave authored at
-    // 0). Broadened to all waves — a wave whose uDetailAmount stays 0 just adds `0.0 * noise` = 0,
-    // so the result is byte-identical; the define only ever appears when interaction is on.
+    // A detailAmount binding on THIS wave also needs the octave compiled (else it no-ops on a wave
+    // authored at 0). Only this wave's bindings matter now (bindings are per wave).
     const bindsDetail =
-      this.config.interaction?.bindings?.some((b) => b.target === "detailAmount") ?? false;
+      sc?.interaction?.bindings?.some((b) => b.target === "detailAmount") ?? false;
     if ((sc?.detailAmount ?? 0) !== 0 || bindsDetail) defines.DETAIL_OCTAVE = "";
     if ((sc?.depthTint ?? 0) > 0) defines.DEPTH_TINT = "";
     if ((sc?.edgeFeather ?? 0.1) !== 0.1) defines.EDGE_FEATHER = "";
-    // Pointer field (config-only, so input never triggers a recompile). Ripples nest inside.
-    if (pointerFxActive(this.config)) {
+    // Pointer field (per wave, config-only, so input never triggers a recompile). Ripples nest inside.
+    if (sc && wavePointerFxActive(this.config, sc)) {
       defines.POINTER_FX = "";
-      if (ripplesActive(this.config)) defines.POINTER_RIPPLES = "";
+      if (waveRipplesActive(this.config, sc)) defines.POINTER_RIPPLES = "";
     }
     return defines;
   }
@@ -801,21 +803,24 @@ export class WaveRenderer {
       u.uOpacity.value = sc.opacity;
     });
 
-    // Static pointer-field params (scene-level, identical per wave; config-derived). The dynamic
-    // pointer state (position/velocity/presence/ripples) is pushed per frame in applyInteraction().
-    const pf = this.config.interaction?.pointer;
-    if (pf && pointerFxActive(this.config)) {
-      for (const wave of this.waves) {
-        const u = wave.material.uniforms;
-        u.uPointerRadius.value = (pf.radius ?? 0.3) * 2; // config radius = fraction of viewport H
-        u.uPointerHump.value = pf.hump ?? 6;
-        u.uPointerSwoosh.value = pf.swoosh ?? 0;
-        u.uPointerAgitate.value = pf.agitate ?? 0;
-        u.uPointerThin.value = pf.thin ?? 0;
-        u.uPointerHue.value = pf.hueShift ?? 0;
-        u.uPointerLighten.value = pf.lighten ?? 0;
-      }
-    }
+    // Static pointer-field params. The falloff radius is SHARED (scene-level); the hover amplitudes
+    // and ripple amplitude are PER WAVE. The dynamic pointer state (position/velocity/presence/ripple
+    // envelopes) is pushed each frame in applyPointerField().
+    const sharedRadius = (this.config.interaction?.radius ?? 0.3) * 2; // radius = fraction of viewport H
+    this.waves.forEach((wave, i) => {
+      const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
+      if (!wavePointerFxActive(this.config, sc)) return;
+      const u = wave.material.uniforms;
+      const h = sc.interaction?.hover;
+      u.uPointerRadius.value = sharedRadius;
+      u.uPointerHump.value = h?.hump ?? 0;
+      u.uPointerSwoosh.value = h?.swoosh ?? 0;
+      u.uPointerAgitate.value = h?.agitate ?? 0;
+      u.uPointerThin.value = h?.thin ?? 0;
+      u.uPointerHue.value = h?.hueShift ?? 0;
+      u.uPointerLighten.value = h?.lighten ?? 0;
+      u.uPointerRipple.value = sc.interaction?.press?.ripple ?? 0;
+    });
 
     this.updatePaletteTextures();
     this.syncVideoPlayback();
@@ -1350,7 +1355,7 @@ export class WaveRenderer {
   private syncInteraction(): void {
     const active = interactionActive(this.config);
     if (active && !this.interaction) {
-      this.interaction = new InteractionController(this.container, () => this.config.interaction);
+      this.interaction = new InteractionController(this.container, () => this.config);
     } else if (!active && this.interaction) {
       this.interaction.dispose();
       this.interaction = undefined;
@@ -1363,12 +1368,12 @@ export class WaveRenderer {
    *  controller, and skipped while capturing so exported posters are deterministic (no input state). */
   private applyInteraction(): void {
     if (!this.interaction || this.capturing) return;
-    const s = this.interaction.sample();
-    if (pointerFxActive(this.config)) this.applyPointerField(s);
-    this.applyBindings(s);
+    if (anyPointerFxActive(this.config)) this.applyPointerField(this.interaction.sample());
+    this.applyBindings(this.interaction);
   }
 
-  /** Write the dynamic pointer-field uniforms (position / velocity / presence / ripples). */
+  /** Write the dynamic pointer-field uniforms (position / velocity / presence / ripples) to every
+   *  wave that HAS a pointer field. Per-wave amplitudes were already pushed statically in refresh(). */
   private applyPointerField(s: InteractionSample): void {
     this.camera.updateMatrixWorld();
     const dw = this.camera.right - this.camera.left;
@@ -1384,12 +1389,13 @@ export class WaveRenderer {
       .multiplyScalar((s.velNdc.x * dw) / (2 * zoom))
       .addScaledVector(this.itUp, (s.velNdc.y * dh) / (2 * zoom));
     for (let i = 0; i < this.waves.length; i++) {
+      const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
+      if (!wavePointerFxActive(this.config, sc)) continue;
       const u = this.waves[i].material.uniforms;
       (u.uPointer.value as THREE.Vector2).copy(s.ndc);
       (u.uPointerVel.value as THREE.Vector3).copy(this.itVel);
       u.uPointerAspect.value = aspect;
-      const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
-      u.uPointerActive.value = s.presence * (sc.interactionInfluence ?? 1);
+      u.uPointerActive.value = s.presence; // shared presence; per-wave depth is the amplitudes
       const rOrigin = u.uRippleOrigin.value as THREE.Vector2[];
       const rAge = u.uRippleAge.value as number[];
       const rAmp = u.uRippleAmp.value as number[];
@@ -1401,41 +1407,33 @@ export class WaveRenderer {
     }
   }
 
-  /** Evaluate input→param bindings via the applier table: value = mix(from ?? base, to, source). */
-  private applyBindings(s: InteractionSample): void {
-    const bindings = this.config.interaction?.bindings ?? [];
-    // Seed scene out-params at the authored base; scene appliers overwrite only what they drive, so
-    // with no scene binding these stay at base → interactionTimeOffset 0 / interactionZoom 1.
+  /** Evaluate bindings via the applier tables: value = mix(from ?? base, to, smoothedSource). Scene
+   *  bindings drive scene params; each wave's bindings drive that wave's uniforms. */
+  private applyBindings(ic: InteractionController): void {
+    // Scene bindings → scene params. Seed out-params at base; appliers overwrite only what they drive,
+    // so with no scene binding these stay at base → interactionTimeOffset 0 / interactionZoom 1.
     this.interactionSceneOut.timeOffset = this.config.timeOffset ?? 0;
     this.interactionSceneOut.zoom = this.config.cameraZoom ?? 1;
     const sceneArgs = { post: this.postPass.uniforms, out: this.interactionSceneOut };
-    for (let i = 0; i < bindings.length; i++) {
-      const b = bindings[i];
-      const applier = BINDING_TARGETS[b.target];
-      const src = s.bindingValues[i] ?? 0;
-      if (applier.scope === "scene") {
-        applier.apply(
-          THREE.MathUtils.lerp(b.from ?? applier.base(this.config), b.to, src),
-          sceneArgs,
-        );
-      } else if (b.wave !== undefined) {
-        const wave = this.waves[b.wave];
-        const sc = this.config.waves[b.wave];
-        if (wave && sc) {
-          applier.apply(THREE.MathUtils.lerp(b.from ?? applier.base(sc), b.to, src), {
-            u: wave.material.uniforms,
-            mesh: wave.mesh,
-          });
-        }
-      } else {
-        for (let wi = 0; wi < this.waves.length; wi++) {
-          const wave = this.waves[wi];
-          const sc = this.config.waves[wi] ?? this.config.waves[this.config.waves.length - 1];
-          applier.apply(THREE.MathUtils.lerp(b.from ?? applier.base(sc), b.to, src), {
-            u: wave.material.uniforms,
-            mesh: wave.mesh,
-          });
-        }
+    for (const b of this.config.interaction?.bindings ?? []) {
+      const applier = SCENE_APPLIERS[b.target];
+      const value = THREE.MathUtils.lerp(
+        b.from ?? applier.base(this.config),
+        b.to,
+        ic.bindingValue(b),
+      );
+      applier.apply(value, sceneArgs);
+    }
+    // Per-wave bindings → that wave's uniforms / mesh.
+    for (let i = 0; i < this.waves.length; i++) {
+      const sc = this.config.waves[i];
+      const bindings = sc?.interaction?.bindings;
+      if (!sc || !bindings || bindings.length === 0) continue;
+      const wave = this.waves[i];
+      for (const b of bindings) {
+        const applier = WAVE_APPLIERS[b.target];
+        const value = THREE.MathUtils.lerp(b.from ?? applier.base(sc), b.to, ic.bindingValue(b));
+        applier.apply(value, { u: wave.material.uniforms, mesh: wave.mesh });
       }
     }
     // interactionTimeOffset is the DELTA over config.timeOffset (updateTime adds both together).
@@ -1523,16 +1521,9 @@ export class WaveRenderer {
    *  gl_Position.z, looks the same at any camera distance instead of washing out. Runs each frame;
    *  it's a handful of vector ops over 1–8 meshes with no allocation. */
   private updateClipPlanes(): void {
-    // Extra wave-local displacement the pointer field can add (hump + agitation + ripple), folded
-    // into every wave's safe radius so the deformed surface never crosses the fitted near/far
-    // planes. 0 when the pointer field is off → clip planes byte-identical to a non-interactive wave.
-    let pointerDisp = 0;
-    const pf = this.config.interaction?.pointer;
-    if (pf && pointerFxActive(this.config)) {
-      pointerDisp = Math.abs(pf.hump ?? 6) + (pf.agitate ?? 0) + (pf.ripple ?? 0);
-    }
     this.clipBox.makeEmpty();
-    for (const wave of this.waves) {
+    for (let i = 0; i < this.waves.length; i++) {
+      const wave = this.waves[i];
       const mesh = wave.mesh;
       mesh.updateWorldMatrix(true, false);
       const bs = mesh.geometry.boundingSphere;
@@ -1540,6 +1531,15 @@ export class WaveRenderer {
       // The twist pivot (the mesh's local origin) in world space = the safe sphere's centre.
       const center = this.clipTmpA.setFromMatrixPosition(mesh.matrixWorld);
       const disp = Math.abs(Number(wave.material.uniforms.uDispAmount.value) || 0);
+      // Extra wave-local displacement THIS wave's pointer field can add (hump + agitation + ripple),
+      // so the deformed surface never crosses the fitted near/far planes. 0 when off → byte-identical.
+      const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
+      let pointerDisp = 0;
+      if (wavePointerFxActive(this.config, sc)) {
+        const h = sc.interaction?.hover;
+        pointerDisp =
+          Math.abs(h?.hump ?? 0) + (h?.agitate ?? 0) + (sc.interaction?.press?.ripple ?? 0);
+      }
       const localRadius = bs.center.length() + bs.radius + disp + pointerDisp;
       const radius = localRadius * mesh.matrixWorld.getMaxScaleOnAxis() * 1.2;
       // Enclose this wave's sphere by adding its axis-aligned bounding cube corners.

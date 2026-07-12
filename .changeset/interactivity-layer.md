@@ -2,4 +2,14 @@
 "@wave3d/core": minor
 ---
 
-Add an optional, additive, default-off interactivity layer. A new `SceneConfig.interaction` block turns on a **pointer field** (cursor-follow swell, swoosh, local agitation, click ripples, strand-thinning, and hue/lighten) plus **input→param bindings** — `scroll`, `hover`, `pointerX`/`pointerY`, `pointerSpeed`, `press`, `scrollVelocity`, `appear`, and developer-fed `custom:*` — that smoothly drive whitelisted wave/scene params. Adds a per-wave `interactionInfluence`, `setInteractionInput()` on the renderer and the shell `WaveHandle`, the React `interaction` prop, and a full Wave Studio authoring panel. Entirely opt-in: omit the block and the compiled shader and rendered pixels are byte-identical to before.
+Add an optional, additive, default-off interactivity layer, scoped **per wave**. Each `WaveConfig`
+gains an `interaction` block with three parts: **`hover`** (a cursor-follow pointer field — swell,
+swoosh, local agitation, strand-thinning, hue/lighten), **`press`** (click/tap ripples), and
+**`bindings`** that smoothly drive that wave's params from an input. Sources: `scroll`, `hover`,
+`pointerX`/`pointerY`, `pointerSpeed`, `press`, `scrollVelocity`, `appear`, and developer-fed
+`custom:*`. Shared inputs (one cursor + scroll: `radius`, `smoothing`, `touch`) and scene-param
+bindings (`timeOffset`, `cameraZoom`, `blur`, `grain`) live on `SceneConfig.interaction`. Adds
+`setInteractionInput()` on the renderer and the shell `WaveHandle`, the React `interaction` prop
+(targets the first wave), and a Wave Studio authoring UI (per-wave Hover / Click & touch / Bindings
+sections plus a global inputs + scroll-preview folder). Entirely opt-in: omit the block(s) and the
+compiled shader and rendered pixels are byte-identical to before.

@@ -199,7 +199,8 @@ varying float vPointerFall;    // falloff × presence — consumed by both fragm
 #ifdef POINTER_RIPPLES
 uniform vec2  uRippleOrigin[4]; // NDC
 uniform float uRippleAge[4];    // seconds since spawn (CPU-computed)
-uniform float uRippleAmp[4];    // amplitude envelope (CPU-computed; 0 = slot free)
+uniform float uRippleAmp[4];    // shared 0..1 decay envelope per slot (CPU-computed; 0 = slot free)
+uniform float uPointerRipple;   // THIS wave's ripple amplitude (scales the shared envelope)
 const float RIPPLE_FREQ = 24.0;  // spatial frequency of the ring
 const float RIPPLE_SPEED = 7.0;  // outward phase speed
 const float RIPPLE_MAX_R = 0.9;  // NDC reach where the ring fully fades
@@ -310,7 +311,7 @@ void main(){
   for (int i = 0; i < 4; i++) {
     if (uRippleAmp[i] > 0.0) {
       float rd = length((preClip.xy / max(preClip.w, 1.0e-6) - uRippleOrigin[i]) * vec2(uPointerAspect, 1.0));
-      disp += uRippleAmp[i] * sin(rd * RIPPLE_FREQ - uRippleAge[i] * RIPPLE_SPEED)
+      disp += uPointerRipple * uRippleAmp[i] * sin(rd * RIPPLE_FREQ - uRippleAge[i] * RIPPLE_SPEED)
             * smoothstep(RIPPLE_MAX_R, 0.0, rd);
     }
   }

@@ -111,15 +111,19 @@ poster) for every entry — the fastest way to hand a designed wave to a develop
 
 ## Interactivity (optional)
 
-An optional `interaction` block adds a **pointer field** (localized swell / swoosh / agitation /
-click ripples / strand-thinning / hue-lighten under the cursor) plus **bindings** that smoothly
-drive parameters from inputs — `scroll`, `hover`, `pointerX` / `pointerY`, `pointerSpeed`, `press`,
-`scrollVelocity`, `appear`, or a developer-fed `custom:*` (via `handle.setInteractionInput(name,
-value)` / `renderer.setInteractionInput`). It is **off by default and additive**: omit the block and
-the wave renders byte-for-byte as before. Each binding rests at the authored value and moves toward
-`to` as its input rises 0→1 — `{ source: "scroll", target: "timeOffset", to: 40 }` scrubs the wave
-with the page; a per-wave `interactionInfluence` (0–2) staggers the response across a stack for
-depth. In React it's the flat `interaction` prop; the studio's **Interaction** panel authors it.
+Interactivity is **per wave** and **off by default / additive** — omit it and the wave renders
+byte-for-byte as before. Each `WaveConfig.interaction` has three parts: **`hover`** (the cursor-follow
+field — `hump` swell, `swoosh`, `agitate`, `thin`, `hueShift`, `lighten`), **`press`** (`ripple`
+rings from a click/tap), and **`bindings`** that smoothly drive that wave's params from an input.
+Sources: `scroll`, `hover`, `pointerX` / `pointerY`, `pointerSpeed`, `press`, `scrollVelocity`,
+`appear`, or a developer-fed `custom:*` (via `handle.setInteractionInput(name, value)` /
+`renderer.setInteractionInput`). Each binding rests at the authored value and moves toward `to` as
+its input rises 0→1 — `{ source: "hover", target: "displaceAmount", to: 12 }` grows the folds on
+hover. **Shared inputs** (one cursor + scroll: `radius`, `smoothing`, `touch`) and **scene-param
+bindings** (`timeOffset`, `cameraZoom`, `blur`, `grain` — e.g. `scroll → timeOffset` scrubs the whole
+wave with the page) live on `SceneConfig.interaction`. In React the flat `interaction` prop targets
+the first wave; the studio authors it per wave (Hover / Click & touch / Bindings) plus a global
+Interaction folder for the shared inputs and a scroll preview.
 
 ## Presets
 

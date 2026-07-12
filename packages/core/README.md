@@ -48,30 +48,50 @@ const blob = await handle.snapshot(); // resolves null until running. options: {
 
 ## Interactive waves
 
-Add an optional `interaction` block for cursor-follow effects and inputs that drive parameters. It's off by default — omit it and the wave (and its compiled shader) stays byte-for-byte unchanged.
+Interactivity is **per wave** and **off by default** — omit it and the wave (and its compiled shader) is byte-for-byte unchanged. Each wave takes an optional `interaction` with three parts:
+
+- **`hover`** — the cursor-follow field: `hump` (swell), `swoosh`, `agitate`, `thin`, `hueShift`, `lighten`.
+- **`press`** — `ripple` (rings from a click / tap).
+- **`bindings`** — inputs that drive this wave's params: `{ source, target, from?, to }`.
+
+```tsx
+// React — the flat `interaction` prop targets the first wave:
+<Wave3D
+  interaction={{
+    hover: { hump: 8, thin: 0.4 }, // swell + strand-thinning under the cursor
+    press: { ripple: 6 }, // click ripples
+    bindings: [{ source: "hover", target: "displaceAmount", to: 12 }], // taller folds while hovered
+  }}
+/>
+```
+
+Each binding rests at the authored value (`from` defaults to it) and moves toward `to` as its input rises 0→1 — sources: `scroll`, `hover`, `pointerX` / `pointerY`, `pointerSpeed`, `press`, `scrollVelocity`, `appear`, and `custom:*`.
+
+Shared inputs (one cursor + scroll) and scene-wide effects live on the scene-level `interaction`:
 
 ```ts
 createWave(el, {
   interaction: {
-    // Pointer field: swell + click ripples + strand thinning under the cursor.
-    pointer: { hump: 8, ripple: 6, thin: 0.4 },
-    bindings: [
-      { source: "scroll", target: "timeOffset", to: 40 }, // scrub the wave as the page scrolls
-      { source: "hover", target: "displaceAmount", to: 12 }, // taller folds while hovered
-    ],
+    radius: 0.3, // shared pointer falloff (fraction of viewport height)
+    smoothing: 0.12, // shared pointer-follow lag
+    touch: false, // follow touch pointers too
+    bindings: [{ source: "scroll", target: "timeOffset", to: 40 }], // scrub the whole wave with scroll
   },
+  waves: [
+    /* each wave carries its own `interaction` */
+  ],
 });
 ```
 
-Each binding rests at the authored value (`from` defaults to it) and moves toward `to` as its input rises 0→1 — sources: `scroll`, `hover`, `pointerX` / `pointerY`, `pointerSpeed`, `press`, `scrollVelocity`, `appear`, and `custom:*`. Pair `scroll → timeOffset` with a low `speed` for a wave that scrubs _with_ the page instead of drifting on its own; set a per-wave `interactionInfluence` (0–2) to stagger the response across a stack for depth. In React it's the flat `interaction` prop on `<Wave3D>`.
+Pair `scroll → timeOffset` with a low `speed` for a wave that scrubs _with_ the page instead of drifting on its own. Feed your own signal with a `custom:` source and `setInteractionInput`:
 
-Feed your own signal with a `custom:` source and `setInteractionInput`:
-
-```ts
-const h = createWave(el, {
-  interaction: { bindings: [{ source: "custom:audio", target: "displaceAmount", to: 30 }] },
-});
-analyser.onLevel = (v) => h.setInteractionInput("audio", v); // v in 0..1
+```tsx
+<Wave3D
+  interaction={{ bindings: [{ source: "custom:audio", target: "displaceAmount", to: 30 }] }}
+  onReady={(r) => {
+    analyser.onLevel = (v) => r.setInteractionInput("audio", v); // v in 0..1
+  }}
+/>
 ```
 
 ## Entry points
