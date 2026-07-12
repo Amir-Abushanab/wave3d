@@ -9,7 +9,7 @@ Both need some one-time account setup, below. Until you do it, CI still runs gre
 
 ## 1. Deploy the studio + gallery → Cloudflare Pages
 
-The studio (`apps/studio`, served at `/`) and the wave gallery (`apps/gallery`, served at `/gallery/`) are static Vite builds. `pnpm build:site` builds both and combines them into one tree (the studio at the root, the gallery copied under `dist/gallery`), deployed to Cloudflare Pages as project **`wave-studio`**.
+The **`apps/studio`** app is one multi-page Vite build: the studio at `/` and the wave gallery at `/gallery/` (its `gallery/index.html` entry). `pnpm --filter wave-studio build` produces `apps/studio/dist`, deployed to Cloudflare Pages as project **`wave-studio`**.
 
 One-time:
 

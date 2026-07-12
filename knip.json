@@ -6,12 +6,9 @@
       "ignoreDependencies": ["@tanstack/intent"]
     },
     "apps/studio": {
-      "entry": ["src/preview.ts"],
+      "entry": ["src/preview.ts", "src/gallery.ts"],
       "project": ["src/**/*.ts"],
       "ignoreDependencies": ["@tweakpane/core"]
-    },
-    "apps/gallery": {
-      "project": ["src/**/*.ts"]
     },
     "packages/react": {
       "project": ["src/**/*.{ts,tsx}"]

@@ -54,24 +54,38 @@ a:hover {
 }
 
 .card {
+  position: relative;
   display: flex;
   flex-direction: column;
   background: #16161c;
   border: 1px solid #24242c;
   border-radius: 12px;
   overflow: hidden;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease;
 }
-.thumb {
-  display: block;
+.card:hover {
+  transform: translateY(-3px);
+  border-color: #3a3a46;
+  box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.7);
+}
+
+.media {
+  position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
   background: #202028;
-  opacity: 0;
-  transition: opacity 0.35s ease;
 }
-.thumb.ready {
-  opacity: 1;
+.media canvas,
+.media img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
+
 .meta {
   padding: 12px 14px 4px;
 }
@@ -80,21 +94,51 @@ a:hover {
   font-size: 15px;
   font-weight: 600;
 }
+/* Above the stretched card link, so the handle stays independently clickable. */
 .by {
+  position: relative;
+  z-index: 2;
   color: #8b8b96;
   font-size: 13px;
 }
 .by:hover {
   color: #b9b9c4;
 }
+
+/* Revealed on hover only. */
 .open {
   align-self: flex-start;
   margin: 8px 14px 14px;
+  color: #7aa2ff;
   font-size: 13px;
+  opacity: 0;
+  transform: translateY(2px);
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
 }
+.card:hover .open {
+  opacity: 1;
+  transform: none;
+}
+
+/* Stretched link: the whole card opens in the studio. */
+.card-link {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
 .empty {
   max-width: 1200px;
   margin: 0 auto;
   padding: 24px;
   color: #a8a8b3;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .open {
+    transition: none;
+  }
 }
