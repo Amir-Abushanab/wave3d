@@ -1,15 +1,23 @@
 #!/usr/bin/env node
 /**
- * Guarded publish. Only shells into `changeset publish` when a publishable
- * package's local version isn't on npm yet. On a no-op push (nothing new to
- * release) it exits 0 cleanly.
+ * Guarded publish. Shells into `changeset publish`, but leans on the npm registry
+ * as the source of truth so two @changesets/cli 2.31 + npm-OIDC bugs can't redden
+ * the release:
  *
- * Why: `changesets/action` runs the publish command on every push to main that
- * has no pending changeset files, expecting it to no-op when there's nothing to
- * ship. Under npm OIDC / trusted publishing, `changeset publish` (@changesets/cli
- * 2.31) instead throws `TypeError: Cannot read properties of undefined (reading
- * 'includes')` on that no-op path and reddens the run. This restores the no-op
- * safety by checking the registry (ground truth) before ever invoking it.
+ *   1. No-op runs. `changesets/action` runs the publish command on every push to
+ *      main with no pending changesets, expecting a clean no-op. Under npm OIDC /
+ *      trusted publishing, `changeset publish` instead throws
+ *      `TypeError: Cannot read properties of undefined (reading 'includes')`. We
+ *      check the registry first and skip publishing entirely when nothing is new.
+ *
+ *   2. Mixed sets. When the publish set contains an already-published package (e.g.
+ *      the independent @wave3d/vite standing still while only the fixed
+ *      core/react/element group bumped), `changeset publish` throws that same error
+ *      — but only *after* publishing the genuinely-new packages and printing their
+ *      `New tag:` lines. So we tolerate the non-zero exit and let the registry
+ *      decide: if everything we meant to ship actually landed, it's a success. The
+ *      changesets action still reads those `New tag:` lines from stdout to push
+ *      tags + cut GitHub Releases; we only fail for real if something is missing.
  *
  * Run via `pnpm release`, which builds first and puts `changeset` on PATH.
  * Pass `--dry-run` to report what would publish without publishing.
@@ -57,8 +65,8 @@ function isPublished(name, version) {
 }
 
 const pkgs = publishablePackages();
-const pending = pkgs.filter((p) => !isPublished(p.name, p.version));
 const label = (list) => list.map((p) => `${p.name}@${p.version}`).join(", ");
+const pending = pkgs.filter((p) => !isPublished(p.name, p.version));
 
 if (pending.length === 0) {
   console.log(`Nothing to publish. Already on npm: ${label(pkgs)}`);
@@ -70,4 +78,27 @@ if (dryRun) {
   console.log("(dry run) skipping `changeset publish`");
   process.exit(0);
 }
-execFileSync("pnpm", ["exec", "changeset", "publish"], { stdio: "inherit" });
+
+// See bug #2 in the header: a non-zero exit here doesn't mean the publish failed — the new packages
+// land (and print their `New tag:` lines) before changeset chokes on an already-published one.
+try {
+  execFileSync("pnpm", ["exec", "changeset", "publish"], { stdio: "inherit" });
+} catch {
+  console.error("`changeset publish` exited non-zero — verifying against the registry…");
+}
+
+// Did everything we meant to ship actually land? Re-check a few times to ride out npm propagation
+// (each `npm view` is a fresh network round-trip, so the loop is naturally paced — no sleep needed).
+let missing = pending;
+for (let attempt = 0; attempt < 4 && missing.length > 0; attempt++) {
+  try {
+    missing = missing.filter((p) => !isPublished(p.name, p.version));
+  } catch {
+    /* transient registry error — keep `missing` and try again */
+  }
+}
+if (missing.length > 0) {
+  console.error(`Failed to publish: ${label(missing)}`);
+  process.exit(1);
+}
+console.log(`Published: ${label(pending)}`);
