@@ -1045,7 +1045,11 @@ export class ControlPanel {
   /** Per-wave interaction: how THIS wave reacts — a Hover field, Click & touch, and param Bindings
    *  (each source-selectable, including Scroll). Written to wave.interaction only when in use, so an
    *  untouched wave stays byte-identical. */
-  private buildWaveInteraction(parent: FolderApi, wave: WaveConfig, refresh: () => void): void {
+  private buildWaveInteraction(
+    parent: FolderApi,
+    wave: WaveConfig,
+    refresh: () => void,
+  ): FolderApi {
     const ix = parent.addFolder({ title: "Interaction", expanded: false });
     const h = wave.interaction?.hover;
     const uiHover = {
@@ -1096,6 +1100,7 @@ export class ControlPanel {
 
     const bindingsF = ix.addFolder({ title: "Reactions", expanded: false });
     this.renderBindingSlots(bindingsF, slots, IX_WAVE_TARGETS, sync);
+    return ix; // caller slots this into the wave's sub-section order (kept last)
   }
 
   /** Render N reaction slots into a folder, calling `onChange` on any edit. The everyday knobs
@@ -1329,8 +1334,9 @@ export class ControlPanel {
       sf.addBinding(wave, "speed", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
       sf.addBinding(wave, "seed", { min: 0, max: 20, step: 0.1 }).on("change", refresh);
 
-      // How this wave reacts to the pointer + inputs (hover / click / bindings).
-      this.buildWaveInteraction(sf, wave, refresh);
+      // How this wave reacts to the pointer + inputs (hover / click / reactions). Built here but
+      // positioned last among the wave's sub-sections (see the reorder below).
+      const waveIx = this.buildWaveInteraction(sf, wave, refresh);
 
       // --- Color & Gradient ---
       const gradF = sf.addFolder({ title: "Color & Gradient", expanded: true });
@@ -1724,10 +1730,12 @@ export class ControlPanel {
       twF.addBinding(wave, "twistMotion", { label: "twist wobble" }).on("change", refresh);
       sectionRandom(twF, randomizeTwist);
       // Order the sub-sections: appearance (colour, finish) → shape (displacement, twist) → pose
-      // (transform) → advanced (noise bands, last). DOM move so the blocks above stay grouped.
+      // (transform) → advanced (noise bands) → interaction (this wave's reactivity, last — mirrors
+      // the global Interaction folder sitting last in the panel). DOM move so the blocks stay grouped.
       const waveContent =
         (sf.element.querySelector(":scope > .tp-fldv_c") as HTMLElement | null) ?? sf.element;
-      for (const f of [gradF, finF, dispF, twF, trF, bandsF]) waveContent.appendChild(f.element);
+      for (const f of [gradF, finF, dispF, twF, trF, bandsF, waveIx])
+        waveContent.appendChild(f.element);
     };
 
     const wavesF = mkFolder("Waves", true);
