@@ -985,7 +985,7 @@ export class ControlPanel {
     cfg: StudioConfig,
     refresh: () => void,
   ): void {
-    const folder = mkFolder("✨ Interaction", false);
+    const folder = mkFolder("Interaction", false);
     const it = cfg.interaction;
     const uiInputs = {
       radius: it?.radius ?? 0.3,
@@ -1046,7 +1046,7 @@ export class ControlPanel {
    *  (each source-selectable, including Scroll). Written to wave.interaction only when in use, so an
    *  untouched wave stays byte-identical. */
   private buildWaveInteraction(parent: FolderApi, wave: WaveConfig, refresh: () => void): void {
-    const ix = parent.addFolder({ title: "✨ Interaction", expanded: false });
+    const ix = parent.addFolder({ title: "Interaction", expanded: false });
     const h = wave.interaction?.hover;
     const uiHover = {
       hump: h?.hump ?? 8,
@@ -1777,8 +1777,19 @@ export class ControlPanel {
     // Reorder the top-level folders, independent of the build order above (which stays grouped by
     // concern). Short meta/setup folders stay near the top (output/canvas, quick actions, presets,
     // then background/camera) so they're always reachable; the tall Waves section sits below them,
-    // above the rarely-used Lights. Done as a DOM move: appendChild re-appends in the given order.
-    const topOrder = ["Output", "Actions", "Global", "Background", "Camera", "Waves", "Lights"];
+    // then the Interaction (reactivity) layer you add last — right below the per-wave interaction it
+    // complements — above the rarely-used Lights. Done as a DOM move: appendChild re-appends in order.
+    // (Any folder omitted here is left where build() put it, so keep this in sync with the folders.)
+    const topOrder = [
+      "Output",
+      "Actions",
+      "Global",
+      "Background",
+      "Camera",
+      "Waves",
+      "Interaction",
+      "Lights",
+    ];
     for (const title of topOrder) {
       const f = this.folders.find((x) => x.title === title);
       if (f) paneContent.appendChild(f.api.element);
@@ -1890,6 +1901,8 @@ export class ControlPanel {
         '<circle cx="8" cy="8" r="2.9"/><path d="M8 1.6v1.7M8 12.7v1.7M1.6 8h1.7M12.7 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M3.6 12.4l1.2-1.2M11.2 4.8l1.2-1.2"/>',
       ),
       Waves: svg('<path d="M5.5 2c3 2 3 4 0 6s-3 4 0 6"/><path d="M10.5 2c-3 2-3 4 0 6s3 4 0 6"/>'),
+      // A mouse-cursor — the interaction (pointer / scroll / touch reactivity) layer.
+      Interaction: svg('<path d="M2.8 2.4 2.8 11.4 5.3 9.1 7.1 13.2 8.9 12.4 7.1 8.4 10.6 8.4Z"/>'),
     };
     this.container.querySelectorAll(".tp-fldv_t").forEach((el) => {
       const txt = (el.textContent ?? "").trim();
