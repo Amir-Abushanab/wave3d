@@ -985,7 +985,7 @@ export class ControlPanel {
     cfg: StudioConfig,
     refresh: () => void,
   ): void {
-    const folder = mkFolder("Interaction", false);
+    const folder = mkFolder("✨ Interaction", false);
     const it = cfg.interaction;
     const uiInputs = {
       radius: it?.radius ?? 0.3,
@@ -1023,27 +1023,30 @@ export class ControlPanel {
       .on("change", sync);
     folder.addBinding(uiInputs, "touch").on("change", sync);
 
-    const bindingsF = folder.addFolder({ title: "Scene bindings", expanded: false });
+    const bindingsF = folder.addFolder({ title: "Scene reactions", expanded: false });
     this.renderBindingSlots(bindingsF, slots, IX_SCENE_TARGETS, sync);
 
-    // Scroll preview: the studio page doesn't scroll, so default to a fixed preview value you drag
-    // (Live off) to author scroll bindings. Studio-only — NEVER touches config.
-    const scrollPrev = { live: false, preview: 0.5 };
-    const applyScroll = (): void =>
-      this.renderer.setScrollPreview(scrollPrev.live ? null : scrollPrev.preview);
+    // Scroll preview: the studio page never scrolls, so one slider fakes the scroll position (0 = at
+    // rest, 1 = scrolled past) to author + test any `scroll` / `scrollVelocity` reaction. On a real
+    // page these read the actual container scroll; this is studio-only and NEVER touches config.
+    const scrollPrev = { preview: 0 };
     const previewF = folder.addFolder({ title: "Scroll preview", expanded: true });
-    previewF.addBinding(scrollPrev, "live", { label: "scroll: live" }).on("change", applyScroll);
     previewF
-      .addBinding(scrollPrev, "preview", { label: "scroll (preview)", min: 0, max: 1, step: 0.01 })
-      .on("change", applyScroll);
-    applyScroll(); // sync the renderer to the fresh preview state on (re)build
+      .addBinding(scrollPrev, "preview", {
+        label: "scroll (drag to test)",
+        min: 0,
+        max: 1,
+        step: 0.01,
+      })
+      .on("change", () => this.renderer.setScrollPreview(scrollPrev.preview));
+    this.renderer.setScrollPreview(scrollPrev.preview); // apply the rest state on (re)build
   }
 
   /** Per-wave interaction: how THIS wave reacts — a Hover field, Click & touch, and param Bindings
    *  (each source-selectable, including Scroll). Written to wave.interaction only when in use, so an
    *  untouched wave stays byte-identical. */
   private buildWaveInteraction(parent: FolderApi, wave: WaveConfig, refresh: () => void): void {
-    const ix = parent.addFolder({ title: "Interaction", expanded: false });
+    const ix = parent.addFolder({ title: "✨ Interaction", expanded: false });
     const h = wave.interaction?.hover;
     const uiHover = {
       hump: h?.hump ?? 8,
@@ -1091,12 +1094,13 @@ export class ControlPanel {
     pressF.addBinding(on, "press", { label: "enabled" }).on("change", sync);
     pressF.addBinding(uiPress, "ripple", { min: 0, max: 20, step: 0.1 }).on("change", sync);
 
-    const bindingsF = ix.addFolder({ title: "Bindings", expanded: false });
+    const bindingsF = ix.addFolder({ title: "Reactions", expanded: false });
     this.renderBindingSlots(bindingsF, slots, IX_WAVE_TARGETS, sync);
   }
 
-  /** Render N binding slots (source / target / from / to / smoothing) into a folder, calling
-   *  `onChange` on any edit. `targets` is the scope-appropriate target dropdown. */
+  /** Render N reaction slots into a folder, calling `onChange` on any edit. The everyday knobs
+   *  (input → parameter → to) sit up top; `from` / smoothing hide in a collapsed "fine-tune". Reads
+   *  as: "as <input> goes 0→1, drive <parameter> to <to>." `targets` is the scope's target list. */
   private renderBindingSlots(
     folder: FolderApi,
     slots: UiSlot[],
@@ -1104,13 +1108,20 @@ export class ControlPanel {
     onChange: () => void,
   ): void {
     slots.forEach((slot, i) => {
-      const bf = folder.addFolder({ title: `Binding ${i + 1}`, expanded: i === 0 });
-      bf.addBinding(slot, "source", { options: IX_SOURCE_OPTIONS }).on("change", onChange);
-      bf.addBinding(slot, "target", { options: targets }).on("change", onChange);
-      bf.addBinding(slot, "fromBase", { label: "from = base" }).on("change", onChange);
-      bf.addBinding(slot, "from", { step: 0.01 }).on("change", onChange);
-      bf.addBinding(slot, "to", { step: 0.01 }).on("change", onChange);
-      bf.addBinding(slot, "smoothing", { min: 0, max: 1, step: 0.01 }).on("change", onChange);
+      const bf = folder.addFolder({ title: `Reaction ${i + 1}`, expanded: i === 0 });
+      bf.addBinding(slot, "source", { label: "input", options: IX_SOURCE_OPTIONS }).on(
+        "change",
+        onChange,
+      );
+      bf.addBinding(slot, "target", { label: "parameter", options: targets }).on(
+        "change",
+        onChange,
+      );
+      bf.addBinding(slot, "to", { label: "to (at full)", step: 0.01 }).on("change", onChange);
+      const tune = bf.addFolder({ title: "fine-tune", expanded: false });
+      tune.addBinding(slot, "fromBase", { label: "start at rest value" }).on("change", onChange);
+      tune.addBinding(slot, "from", { label: "start value", step: 0.01 }).on("change", onChange);
+      tune.addBinding(slot, "smoothing", { min: 0, max: 1, step: 0.01 }).on("change", onChange);
     });
   }
 

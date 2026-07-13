@@ -19,6 +19,11 @@ export class StudioWaveRenderer extends WaveRenderer {
    *  panel mid-drag (the panel already knows the new value). */
   private suppressCameraChange = false;
 
+  /** Studio scroll-preview value (null = live). Persisted here so it survives controller
+   *  recreation — a scroll binding added after the preview was set still responds (see
+   *  onAfterRefresh). */
+  private scrollPreview: number | null = null;
+
   // Same for the minimap, which renders every frame while the camera rig is open.
   private readonly miniBox = new THREE.Box3();
   private readonly miniSphere = new THREE.Sphere();
@@ -399,7 +404,14 @@ export class StudioWaveRenderer extends WaveRenderer {
    *  a fixed 0..1 value, or pass null to return to the live container-progress read. NEVER touches
    *  config. No-op until interaction is enabled (the controller exists). */
   setScrollPreview(v: number | null): void {
-    if (this.interaction) this.interaction.scrollOverride = v;
+    this.scrollPreview = v;
+    if (this.interaction) {
+      this.interaction.scrollOverride = v;
+      // When paused / offscreen the render loop isn't advancing the controller, so snap the scroll
+      // bindings to the previewed value (settle() sets scroll → override and resolves the bindings)
+      // before drawing the still frame — otherwise dragging the slider would do nothing.
+      if (!this.running) this.interaction.settle();
+    }
     if (!this.running) this.renderOnce();
   }
 
@@ -1046,6 +1058,10 @@ export class StudioWaveRenderer extends WaveRenderer {
   protected override onAfterRefresh(): void {
     if (this.editMode === "light") this.syncLightHelpers();
     else if (this.editMode === "wave") this.syncWaveHelpers();
+    // refresh() may have just (re)created the interaction controller via syncInteraction(); re-apply
+    // the scroll preview so a freshly-added scroll binding responds immediately instead of being
+    // stuck on the (frozen, in-studio) live scroll.
+    if (this.interaction) this.interaction.scrollOverride = this.scrollPreview;
   }
 
   protected override onAfterRenderFrame(): void {

@@ -102,20 +102,19 @@ const CONTROL_HINTS: Record<string, string> = {
   lighten: "Brightens (or, negative, darkens) the surface near the cursor.",
   // Per-wave Click & touch:
   ripple: "Amplitude of the rings that radiate out from a click/tap on THIS wave. 0 = no ripples.",
-  // Bindings (per wave or scene):
-  source: "The input signal that drives this binding — Scroll, Hover, Pointer, Press, Appear…",
-  target: "The wave (or scene) parameter this binding drives.",
-  "from = base":
-    "Keep the value at input 0 equal to the authored value, so at rest the wave looks unchanged.",
-  from: "Value at input 0 (used only when 'from = base' is off).",
-  to: "Value at input 1 (the input's maximum).",
+  // Reactions (per wave or scene) — "as <input> goes 0→1, drive <parameter> to <to>":
+  input: "The signal that drives this reaction — Scroll, Hover, Pointer, Press, Appear…",
+  parameter: "The wave (or scene) parameter this reaction drives.",
+  "to (at full)":
+    "The parameter's value at full input (input = 1). At rest it stays the authored value.",
+  "start at rest value":
+    "Keep the value at input 0 equal to the wave's authored value, so at rest it looks unchanged.",
+  "start value": "The parameter's value at input 0 (used only when 'start at rest value' is off).",
   smoothing:
-    "How much this binding's response lags its input — larger is smoother/slower, 0 is instant (seconds).",
+    "How much this reaction's response lags its input — larger is smoother/slower, 0 is instant (seconds).",
   // Scroll preview (studio-only):
-  "scroll: live":
-    "Read the real container scroll progress. In the studio the page doesn't scroll, so leave this off and drag the slider.",
-  "scroll (preview)":
-    "Studio-only: fake a scroll position (0–1) to preview scroll bindings. Never saved to the config.",
+  "scroll (drag to test)":
+    "The studio page never scrolls, so drag this to fake a scroll position (0 = at rest, 1 = scrolled past) and watch any scroll reaction. On a real page this reads the actual scroll; never saved to the config.",
 };
 
 /** Overrides for labels that mean different things in different folders. Keyed `Folder label`. */
