@@ -126,6 +126,51 @@ type VecRows = (
   axisLabels?: [string, string, string],
 ) => void;
 
+/**
+ * "Randomize All" wears an animated gradient border — rolling it is the fastest way for a newcomer
+ * to grok what the whole tool does, so we make the button catch the eye. Implementation notes:
+ *   • A masked `::after` ring paints the gradient over the button's *native* fill + hover and adds
+ *     no layout box, so it stays pixel-aligned with the sibling action buttons.
+ *   • `@property --wv-ra-angle` makes the conic angle animatable (the ring slowly rotates, with a
+ *     soft glint sweeping around it); engines without `@property` just render a static gradient ring.
+ *   • All motion is dropped under prefers-reduced-motion.
+ */
+const RANDOMIZE_ALL_CSS = `
+@property --wv-ra-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+.wv-randomize-all .tp-btnv_b {
+  position: relative;
+}
+.wv-randomize-all .tp-btnv_b::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(from var(--wv-ra-angle, 0deg),
+    #ff6ea9, #ffb14e, #ffe86b, #eafff5, #5fe3a1, #4fc9ff, #9b7bff, #ff6ea9);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  animation: wv-ra-spin 5s linear infinite;
+}
+@keyframes wv-ra-spin {
+  to { --wv-ra-angle: 360deg; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wv-randomize-all .tp-btnv_b::after { animation: none; }
+}
+`;
+
 // ---- Interaction authoring (per-wave response + shared scene inputs) ----
 
 /** Binding-source options for the studio dropdowns (custom:* is a developer API — not authorable). */
@@ -567,7 +612,12 @@ export class ControlPanel {
   /** "Actions" folder: randomize/reset/save/load/share. */
   private buildActionsFolder(mkFolder: MkFolder): void {
     const actions = mkFolder("Actions", true);
-    actions.addButton({ title: "🎲 Randomize All" }).on("click", () => this.hooks.onRandomize?.());
+    // Give "Randomize All" an animated gradient border so newcomers immediately spot the quickest
+    // way to see what the tool can do (styles injected once — see RANDOMIZE_ALL_CSS).
+    injectStyleOnce("wv-randomize-all-style", RANDOMIZE_ALL_CSS);
+    const randomizeAll = actions.addButton({ title: "🎲 Randomize All" });
+    randomizeAll.on("click", () => this.hooks.onRandomize?.());
+    randomizeAll.element.classList.add("wv-randomize-all");
     actions.addButton({ title: "🔄 Reset to default" }).on("click", () => this.hooks.onReset?.());
     actions
       .addButton({ title: "💾 Save state (.json)" })
