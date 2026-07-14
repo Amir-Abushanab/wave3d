@@ -50,7 +50,7 @@ const blob = await handle.snapshot(); // resolves null until running. options: {
 
 Interactivity is **per wave** and **off by default** — omit it and the wave (and its compiled shader) is byte-for-byte unchanged. Each wave takes an optional `interaction` with three parts:
 
-- **`hover`** — the cursor-follow field: `hump` (swell), `swoosh`, `agitate`, `thin`, `hueShift`, `lighten`.
+- **`hover`** — the cursor-follow field: `hump` (swell), `swoosh`, `agitate`, `thin`, `hueShift`, `lighten`, and `smoothing` (this wave's follow-lag — vary it across a stack for a parallax drag).
 - **`press`** — `ripple` (rings from a click / tap).
 - **`bindings`** — inputs that drive this wave's params: `{ source, target, from?, to }`.
 
@@ -73,12 +73,11 @@ Shared inputs (one cursor + scroll) and scene-wide effects live on the scene-lev
 createWave(el, {
   interaction: {
     radius: 0.3, // shared pointer falloff (fraction of viewport height)
-    smoothing: 0.12, // shared pointer-follow lag
     touch: false, // follow touch pointers too
     bindings: [{ source: "scroll", target: "timeOffset", to: 40 }], // scrub the whole wave with scroll
   },
   waves: [
-    /* each wave carries its own `interaction` */
+    /* each wave carries its own `interaction` (hover / press / bindings) */
   ],
 });
 ```

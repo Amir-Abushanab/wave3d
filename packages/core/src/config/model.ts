@@ -317,6 +317,10 @@ export interface WaveHoverConfig {
   hueShift?: number;
   /** Local brightness lift near the cursor, -1..1. */
   lighten?: number;
+  /** Pointer-follow smoothing for THIS wave's hover field, seconds — how quickly the swell trails
+   *  the cursor. Vary it across a stack so strands lag at different rates (a parallax drag).
+   *  Default 0.12. */
+  smoothing?: number;
 }
 
 /** Click / touch pointer-field: what a tap or click on this wave triggers. */
@@ -335,16 +339,14 @@ export interface WaveInteractionConfig {
   bindings?: WaveInteractionBinding[];
 }
 
-/** Scene-level interactivity: the SHARED inputs (one cursor + scroll, smoothing, touch) plus
- *  bindings that drive shared scene params. ABSENT ⇒ inputs use defaults; `enabled: false` is the
- *  master OFF switch for the whole layer (every wave included). */
+/** Scene-level interactivity: the SHARED inputs (one cursor + scroll, touch) plus bindings that
+ *  drive shared scene params. Pointer-follow smoothing is per-wave (see WaveHoverConfig.smoothing).
+ *  ABSENT ⇒ inputs use defaults; `enabled: false` is the master OFF switch for the whole layer. */
 export interface SceneInteractionConfig {
   /** Master switch for the whole interaction layer. Default true (only `false` turns it all off). */
   enabled?: boolean;
   /** Pointer falloff radius, as a fraction of viewport height. Default 0.3. */
   radius?: number;
-  /** Pointer-follow smoothing time constant, seconds. Default 0.12. */
-  smoothing?: number;
   /** Follow coarse (touch) pointers. Default false — touch is ignored unless this is true. */
   touch?: boolean;
   /** Input→param bindings driving SCENE params (timeOffset, cameraZoom, blur, grain). */
@@ -812,6 +814,7 @@ export function normalizeWaveInteraction(wave: WaveConfig): void {
     if (h.thin !== undefined) h.thin = clampNumber(h.thin, 0, 1, 0);
     if (h.hueShift !== undefined) h.hueShift = clampNumber(h.hueShift, -360, 360, 0);
     if (h.lighten !== undefined) h.lighten = clampNumber(h.lighten, -1, 1, 0);
+    if (h.smoothing !== undefined) h.smoothing = clampNumber(h.smoothing, 0, 2, 0.12);
   }
   if (it.press && it.press.ripple !== undefined) {
     it.press.ripple = clampNumber(it.press.ripple, 0, 60, 0);
@@ -827,7 +830,6 @@ export function normalizeSceneInteraction(config: StudioConfig): void {
   const it = config.interaction;
   if (!it) return;
   if (it.radius !== undefined) it.radius = clampNumber(it.radius, 0.02, 2, 0.3);
-  if (it.smoothing !== undefined) it.smoothing = clampNumber(it.smoothing, 0, 2, 0.12);
   if (it.bindings !== undefined) {
     it.bindings = cleanBindings<SceneInteractionTarget>(it.bindings, SCENE_TARGET_NAMES);
   }

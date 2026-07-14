@@ -22,7 +22,6 @@ import {
   SCENE_APPLIERS,
   RIPPLE_SLOTS,
 } from "./interaction";
-import type { InteractionSample } from "./interaction";
 import {
   buildPaletteTexture,
   configurePaletteTexture,
@@ -1368,41 +1367,47 @@ export class WaveRenderer {
    *  controller, and skipped while capturing so exported posters are deterministic (no input state). */
   private applyInteraction(): void {
     if (!this.interaction || this.capturing) return;
-    if (anyPointerFxActive(this.config)) this.applyPointerField(this.interaction.sample());
+    if (anyPointerFxActive(this.config)) this.applyPointerField(this.interaction);
     this.applyBindings(this.interaction);
   }
 
-  /** Write the dynamic pointer-field uniforms (position / velocity / presence / ripples) to every
-   *  wave that HAS a pointer field. Per-wave amplitudes were already pushed statically in refresh(). */
-  private applyPointerField(s: InteractionSample): void {
+  /** Write the dynamic pointer-field uniforms to every wave that HAS a pointer field. Position /
+   *  velocity / presence are PER WAVE (each trails the cursor at its own hover smoothing); ripple
+   *  origins/ages are shared. Per-wave amplitudes were already pushed statically in refresh(). */
+  private applyPointerField(ic: InteractionController): void {
     this.camera.updateMatrixWorld();
     const dw = this.camera.right - this.camera.left;
     const dh = this.camera.top - this.camera.bottom;
     const aspect = dh !== 0 ? dw / dh : 1;
-    // Map the NDC velocity to a world vector along the camera's screen axes (ortho frustum size /
-    // current zoom), so swoosh sweeps in the on-screen direction of motion at any view/zoom.
     const zoom = this.camera.zoom || 1;
+    // Camera screen axes, to map a wave's NDC velocity to a world-space swoosh direction.
     this.itRight.setFromMatrixColumn(this.camera.matrixWorld, 0);
     this.itUp.setFromMatrixColumn(this.camera.matrixWorld, 1);
-    this.itVel
-      .copy(this.itRight)
-      .multiplyScalar((s.velNdc.x * dw) / (2 * zoom))
-      .addScaledVector(this.itUp, (s.velNdc.y * dh) / (2 * zoom));
+    const ripples = ic.sample().ripples;
     for (let i = 0; i < this.waves.length; i++) {
       const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
       if (!wavePointerFxActive(this.config, sc)) continue;
       const u = this.waves[i].material.uniforms;
-      (u.uPointer.value as THREE.Vector2).copy(s.ndc);
-      (u.uPointerVel.value as THREE.Vector3).copy(this.itVel);
+      const f = ic.fieldFor(i);
+      if (f) {
+        (u.uPointer.value as THREE.Vector2).copy(f.ndc);
+        this.itVel
+          .copy(this.itRight)
+          .multiplyScalar((f.velNdc.x * dw) / (2 * zoom))
+          .addScaledVector(this.itUp, (f.velNdc.y * dh) / (2 * zoom));
+        (u.uPointerVel.value as THREE.Vector3).copy(this.itVel);
+        u.uPointerActive.value = f.presence;
+      } else {
+        u.uPointerActive.value = 0; // wave not advanced by update() yet → rest (no hover)
+      }
       u.uPointerAspect.value = aspect;
-      u.uPointerActive.value = s.presence; // shared presence; per-wave depth is the amplitudes
       const rOrigin = u.uRippleOrigin.value as THREE.Vector2[];
       const rAge = u.uRippleAge.value as number[];
       const rAmp = u.uRippleAmp.value as number[];
       for (let r = 0; r < RIPPLE_SLOTS; r++) {
-        rOrigin[r].copy(s.ripples[r].origin);
-        rAge[r] = s.ripples[r].age;
-        rAmp[r] = s.ripples[r].amp;
+        rOrigin[r].copy(ripples[r].origin);
+        rAge[r] = ripples[r].age;
+        rAmp[r] = ripples[r].amp;
       }
     }
   }

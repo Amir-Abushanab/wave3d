@@ -989,7 +989,6 @@ export class ControlPanel {
     const it = cfg.interaction;
     const uiInputs = {
       radius: it?.radius ?? 0.3,
-      smoothing: it?.smoothing ?? 0.12,
       touch: it?.touch ?? false,
     };
     const loaded = cfg.interaction?.bindings ?? [];
@@ -1001,11 +1000,10 @@ export class ControlPanel {
 
     const sync = (): void => {
       const bindings = compactSlots(slots).concat(preserved) as SceneInteractionBinding[];
-      const nonDefault = uiInputs.touch || uiInputs.radius !== 0.3 || uiInputs.smoothing !== 0.12;
+      const nonDefault = uiInputs.touch || uiInputs.radius !== 0.3;
       if (bindings.length || nonDefault) {
         const next: NonNullable<StudioConfig["interaction"]> = {};
         if (uiInputs.radius !== 0.3) next.radius = uiInputs.radius;
-        if (uiInputs.smoothing !== 0.12) next.smoothing = uiInputs.smoothing;
         if (uiInputs.touch) next.touch = true;
         if (bindings.length) next.bindings = bindings;
         cfg.interaction = next;
@@ -1017,9 +1015,6 @@ export class ControlPanel {
 
     folder
       .addBinding(uiInputs, "radius", { label: "pointer radius", min: 0.05, max: 1, step: 0.01 })
-      .on("change", sync);
-    folder
-      .addBinding(uiInputs, "smoothing", { label: "pointer smoothing", min: 0, max: 1, step: 0.01 })
       .on("change", sync);
     folder.addBinding(uiInputs, "touch").on("change", sync);
 
@@ -1059,6 +1054,7 @@ export class ControlPanel {
       thin: h?.thin ?? 0,
       hueShift: h?.hueShift ?? 0,
       lighten: h?.lighten ?? 0,
+      smoothing: h?.smoothing ?? 0.12,
     };
     const uiPress = { ripple: wave.interaction?.press?.ripple ?? 8 };
     const on = { hover: !!wave.interaction?.hover, press: !!wave.interaction?.press };
@@ -1093,6 +1089,7 @@ export class ControlPanel {
       .addBinding(uiHover, "hueShift", { label: "hue shift", min: -180, max: 180, step: 1 })
       .on("change", sync);
     hoverF.addBinding(uiHover, "lighten", { min: -1, max: 1, step: 0.01 }).on("change", sync);
+    hoverF.addBinding(uiHover, "smoothing", { min: 0, max: 1, step: 0.01 }).on("change", sync);
 
     const pressF = ix.addFolder({ title: "Click & touch", expanded: false });
     pressF.addBinding(on, "press", { label: "enabled" }).on("change", sync);

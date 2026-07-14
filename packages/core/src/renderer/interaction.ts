@@ -282,6 +282,17 @@ export interface InteractionSample {
   ripples: readonly RippleSlot[];
 }
 
+/** A wave's own smoothed pointer-field state — trails the shared cursor at the wave's own rate. */
+export interface PointerField {
+  /** Smoothed pointer position for this wave, NDC (-1..1). */
+  ndc: THREE.Vector2;
+  ndcPrev: THREE.Vector2;
+  /** Smoothed pointer velocity for this wave, NDC units/s. */
+  velNdc: THREE.Vector2;
+  /** Smoothed pointer presence 0..1 for this wave. */
+  presence: number;
+}
+
 /**
  * Owns the one cursor's input + scroll + press/appear/custom and all smoothing. Constructed by the
  * renderer when {@link interactionActive} first turns true, disposed when it turns false. All
@@ -306,6 +317,9 @@ export class InteractionController {
   private appearLatched = false;
   private readonly customInputs = new Map<string, number>();
   private readonly ripples: RippleState[] = [];
+  // Per-wave pointer-field state (index-parallel to config.waves); each trails the cursor at its own
+  // hover smoothing. Grown/shrunk in update().
+  private readonly fields: PointerField[] = [];
   // Per-binding smoothing state, keyed by binding-object identity (covers scene + every wave list).
   private readonly bindingState = new Map<
     AnyBinding,
@@ -403,7 +417,9 @@ export class InteractionController {
     const cfg = this.cfg();
     if (!cfg) return;
     const d = Math.max(dt, 0);
-    const kPointer = alpha(cfg.interaction?.smoothing ?? DEFAULT_POINTER_TAU, d);
+    // The SHARED pointer state feeds binding sources (hover / pointerX-Y / pointerSpeed / press) at a
+    // fixed baseline; each wave's FIELD trails at its own hover smoothing further below.
+    const kPointer = alpha(DEFAULT_POINTER_TAU, d);
 
     // Pointer position + presence + press.
     this.ndcPrev.copy(this.ndc);
@@ -418,6 +434,32 @@ export class InteractionController {
       this.velNdc.y += ((this.ndc.y - this.ndcPrev.y) / d - this.velNdc.y) * kv;
     }
     this.pointerSpeed = this.presence * clamp01(this.velNdc.length() / POINTER_SPEED_REF);
+
+    // Per-wave pointer FIELD: each wave lags toward the same raw cursor target at its OWN smoothing,
+    // so a stack trails the cursor at different rates (a parallax drag).
+    const waves = cfg.waves;
+    if (this.fields.length > waves.length) this.fields.length = waves.length;
+    for (let i = 0; i < waves.length; i++) {
+      let f = this.fields[i];
+      if (!f) {
+        f = {
+          ndc: this.ndcTarget.clone(),
+          ndcPrev: this.ndcTarget.clone(),
+          velNdc: new THREE.Vector2(),
+          presence: this.presenceTarget,
+        };
+        this.fields[i] = f;
+      }
+      const k = alpha(waves[i].interaction?.hover?.smoothing ?? DEFAULT_POINTER_TAU, d);
+      f.ndcPrev.copy(f.ndc);
+      f.ndc.lerp(this.ndcTarget, k);
+      f.presence += (this.presenceTarget - f.presence) * k;
+      if (d > 1e-5) {
+        const kv = alpha(VELOCITY_TAU, d);
+        f.velNdc.x += ((f.ndc.x - f.ndcPrev.x) / d - f.velNdc.x) * kv;
+        f.velNdc.y += ((f.ndc.y - f.ndcPrev.y) / d - f.velNdc.y) * kv;
+      }
+    }
 
     // Scroll progress + velocity.
     const rawScroll = this.scrollOverride ?? this.computeScroll();
@@ -500,10 +542,16 @@ export class InteractionController {
     return clamp01((vh - rect.top) / (vh + rect.height));
   }
 
-  /** The pointer-field state for the renderer (live references — read synchronously). */
+  /** The shared pointer-field state + ripples for the renderer (live references — read synchronously). */
   sample(): InteractionSample {
     this.out.presence = this.presence;
     return this.out;
+  }
+
+  /** This wave's smoothed pointer-field state (it trails the cursor at its own hover smoothing), or
+   *  null if the wave hasn't been advanced by update() yet (treat as rest). */
+  fieldFor(waveIdx: number): PointerField | null {
+    return this.fields[waveIdx] ?? null;
   }
 
   /** Feed a `custom:<name>` input (developer API; staged/forwarded by the shell). */
@@ -527,6 +575,12 @@ export class InteractionController {
     this.ndc.set(0, 0);
     this.ndcTarget.set(0, 0);
     this.ndcPrev.set(0, 0);
+    for (const f of this.fields) {
+      f.ndc.set(0, 0);
+      f.ndcPrev.set(0, 0);
+      f.velNdc.set(0, 0);
+      f.presence = 0;
+    }
     for (const r of this.ripples) {
       r.age = 0;
       r.amp = 0;

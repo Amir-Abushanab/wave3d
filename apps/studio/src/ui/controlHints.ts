@@ -88,8 +88,6 @@ const CONTROL_HINTS: Record<string, string> = {
   // Scene-level shared inputs (one cursor + scroll):
   "pointer radius":
     "Reach of the pointer/hover effects, as a fraction of viewport height. Shared by every wave. Larger = a broader area reacts.",
-  "pointer smoothing":
-    "How much the pointer's follow lags the cursor — larger is smoother/slower (seconds).",
   touch: "Also follow touch input. Off by default so touch-scrolling a page isn't hijacked.",
   // Per-wave Hover field:
   enabled:
@@ -124,6 +122,9 @@ const FOLDER_HINTS: Record<string, string> = {
   // Output → "quality" is the exported-image compression, not the Global mesh "quality".
   "Output quality":
     "Compression quality for the exported image — higher looks better but weighs more.",
+  // Hover → "smoothing" is this wave's cursor-follow lag, not a reaction's input smoothing.
+  "Hover smoothing":
+    "How quickly THIS wave's swell trails the cursor — larger lags more. Give stacked strands different values for a parallax drag.",
 };
 
 const SEP = " ";
