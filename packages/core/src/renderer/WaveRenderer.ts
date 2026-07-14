@@ -263,8 +263,9 @@ export class WaveRenderer {
   // ---- Interaction layer (optional; created only when config.interaction is active) ----
   /** Created by syncInteraction() when interaction turns on, disposed when it turns off. */
   protected interaction?: InteractionController;
-  /** Extra ortho-zoom MULTIPLIER from a cameraZoom binding (1 = none); applied in applyZoom(). */
-  private interactionZoom = 1;
+  /** Extra ortho-zoom MULTIPLIER from a cameraZoom binding (1 = none); applied in applyZoom().
+   *  Protected so the studio's writeCameraToConfig() can divide it back out (keep it out of config). */
+  protected interactionZoom = 1;
   /** Extra time-offset DELTA from a timeOffset binding (0 = none); added in updateTime(). */
   private interactionTimeOffset = 0;
   /** Scene-binding out-params: appliers write into this, applyBindings() reads it back. */
@@ -1359,7 +1360,12 @@ export class WaveRenderer {
       this.interaction.dispose();
       this.interaction = undefined;
       this.interactionTimeOffset = 0;
-      this.interactionZoom = 1;
+      // Clear any live scroll→cameraZoom multiplier left in camera.zoom: with the controller gone
+      // applyBindings won't run to reset it, so recompute the zoom here (no-op when already 1).
+      if (this.interactionZoom !== 1) {
+        this.interactionZoom = 1;
+        this.applyZoom();
+      }
     }
   }
 
@@ -1444,14 +1450,15 @@ export class WaveRenderer {
     // interactionTimeOffset is the DELTA over config.timeOffset (updateTime adds both together).
     this.interactionTimeOffset =
       this.interactionSceneOut.timeOffset - (this.config.timeOffset ?? 0);
-    // interactionZoom is a MULTIPLIER over config.cameraZoom (applyZoom multiplies both). Inert while
-    // an external driver owns the camera (studio orbit writes camera.zoom back into config).
-    if (!this.isCameraExternallyDriven()) {
-      const nextZoom = this.interactionSceneOut.zoom / (this.config.cameraZoom || 1);
-      if (nextZoom !== this.interactionZoom) {
-        this.interactionZoom = nextZoom;
-        this.applyZoom();
-      }
+    // interactionZoom is a MULTIPLIER over config.cameraZoom (applyZoom multiplies both). This runs
+    // even in the studio (where orbit owns the camera) so a scroll→cameraZoom reaction previews:
+    // applyZoom only re-fires when the multiplier actually CHANGES (i.e. you scrub the scroll
+    // preview), so it never fights an idle orbit; writeCameraToConfig divides it back out so it can't
+    // bake into the saved/exported config, and captureImage strips it so posters use the authored zoom.
+    const nextZoom = this.interactionSceneOut.zoom / (this.config.cameraZoom || 1);
+    if (nextZoom !== this.interactionZoom) {
+      this.interactionZoom = nextZoom;
+      this.applyZoom();
     }
   }
 
@@ -1502,11 +1509,11 @@ export class WaveRenderer {
   protected applyZoom(): void {
     const dw = this.camera.right - this.camera.left; // device px (set in resize)
     const dh = this.camera.top - this.camera.bottom;
-    // A cameraZoom binding multiplies in here — but NOT while an external driver owns the camera
-    // (studio orbit inverts camera.zoom back into config via writeCameraToConfig, so an unguarded
-    // factor would get baked into saved configs). interactionZoom stays 1 unless a binding drives it.
-    const bound = this.isCameraExternallyDriven() ? 1 : this.interactionZoom;
-    this.camera.zoom = Math.max(dw / FRAME_W, dh / FRAME_H) * (this.config.cameraZoom ?? 1) * bound;
+    // A cameraZoom binding multiplies in here. It stays 1 unless a binding drives it; when one does,
+    // writeCameraToConfig divides it back out (so the studio's orbit-persisted config isn't polluted)
+    // and captureImage strips it from camera.zoom (so exports use the authored framing).
+    this.camera.zoom =
+      Math.max(dw / FRAME_W, dh / FRAME_H) * (this.config.cameraZoom ?? 1) * this.interactionZoom;
     this.camera.updateProjectionMatrix();
   }
 
@@ -1594,14 +1601,27 @@ export class WaveRenderer {
       this.introTimeRamp = 1;
     }
     let blob: Blob | null = null;
+    // Exports use the AUTHORED framing — strip any live scroll→cameraZoom multiplier from camera.zoom
+    // for the capture render (config itself is never polluted, so code/embed exports are already
+    // clean; this covers the pixel capture). The trailing renderOnce() restores the live preview.
+    const prevZoom = this.camera.zoom;
+    const strippingZoom = this.interactionZoom !== 1;
     try {
       this.capturing = true;
+      if (strippingZoom) {
+        this.camera.zoom = prevZoom / this.interactionZoom;
+        this.camera.updateProjectionMatrix();
+      }
       this.renderOnce();
       blob = await new Promise<Blob | null>((resolve) =>
         this.canvas.toBlob(resolve, mime, quality),
       );
     } finally {
       this.capturing = false;
+      if (strippingZoom) {
+        this.camera.zoom = prevZoom;
+        this.camera.updateProjectionMatrix();
+      }
       if (transparent !== prevBg) {
         this.config.transparentBackground = prevBg;
         this.applyBackground();

@@ -728,7 +728,11 @@ export class StudioWaveRenderer extends WaveRenderer {
       (this.camera.right - this.camera.left) / FRAME_W,
       (this.camera.top - this.camera.bottom) / FRAME_H,
     );
-    if (cover > 0) this.config.cameraZoom = roundTo(this.camera.zoom / cover, 3);
+    // Divide interactionZoom back out too: a live scroll→cameraZoom reaction multiplies camera.zoom
+    // for the preview, but only the authored zoom belongs in the persisted (and exported) config.
+    if (cover > 0) {
+      this.config.cameraZoom = roundTo(this.camera.zoom / cover / (this.interactionZoom || 1), 3);
+    }
     if (this.orbit) {
       const t = this.orbit.target;
       this.config.cameraTarget = {
