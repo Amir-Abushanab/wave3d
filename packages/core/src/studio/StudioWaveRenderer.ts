@@ -407,12 +407,17 @@ export class StudioWaveRenderer extends WaveRenderer {
     this.scrollPreview = v;
     if (this.interaction) {
       this.interaction.scrollOverride = v;
-      // When paused / offscreen the render loop isn't advancing the controller, so snap the scroll
-      // bindings to the previewed value (settle() sets scroll → override and resolves the bindings)
-      // before drawing the still frame — otherwise dragging the slider would do nothing.
-      if (!this.running) this.interaction.settle();
+      // Apply the scrub immediately, whether or not the loop is "running". The studio page never
+      // really scrolls, so this is a manual scrub that must reflect the instant you drag the slider —
+      // we can't defer to the render loop to pick up scrollOverride, because the browser fully
+      // SUSPENDS requestAnimationFrame whenever the studio tab isn't the foreground tab, so a
+      // "running" loop is frozen and the slider looks dead. (The old `!this.running` guard only ever
+      // covered the explicitly-paused case, missing every background-tab / occluded-window case.)
+      // snapScroll() resolves just the scroll bindings, leaving live pointer/press state untouched.
+      this.interaction.snapScroll();
+      this.renderOnce();
     }
-    if (!this.running) this.renderOnce();
+    // No controller yet → nothing to scrub; onAfterRefresh re-applies scrollPreview once one exists.
   }
 
   duplicateOffset(): { x: number; y: number; z: number } {

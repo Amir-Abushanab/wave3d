@@ -601,6 +601,29 @@ export class InteractionController {
     }
   }
 
+  /**
+   * Snap scroll progress + the scroll-sourced bindings to the current override at once, leaving
+   * every other input (pointer / press / appear / velocity / custom) advancing live. Used by the
+   * studio scroll preview: the studio page never really scrolls, so dragging the preview slider is a
+   * manual scrub that must reflect the instant you move it — not on the next animation frame, which
+   * the browser fully suspends whenever the tab isn't foreground. Unlike settle() (which collapses
+   * ALL input to rest for a paused still frame), this touches only the scroll signal.
+   */
+  snapScroll(): void {
+    const raw = this.scrollOverride ?? this.computeScroll();
+    this.scroll = this.scrollPrev = raw;
+    this.scrollVel = 0; // a static scrub has no velocity
+    const cfg = this.cfg();
+    if (!cfg) return;
+    const snap = (b: AnyBinding): void => {
+      if (b.source === "scroll" || b.source === "scrollVelocity") {
+        this.bindingState.set(b, { value: this.rawSource(b.source), source: b.source });
+      }
+    };
+    for (const b of cfg.interaction?.bindings ?? []) snap(b);
+    for (const w of cfg.waves) for (const b of w.interaction?.bindings ?? []) snap(b);
+  }
+
   dispose(): void {
     const c = this.container;
     c.removeEventListener("pointerenter", this.onPointerEnter);
