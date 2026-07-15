@@ -420,6 +420,22 @@ export class StudioWaveRenderer extends WaveRenderer {
     // No controller yet → nothing to scrub; onAfterRefresh re-applies scrollPreview once one exists.
   }
 
+  /** Feed a live scroll position (0..1) from the studio scroll-test overlay — a real scrollable
+   *  surface the user drags/wheels. Unlike setScrollPreview's instant snap (built for the slider and
+   *  a possibly-frozen loop), this leaves the RUNNING render loop's update() to smooth the bindings
+   *  and derive `scrollVelocity` from the real scroll delta, so the wave reacts exactly as it would on
+   *  a scrolling page (velocity included). Falls back to a snapped frame when the loop isn't running
+   *  (paused / reduced-motion), so the preview still tracks. Like setScrollPreview it NEVER touches config. */
+  setScrollTestProgress(v: number): void {
+    this.scrollPreview = v;
+    if (!this.interaction) return;
+    this.interaction.scrollOverride = v;
+    if (!this.running) {
+      this.interaction.snapScroll();
+      this.renderOnce();
+    }
+  }
+
   duplicateOffset(): { x: number; y: number; z: number } {
     this.camera.updateMatrixWorld();
     const worldW = (this.camera.right - this.camera.left) / this.camera.zoom; // visible world span

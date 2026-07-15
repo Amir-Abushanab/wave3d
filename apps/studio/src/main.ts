@@ -5,6 +5,7 @@ import type { StudioConfig } from "@wave3d/core";
 import { randomizeConfig } from "@wave3d/core/studio";
 import { PRESETS } from "./presets";
 import { ControlPanel } from "./ui/ControlPanel";
+import { ScrollTestOverlay } from "./ui/ScrollTestOverlay";
 import { CodeExportDialog } from "./ui/CodeExportDialog";
 import { publishToGallery } from "./publishToGallery";
 import { OutputResizeHandle } from "./ui/OutputResizeHandle";
@@ -93,6 +94,8 @@ const makeDefault = (): StudioConfig => PRESETS[DEFAULT_PRESET]();
 const hasSharedLink = /[#&]w=/.test(location.hash);
 let config: StudioConfig = makeDefault();
 const renderer = new StudioWaveRenderer(stage, config, { skipIntroRamp: import.meta.env.DEV });
+// Scrollable test surface over the wave (opened from Interaction → Scroll preview → "Scroll to test…").
+const scrollTest = new ScrollTestOverlay(stage, renderer);
 const exportSize = { ...DEFAULT_EXPORT_SIZE };
 
 function updateExportPresentation(refitPreview: boolean): void {
@@ -192,6 +195,7 @@ const panel = new ControlPanel(panelEl, renderer, config, {
   exportSize,
   onExportSizeChange: applyExportSize,
   onSizeControlsActive: (active) => stage!.classList.toggle("size-adjusting", active),
+  onOpenScrollTest: () => scrollTest.toggle(),
   onExportImage: (format, quality) => {
     void exportImage(renderer, exportSize, format, config.transparentBackground, quality);
   },

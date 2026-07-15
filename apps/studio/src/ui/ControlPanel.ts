@@ -108,6 +108,9 @@ export interface PanelHooks {
   /** Fired with true/false as the pointer/focus enters/leaves the size controls, so the app can
    *  reveal the export-area readout for live feedback while you adjust the dimensions. */
   onSizeControlsActive?: (active: boolean) => void;
+  /** Open (toggle) the scroll-test overlay — a scrollable surface over the wave for testing
+   *  `scroll` / `scrollVelocity` reactions by actually scrolling (companion to the preview slider). */
+  onOpenScrollTest?: () => void;
 }
 
 /**
@@ -1084,6 +1087,11 @@ export class ControlPanel {
         step: 0.01,
       })
       .on("change", () => this.renderer.setScrollPreview(scrollPrev.preview));
+    // …or scroll for real: open a scrollable test surface over the wave (drives the same scroll input,
+    // and — unlike the slider — produces real scroll velocity). The control panel stays usable while it's open.
+    previewF
+      .addButton({ title: "↕ Scroll to test…" })
+      .on("click", () => this.hooks.onOpenScrollTest?.());
     this.renderer.setScrollPreview(scrollPrev.preview); // apply the rest state on (re)build
   }
 
