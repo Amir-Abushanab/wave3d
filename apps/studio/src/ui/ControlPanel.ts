@@ -1099,7 +1099,7 @@ export class ControlPanel {
     // …or scroll for real: open a scrollable test surface over the wave (drives the same scroll input,
     // and — unlike the slider — produces real scroll velocity). The control panel stays usable while it's open.
     previewF
-      .addButton({ title: "↕ Scroll to test…" })
+      .addButton({ title: "🖱 Scroll to test…" })
       .on("click", () => this.hooks.onOpenScrollTest?.());
     this.renderer.setScrollPreview(scrollPrev.preview); // apply the rest state on (re)build
   }
@@ -1930,6 +1930,28 @@ export class ControlPanel {
       "⏹": svg(
         '<rect x="3.5" y="3.5" width="9" height="9" rx="1.6" fill="currentColor" stroke="none"/>',
       ),
+      "🖼": svg(
+        '<rect x="2.2" y="3.4" width="11.6" height="9.2" rx="1.4"/><circle cx="5.7" cy="6.6" r="1.15"/><path d="m2.7 11.4 3-3 2.1 1.8 2.5-2.7 3 3.2"/>',
+      ),
+      "🏄": svg(
+        '<rect x="2.3" y="2.3" width="4.7" height="4.7" rx="1"/><rect x="9" y="2.3" width="4.7" height="4.7" rx="1"/><rect x="2.3" y="9" width="4.7" height="4.7" rx="1"/><rect x="9" y="9" width="4.7" height="4.7" rx="1"/>',
+      ),
+      "✨": svg(
+        '<path d="M8 10.2V3.4"/><path d="M4.9 6.5 8 3.4l3.1 3.1"/><path d="M3.2 10.8v1.6a1 1 0 0 0 1 1h7.6a1 1 0 0 0 1-1v-1.6"/>',
+      ),
+      "⟨⟩": svg(
+        '<path d="M5.6 4.7 2.2 8l3.4 3.3"/><path d="M10.4 4.7 13.8 8l-3.4 3.3"/><path d="M9 3.6 7 12.4"/>',
+      ),
+      "↔": svg(
+        '<path d="M8 2.4v11.2" stroke-dasharray="1.4 1.7"/><path d="M3.2 4.8v6.4L6.6 8Z"/><path d="M12.8 4.8v6.4L9.4 8Z"/>',
+      ),
+      "↕": svg(
+        '<path d="M2.4 8h11.2" stroke-dasharray="1.4 1.7"/><path d="M4.8 3.2h6.4L8 6.6Z"/><path d="M4.8 12.8h6.4L8 9.4Z"/>',
+      ),
+      "⟲": svg(
+        '<path d="M3 5.6V3h2.6"/><path d="M10.4 3H13v2.6"/><path d="M13 10.4V13h-2.6"/><path d="M5.6 13H3v-2.6"/>',
+      ),
+      "🖱": svg('<rect x="4.7" y="2.2" width="6.6" height="11.6" rx="3.3"/><path d="M8 4.4v2.3"/>'),
     };
     injectStyleOnce(
       "wv-icon-style",
@@ -1939,8 +1961,10 @@ export class ControlPanel {
       const txt = el.textContent ?? "";
       for (const [emoji, icon] of Object.entries(ICONS)) {
         if (txt.startsWith(emoji)) {
+          // Strip the matched emoji + any leftover variation selector (U+FE0F) / spaces so only the
+          // label text follows the icon.
           (el as HTMLElement).innerHTML =
-            `<span class="wv-ic">${icon}</span>${txt.slice(emoji.length).trimStart()}`;
+            `<span class="wv-ic">${icon}</span>${txt.slice(emoji.length).replace(/^[\uFE0F\s]+/, "")}`;
           break;
         }
       }
