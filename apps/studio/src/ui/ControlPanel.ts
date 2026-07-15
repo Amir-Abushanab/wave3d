@@ -129,9 +129,18 @@ type VecRows = (
   axisLabels?: [string, string, string],
 ) => void;
 
+/** Move a freshly-added button to the top of its folder, so every section leads with its 🎲
+ *  in the same spot — regardless of when it's added during a build (Tweakpane only ever appends). */
+function seatRandomAtTop(folder: FolderApi, el: HTMLElement): void {
+  const root = folder.element;
+  const content = (root.querySelector(".tp-fldv_c") as HTMLElement | null) ?? root;
+  content.prepend(el);
+}
+
 /**
- * "Randomize All" wears an animated gradient border — rolling it is the fastest way for a newcomer
- * to grok what the whole tool does, so we make the button catch the eye. Implementation notes:
+ * "Tasteful Randomize" wears an animated gradient border — rolling it is the fastest way for a
+ * newcomer to grok what the whole tool does, so we make the button catch the eye. Implementation
+ * notes:
  *   • A masked `::after` ring paints the gradient over the button's *native* fill + hover and adds
  *     no layout box, so it stays pixel-aligned with the sibling action buttons.
  *   • `@property --wv-ra-angle` makes the conic angle animatable (the ring slowly rotates, with a
@@ -615,10 +624,10 @@ export class ControlPanel {
   /** "Actions" folder: randomize/reset/save/load/share. */
   private buildActionsFolder(mkFolder: MkFolder): void {
     const actions = mkFolder("Actions", true);
-    // Give "Randomize All" an animated gradient border so newcomers immediately spot the quickest
-    // way to see what the tool can do (styles injected once — see RANDOMIZE_ALL_CSS).
+    // Give "Tasteful Randomize" an animated gradient border so newcomers immediately spot the
+    // quickest way to see what the tool can do (styles injected once — see RANDOMIZE_ALL_CSS).
     injectStyleOnce("wv-randomize-all-style", RANDOMIZE_ALL_CSS);
-    const randomizeAll = actions.addButton({ title: "🎲 Randomize All" });
+    const randomizeAll = actions.addButton({ title: "🎲 Tasteful Randomize" });
     randomizeAll.on("click", () => this.hooks.onRandomize?.());
     randomizeAll.element.classList.add("wv-randomize-all");
     actions.addButton({ title: "🔄 Reset to default" }).on("click", () => this.hooks.onReset?.());
@@ -634,14 +643,14 @@ export class ControlPanel {
       linkBtn.title = ok === false ? "✓ URL updated (copy it)" : "✓ Link copied!";
       setTimeout(() => (linkBtn.title = "🔗 Copy share link"), 1600);
     });
-    actions
-      .addButton({ title: "✨ Publish to gallery" })
-      .on("click", () => this.hooks.onPublishToGallery?.());
     // The gallery lives at /gallery/ on the same origin (dev proxy + combined build), so a plain
     // same-origin navigation works in both. Same tab: the studio and gallery are one site.
     actions
       .addButton({ title: "🏄 Surf the gallery" })
       .on("click", () => window.location.assign("/gallery/"));
+    actions
+      .addButton({ title: "✨ Publish to gallery" })
+      .on("click", () => this.hooks.onPublishToGallery?.());
   }
 
   /** "Global" folder: preset picker, quality/DPR, playback, post fx, mirror. */
@@ -1327,12 +1336,14 @@ export class ControlPanel {
     // renderer + refresh the sliders. `after` handles non-binding widgets (gradient
     // editor) or camera reframing.
     const randomBtn = (folder: Folder, fn: (c: StudioConfig) => void, after?: () => void): void => {
-      folder.addButton({ title: "🎲 randomize" }).on("click", () => {
+      const btn = folder.addButton({ title: "🎲 randomize" });
+      btn.on("click", () => {
         fn(cfg);
         refresh();
         pane.refresh();
         after?.();
       });
+      seatRandomAtTop(folder, btn.element);
     };
 
     this.buildOutputFolder(pane, mkFolder);
@@ -1352,11 +1363,13 @@ export class ControlPanel {
       // Per-section 🎲 that mutates only this wave's section, then rebuilds so the sliders
       // (some of which bind to replaced Vec objects) reflect the new values.
       const sectionRandom = (folder: Folder, fn: (s: WaveConfig) => void): void => {
-        folder.addButton({ title: "🎲 randomize" }).on("click", () => {
+        const btn = folder.addButton({ title: "🎲 randomize" });
+        btn.on("click", () => {
           fn(wave);
           refresh();
           setTimeout(() => this.rebuildPanel(), 0);
         });
+        seatRandomAtTop(folder, btn.element);
       };
       sf.addButton({ title: "🎲 randomize wave" }).on("click", () => {
         randomizeWave(wave);

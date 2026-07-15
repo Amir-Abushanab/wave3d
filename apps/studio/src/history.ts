@@ -17,7 +17,7 @@ interface Entry {
   config: StudioConfig;
   /** Cached fingerprint of `config`, so the no-op guard never re-serializes stored entries. */
   fingerprint: string;
-  /** Human label shown in the history list (e.g. "hue shift", "Randomize All", "Hero"). */
+  /** Human label shown in the history list (e.g. "hue shift", "Tasteful Randomize", "Hero"). */
   label: string;
   /** Preset-dropdown label to restore when this entry is applied (independent of `label`). */
   presetName: string;

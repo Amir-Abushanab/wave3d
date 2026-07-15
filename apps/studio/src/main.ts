@@ -180,7 +180,7 @@ const panel = new ControlPanel(panelEl, renderer, config, {
     const make = PRESETS[name];
     if (make) applyConfig(make(), name, true, name);
   },
-  onRandomize: () => applyConfig(randomizeConfig(config), "—", true, "Randomize All"),
+  onRandomize: () => applyConfig(randomizeConfig(config), "—", true, "Tasteful Randomize"),
   onReset: () => applyConfig(makeDefault(), DEFAULT_PRESET, true, "Reset"),
   onCopyLink: () => copyShareLink(config),
   onPublishToGallery: () => publishToGallery(config),
