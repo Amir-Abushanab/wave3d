@@ -190,11 +190,10 @@ varying vec4 vClipPosition; // = gl_Position, for the wireframe theme's depth fa
 // — see makeUniforms — but three only uploads uniforms the compiled program actually declares).
 #ifdef POINTER_FX
 uniform vec2  uPointer;        // smoothed pointer, NDC (-1..1)
-uniform vec3  uPointerVel;     // smoothed pointer velocity, world units/s
 uniform float uPointerActive;  // presence ramp 0..1 × per-wave influence
 uniform float uPointerRadius;  // falloff radius in NDC-y units (config radius × 2)
 uniform float uPointerAspect;  // drawing-buffer dw/dh (circular screen falloff)
-uniform float uPointerHump, uPointerSwoosh, uPointerAgitate;
+uniform float uPointerAgitate;
 varying float vPointerFall;    // falloff × presence — consumed by both fragment themes
 #ifdef POINTER_RIPPLES
 uniform vec2  uRippleOrigin[4]; // NDC
@@ -294,17 +293,16 @@ void main(){
   vec2 dp = (preClip.xy / max(preClip.w, 1.0e-6) - uPointer) * vec2(uPointerAspect, 1.0);
   float fall = smoothstep(uPointerRadius, 0.0, length(dp));
   vPointerFall = fall * uPointerActive;
-  // Hump axis = local +Y carried through the SAME three twist rotations as pos (row-vector
+  // Displacement axis = local +Y carried through the SAME three twist rotations as pos (row-vector
   // convention). Rotations are linear, so post-twist axis displacement equals pre-twist Y displacement.
-  vec3 humpAxis = (((vec4(0.0, 1.0, 0.0, 0.0) * rotA) * rotB) * rotC).xyz;
-  float disp = uPointerHump * vPointerFall;
-  // Agitation: an extra fast churn octave near the cursor (additive — never rewrites base noise t,
-  // which would force restructuring the shared path). Loop-safe under both time variants.
+  vec3 dispAxis = (((vec4(0.0, 1.0, 0.0, 0.0) * rotA) * rotB) * rotC).xyz;
+  // Agitation: a fast churn octave near the cursor (additive — never rewrites base noise t, which
+  // would force restructuring the shared path). Loop-safe under both time variants.
 #ifdef LOOP_MOTION
-  disp += uPointerAgitate * vPointerFall
+  float disp = uPointerAgitate * vPointerFall
         * simplexNoise(vec2(pos.x * uDispFreqX * 3.0, pos.z * uDispFreqZ * 3.0) + loopOff * 4.0);
 #else
-  disp += uPointerAgitate * vPointerFall
+  float disp = uPointerAgitate * vPointerFall
         * simplexNoise(vec2(pos.x * uDispFreqX * 3.0 + t * 4.0, pos.z * uDispFreqZ * 3.0));
 #endif
 #ifdef POINTER_RIPPLES
@@ -316,17 +314,12 @@ void main(){
     }
   }
 #endif
-  pos += humpAxis * disp;
+  pos += dispAxis * disp;
 #endif
 
   // The scale / rotation / position transform lives on the mesh (modelMatrix), so the
   // orientation matches THREE's Euler-XYZ rather than an in-shader rotation order.
   vec4 world = modelMatrix * vec4(pos, 1.0);
-#ifdef POINTER_FX
-  // Swoosh: a velocity-directed sweep in world space (one fenced insert; the lines around it are
-  // untouched). Velocity is a screen/world quantity, so it applies here rather than on pos.
-  world.xyz += uPointerVel * (uPointerSwoosh * vPointerFall);
-#endif
   vWorldPos = world.xyz;
   vViewDir = cameraPosition - world.xyz;
   gl_Position = projectionMatrix * viewMatrix * world;

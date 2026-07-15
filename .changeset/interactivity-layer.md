@@ -3,8 +3,8 @@
 ---
 
 Add an optional, additive, default-off interactivity layer, scoped **per wave**. Each `WaveConfig`
-gains an `interaction` block with three parts: **`hover`** (a cursor-follow pointer field — swell,
-swoosh, local agitation, strand-thinning, hue/lighten), **`press`** (click/tap ripples), and
+gains an `interaction` block with three parts: **`hover`** (a cursor-follow pointer field — local
+agitation, strand-thinning, hue/lighten), **`press`** (click/tap ripples), and
 **`bindings`** that smoothly drive that wave's params from an input. Sources: `scroll`, `hover`,
 `pointerX`/`pointerY`, `pointerSpeed`, `press`, `scrollVelocity`, `appear`, and developer-fed
 `custom:*`. Each wave's hover field has its own `smoothing` (cursor-follow lag — vary it across a

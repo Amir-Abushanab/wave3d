@@ -50,7 +50,7 @@ const blob = await handle.snapshot(); // resolves null until running. options: {
 
 Interactivity is **per wave** and **off by default** — omit it and the wave (and its compiled shader) is byte-for-byte unchanged. Each wave takes an optional `interaction` with three parts:
 
-- **`hover`** — the cursor-follow field: `hump` (swell), `swoosh`, `agitate`, `thin`, `hueShift`, `lighten`, and `smoothing` (this wave's follow-lag — vary it across a stack for a parallax drag).
+- **`hover`** — the cursor-follow field: `agitate` (local churn), `thin`, `hueShift`, `lighten`, and `smoothing` (this wave's follow-lag — vary it across a stack for a parallax drag).
 - **`press`** — `ripple` (rings from a click / tap).
 - **`bindings`** — inputs that drive this wave's params: `{ source, target, from?, to }`.
 
@@ -58,7 +58,7 @@ Interactivity is **per wave** and **off by default** — omit it and the wave (a
 // React — the flat `interaction` prop targets the first wave:
 <Wave3D
   interaction={{
-    hover: { hump: 8, thin: 0.4 }, // swell + strand-thinning under the cursor
+    hover: { agitate: 6, thin: 0.4 }, // local churn + strand-thinning under the cursor
     press: { ripple: 6 }, // click ripples
     bindings: [{ source: "hover", target: "displaceAmount", to: 12 }], // taller folds while hovered
   }}

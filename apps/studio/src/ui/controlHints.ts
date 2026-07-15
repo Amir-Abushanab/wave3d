@@ -92,8 +92,6 @@ const CONTROL_HINTS: Record<string, string> = {
   // Per-wave Hover field:
   enabled:
     "Turn this effect on for this wave. Off keeps the values but stops it affecting the wave.",
-  hump: "How strongly THIS wave swells under the cursor — negative dents it. Same units as Displace amount.",
-  swoosh: "Sweeps the surface toward where the cursor is moving — a velocity-driven smear.",
   agitate: "Adds fast local churn (an extra noise octave) right around the cursor.",
   thin: "Near the cursor: wireframe strands taper to hairlines; a solid surface turns locally translucent.",
   "hue shift": "Rotates the colour near the cursor around the hue wheel (degrees).",

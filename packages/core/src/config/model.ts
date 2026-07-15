@@ -303,13 +303,10 @@ export interface SceneInteractionBinding extends InteractionBindingBase {
 }
 
 /** Hover pointer-field: localized effects that follow the cursor over this wave. Present ⇒ the
- *  POINTER_FX shader path compiles for this wave; each effect defaults to 0. */
+ *  POINTER_FX shader path compiles for this wave; an absent effect is 0 (inert). */
 export interface WaveHoverConfig {
-  /** Swell amplitude under the cursor, wave-local units (same scale as displaceAmount). Negative dents. */
-  hump?: number;
-  /** Velocity-directed sweep strength (world space). */
-  swoosh?: number;
-  /** Local churn-octave amplitude near the cursor. */
+  /** Local churn-octave amplitude near the cursor — the wave agitates under the pointer. The studio
+   *  defaults this positive when you enable a hover field, so a fresh hover reacts out of the box. */
   agitate?: number;
   /** 0..1 — wireframe strands taper to hairlines; solid gains local translucency. */
   thin?: number;
@@ -331,7 +328,7 @@ export interface WavePressConfig {
 
 /** Per-wave interactivity: this wave's own reaction to the shared pointer + inputs. ABSENT ⇒ inert. */
 export interface WaveInteractionConfig {
-  /** Hover field (cursor-follow swell / swoosh / agitation / thinning / hue-lighten). */
+  /** Hover field (cursor-follow agitation / thinning / hue-lighten). */
   hover?: WaveHoverConfig;
   /** Click & touch (ripples radiating from a tap/click on this wave). */
   press?: WavePressConfig;
@@ -808,8 +805,6 @@ export function normalizeWaveInteraction(wave: WaveConfig): void {
   if (!it) return;
   const h = it.hover;
   if (h) {
-    if (h.hump !== undefined) h.hump = clampNumber(h.hump, -60, 60, 6);
-    if (h.swoosh !== undefined) h.swoosh = clampNumber(h.swoosh, -60, 60, 0);
     if (h.agitate !== undefined) h.agitate = clampNumber(h.agitate, 0, 60, 0);
     if (h.thin !== undefined) h.thin = clampNumber(h.thin, 0, 1, 0);
     if (h.hueShift !== undefined) h.hueShift = clampNumber(h.hueShift, -360, 360, 0);

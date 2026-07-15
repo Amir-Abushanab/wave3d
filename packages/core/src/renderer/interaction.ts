@@ -274,8 +274,6 @@ interface RippleState extends RippleSlot {
 export interface InteractionSample {
   /** Smoothed pointer position, NDC (-1..1). */
   ndc: THREE.Vector2;
-  /** Smoothed pointer velocity, NDC units/s (the renderer maps this to world space for swoosh). */
-  velNdc: THREE.Vector2;
   /** Smoothed pointer presence 0..1 (→ uPointerActive). */
   presence: number;
   /** Click-ripple ring buffer (amp = shared 0..1 envelope; 0 = free slot). */
@@ -286,9 +284,6 @@ export interface InteractionSample {
 export interface PointerField {
   /** Smoothed pointer position for this wave, NDC (-1..1). */
   ndc: THREE.Vector2;
-  ndcPrev: THREE.Vector2;
-  /** Smoothed pointer velocity for this wave, NDC units/s. */
-  velNdc: THREE.Vector2;
   /** Smoothed pointer presence 0..1 for this wave. */
   presence: number;
 }
@@ -334,7 +329,7 @@ export class InteractionController {
     for (let i = 0; i < RIPPLE_SLOTS; i++) {
       this.ripples.push({ origin: new THREE.Vector2(), age: 0, amp: 0, active: false });
     }
-    this.out = { ndc: this.ndc, velNdc: this.velNdc, presence: 0, ripples: this.ripples };
+    this.out = { ndc: this.ndc, presence: 0, ripples: this.ripples };
     const opts = { passive: true } as const;
     container.addEventListener("pointerenter", this.onPointerEnter, opts);
     container.addEventListener("pointermove", this.onPointerMove, opts);
@@ -442,23 +437,12 @@ export class InteractionController {
     for (let i = 0; i < waves.length; i++) {
       let f = this.fields[i];
       if (!f) {
-        f = {
-          ndc: this.ndcTarget.clone(),
-          ndcPrev: this.ndcTarget.clone(),
-          velNdc: new THREE.Vector2(),
-          presence: this.presenceTarget,
-        };
+        f = { ndc: this.ndcTarget.clone(), presence: this.presenceTarget };
         this.fields[i] = f;
       }
       const k = alpha(waves[i].interaction?.hover?.smoothing ?? DEFAULT_POINTER_TAU, d);
-      f.ndcPrev.copy(f.ndc);
       f.ndc.lerp(this.ndcTarget, k);
       f.presence += (this.presenceTarget - f.presence) * k;
-      if (d > 1e-5) {
-        const kv = alpha(VELOCITY_TAU, d);
-        f.velNdc.x += ((f.ndc.x - f.ndcPrev.x) / d - f.velNdc.x) * kv;
-        f.velNdc.y += ((f.ndc.y - f.ndcPrev.y) / d - f.velNdc.y) * kv;
-      }
     }
 
     // Scroll progress + velocity.
@@ -577,8 +561,6 @@ export class InteractionController {
     this.ndcPrev.set(0, 0);
     for (const f of this.fields) {
       f.ndc.set(0, 0);
-      f.ndcPrev.set(0, 0);
-      f.velNdc.set(0, 0);
       f.presence = 0;
     }
     for (const r of this.ripples) {

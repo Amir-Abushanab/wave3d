@@ -270,10 +270,6 @@ export class WaveRenderer {
   private interactionTimeOffset = 0;
   /** Scene-binding out-params: appliers write into this, applyBindings() reads it back. */
   private readonly interactionSceneOut = { timeOffset: 0, zoom: 1 };
-  // Per-frame scratch for mapping NDC pointer velocity → a world-space swoosh vector (no alloc).
-  private readonly itRight = new THREE.Vector3();
-  private readonly itUp = new THREE.Vector3();
-  private readonly itVel = new THREE.Vector3();
 
   private readonly timer = new THREE.Timer();
   private time = 0;
@@ -502,12 +498,9 @@ export class WaveRenderer {
       // POINTER_RIPPLES); three uploads them only when the compiled program declares them, so their
       // presence never affects a non-interactive wave (byte-identity precedent: uDetailAmount).
       uPointer: { value: new THREE.Vector2(0, 0) }, // smoothed pointer NDC
-      uPointerVel: { value: new THREE.Vector3(0, 0, 0) }, // smoothed pointer velocity, world units/s
       uPointerActive: { value: 0 }, // presence ramp × per-wave influence
       uPointerRadius: { value: 0.6 }, // falloff radius in NDC-y (config radius × 2)
       uPointerAspect: { value: 1 }, // drawing-buffer dw/dh
-      uPointerHump: { value: 0 },
-      uPointerSwoosh: { value: 0 },
       uPointerAgitate: { value: 0 },
       uPointerThin: { value: 0 },
       uPointerHue: { value: 0 },
@@ -813,8 +806,6 @@ export class WaveRenderer {
       const u = wave.material.uniforms;
       const h = sc.interaction?.hover;
       u.uPointerRadius.value = sharedRadius;
-      u.uPointerHump.value = h?.hump ?? 0;
-      u.uPointerSwoosh.value = h?.swoosh ?? 0;
       u.uPointerAgitate.value = h?.agitate ?? 0;
       u.uPointerThin.value = h?.thin ?? 0;
       u.uPointerHue.value = h?.hueShift ?? 0;
@@ -1378,17 +1369,12 @@ export class WaveRenderer {
   }
 
   /** Write the dynamic pointer-field uniforms to every wave that HAS a pointer field. Position /
-   *  velocity / presence are PER WAVE (each trails the cursor at its own hover smoothing); ripple
-   *  origins/ages are shared. Per-wave amplitudes were already pushed statically in refresh(). */
+   *  presence are PER WAVE (each trails the cursor at its own hover smoothing); ripple origins/ages
+   *  are shared. Per-wave amplitudes were already pushed statically in refresh(). */
   private applyPointerField(ic: InteractionController): void {
-    this.camera.updateMatrixWorld();
     const dw = this.camera.right - this.camera.left;
     const dh = this.camera.top - this.camera.bottom;
     const aspect = dh !== 0 ? dw / dh : 1;
-    const zoom = this.camera.zoom || 1;
-    // Camera screen axes, to map a wave's NDC velocity to a world-space swoosh direction.
-    this.itRight.setFromMatrixColumn(this.camera.matrixWorld, 0);
-    this.itUp.setFromMatrixColumn(this.camera.matrixWorld, 1);
     const ripples = ic.sample().ripples;
     for (let i = 0; i < this.waves.length; i++) {
       const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
@@ -1397,11 +1383,6 @@ export class WaveRenderer {
       const f = ic.fieldFor(i);
       if (f) {
         (u.uPointer.value as THREE.Vector2).copy(f.ndc);
-        this.itVel
-          .copy(this.itRight)
-          .multiplyScalar((f.velNdc.x * dw) / (2 * zoom))
-          .addScaledVector(this.itUp, (f.velNdc.y * dh) / (2 * zoom));
-        (u.uPointerVel.value as THREE.Vector3).copy(this.itVel);
         u.uPointerActive.value = f.presence;
       } else {
         u.uPointerActive.value = 0; // wave not advanced by update() yet → rest (no hover)
@@ -1543,14 +1524,13 @@ export class WaveRenderer {
       // The twist pivot (the mesh's local origin) in world space = the safe sphere's centre.
       const center = this.clipTmpA.setFromMatrixPosition(mesh.matrixWorld);
       const disp = Math.abs(Number(wave.material.uniforms.uDispAmount.value) || 0);
-      // Extra wave-local displacement THIS wave's pointer field can add (hump + agitation + ripple),
-      // so the deformed surface never crosses the fitted near/far planes. 0 when off → byte-identical.
+      // Extra wave-local displacement THIS wave's pointer field can add (agitation + ripple), so the
+      // deformed surface never crosses the fitted near/far planes. 0 when off → byte-identical.
       const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
       let pointerDisp = 0;
       if (wavePointerFxActive(this.config, sc)) {
         const h = sc.interaction?.hover;
-        pointerDisp =
-          Math.abs(h?.hump ?? 0) + (h?.agitate ?? 0) + (sc.interaction?.press?.ripple ?? 0);
+        pointerDisp = (h?.agitate ?? 0) + (sc.interaction?.press?.ripple ?? 0);
       }
       const localRadius = bs.center.length() + bs.radius + disp + pointerDisp;
       const radius = localRadius * mesh.matrixWorld.getMaxScaleOnAxis() * 1.2;

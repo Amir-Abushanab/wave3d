@@ -1098,9 +1098,7 @@ export class ControlPanel {
     const ix = parent.addFolder({ title: "Interaction", expanded: false });
     const h = wave.interaction?.hover;
     const uiHover = {
-      hump: h?.hump ?? 8,
-      swoosh: h?.swoosh ?? 0,
-      agitate: h?.agitate ?? 0,
+      agitate: h?.agitate ?? 6,
       thin: h?.thin ?? 0,
       hueShift: h?.hueShift ?? 0,
       lighten: h?.lighten ?? 0,
@@ -1131,8 +1129,6 @@ export class ControlPanel {
 
     const hoverF = ix.addFolder({ title: "Hover", expanded: true });
     hoverF.addBinding(on, "hover", { label: "enabled" }).on("change", sync);
-    hoverF.addBinding(uiHover, "hump", { min: -30, max: 30, step: 0.1 }).on("change", sync);
-    hoverF.addBinding(uiHover, "swoosh", { min: 0, max: 30, step: 0.1 }).on("change", sync);
     hoverF.addBinding(uiHover, "agitate", { min: 0, max: 15, step: 0.1 }).on("change", sync);
     hoverF.addBinding(uiHover, "thin", { min: 0, max: 1, step: 0.01 }).on("change", sync);
     hoverF

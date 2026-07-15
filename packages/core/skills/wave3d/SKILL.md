@@ -113,7 +113,7 @@ poster) for every entry — the fastest way to hand a designed wave to a develop
 
 Interactivity is **per wave** and **off by default / additive** — omit it and the wave renders
 byte-for-byte as before. Each `WaveConfig.interaction` has three parts: **`hover`** (the cursor-follow
-field — `hump` swell, `swoosh`, `agitate`, `thin`, `hueShift`, `lighten`), **`press`** (`ripple`
+field — `agitate` churn, `thin`, `hueShift`, `lighten`), **`press`** (`ripple`
 rings from a click/tap), and **`bindings`** that smoothly drive that wave's params from an input.
 Sources: `scroll`, `hover`, `pointerX` / `pointerY`, `pointerSpeed`, `press`, `scrollVelocity`,
 `appear`, or a developer-fed `custom:*` (via `handle.setInteractionInput(name, value)` /
