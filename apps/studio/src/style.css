@@ -394,6 +394,17 @@ body {
   backdrop-filter: blur(12px);
 }
 
+/* Split the top-level sections apart (Output / Actions / Global / …) so each reads as its own
+   block instead of one continuous list. A gap with a centred hairline keeps the boundary clear
+   without adding chrome. Only top-level folders carry .wv-section (set in ControlPanel's
+   mkFolder); the adjacent-sibling rule draws the divider *between* sections, so the first one
+   (Output, right under the search box) and every nested sub-folder stay flush. */
+#panel .wv-section + .wv-section {
+  margin-block-start: 10px;
+  border-block-start: 1px solid rgba(255, 255, 255, 0.07);
+  padding-block-start: 10px;
+}
+
 @media (max-width: 760px) {
   :root {
     --panel-width: calc(100vw - var(--edge) * 2);

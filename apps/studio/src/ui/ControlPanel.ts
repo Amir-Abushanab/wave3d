@@ -1047,7 +1047,7 @@ export class ControlPanel {
     cfg: StudioConfig,
     refresh: () => void,
   ): void {
-    const folder = mkFolder("Interaction", false);
+    const folder = mkFolder("Interaction", true);
     const it = cfg.interaction;
     const uiInputs = {
       radius: it?.radius ?? 0.3,
@@ -1310,6 +1310,8 @@ export class ControlPanel {
     this.folders = [];
     const mkFolder = (title: string, expanded: boolean): Folder => {
       const api = pane.addFolder({ title, expanded: this.foldState[title] ?? expanded });
+      // Tag top-level sections so CSS can space them apart (see #panel .wv-section in style.css).
+      api.element.classList.add("wv-section");
       this.folders.push({ title, api });
       return api;
     };
