@@ -355,6 +355,8 @@ export class InteractionController {
     AnyBinding,
     { value: number; source: InteractionSource }
   >();
+  // Scratch set reused by updateBindings every frame (cleared, never reallocated).
+  private readonly seenBindings = new Set<AnyBinding>();
   private readonly out: InteractionSample;
 
   constructor(
@@ -514,24 +516,38 @@ export class InteractionController {
     this.updateBindings(cfg, d);
   }
 
+  // Indexed loops + a reused scratch set (no per-frame closure/array/Set) — this runs every frame.
   private updateBindings(cfg: StudioConfig, dt: number): void {
-    const seen = new Set<AnyBinding>();
-    const visit = (b: AnyBinding): void => {
-      seen.add(b);
-      const raw = this.rawSource(b.source);
-      let st = this.bindingState.get(b);
-      // (Re)initialise on first sight or when the slot's source changed (studio edit): `appear`
-      // ramps from 0 (entrance), every other source snaps to its current value.
-      if (!st || st.source !== b.source) {
-        st = { value: b.source === "appear" ? 0 : raw, source: b.source };
-        this.bindingState.set(b, st);
-      }
-      st.value += (raw - st.value) * alpha(b.smoothing ?? DEFAULT_BINDING_TAU, dt);
-    };
-    for (const b of cfg.interaction?.bindings ?? []) visit(b);
-    for (const w of cfg.waves) for (const b of w.interaction?.bindings ?? []) visit(b);
-    // Prune state for bindings that no longer exist (edited/removed slots).
-    for (const key of this.bindingState.keys()) if (!seen.has(key)) this.bindingState.delete(key);
+    const seen = this.seenBindings;
+    seen.clear();
+    const sceneBindings = cfg.interaction?.bindings;
+    if (sceneBindings) {
+      for (let i = 0; i < sceneBindings.length; i++) this.advanceBinding(sceneBindings[i], dt);
+    }
+    for (let w = 0; w < cfg.waves.length; w++) {
+      const bindings = cfg.waves[w].interaction?.bindings;
+      if (!bindings) continue;
+      for (let i = 0; i < bindings.length; i++) this.advanceBinding(bindings[i], dt);
+    }
+    // Prune state for bindings that no longer exist (edited/removed slots). advanceBinding puts every
+    // seen binding in the map, so map ⊇ seen — equal sizes means nothing is stale to walk for.
+    if (this.bindingState.size > seen.size) {
+      for (const key of this.bindingState.keys()) if (!seen.has(key)) this.bindingState.delete(key);
+    }
+  }
+
+  /** Advance one binding's smoothed source value by `dt` and mark it live in `seenBindings`. */
+  private advanceBinding(b: AnyBinding, dt: number): void {
+    this.seenBindings.add(b);
+    const raw = this.rawSource(b.source);
+    let st = this.bindingState.get(b);
+    // (Re)initialise on first sight or when the slot's source changed (studio edit): `appear`
+    // ramps from 0 (entrance), every other source snaps to its current value.
+    if (!st || st.source !== b.source) {
+      st = { value: b.source === "appear" ? 0 : raw, source: b.source };
+      this.bindingState.set(b, st);
+    }
+    st.value += (raw - st.value) * alpha(b.smoothing ?? DEFAULT_BINDING_TAU, dt);
   }
 
   /** The current smoothed 0..1 value of a binding's source (0 if the binding is unknown). */

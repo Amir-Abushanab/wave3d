@@ -1366,11 +1366,63 @@ export class WaveRenderer {
   }
 
   /** Per-frame interaction write: dynamic pointer-field uniforms + bindings. No-op without a
-   *  controller, and skipped while capturing so exported posters are deterministic (no input state). */
+   *  controller. While capturing it writes the REST state instead (pointer field zeroed, every bound
+   *  param at its authored base) — merely skipping the write would freeze whatever live hover/scroll
+   *  state the previous frame left in the uniforms, so exports wouldn't be deterministic. */
   private applyInteraction(): void {
-    if (!this.interaction || this.capturing) return;
+    if (!this.interaction) return;
+    if (this.capturing) {
+      this.applyInteractionRest();
+      return;
+    }
     if (anyPointerFxActive(this.config)) this.applyPointerField(this.interaction);
     this.applyBindings(this.interaction);
+  }
+
+  /** Write the capture-frame interaction state: exactly what this config renders with no input —
+   *  pointer presence + ripple envelopes zeroed (vPointerFall gates every hover effect to 0) and each
+   *  bound param at its authored base. Live controller state is left untouched, so the frame after
+   *  the capture resumes mid-gesture; the trailing renderOnce() in captureImage restores the preview.
+   *  interactionZoom is deliberately NOT reset — captureImage strips it from camera.zoom itself, and
+   *  the post-capture restore depends on it being unchanged. */
+  private applyInteractionRest(): void {
+    for (let i = 0; i < this.waves.length; i++) {
+      const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
+      if (!wavePointerFxActive(this.config, sc)) continue;
+      const u = this.waves[i].material.uniforms;
+      u.uPointerActive.value = 0;
+      const rAmp = u.uRippleAmp.value as number[];
+      for (let r = 0; r < RIPPLE_SLOTS; r++) rAmp[r] = 0;
+    }
+    // Scene bindings → authored base: blur/grain write straight to the post uniforms; the time
+    // offset delta is simply 0 at base. (Live applyBindings recomputes all of these next frame.)
+    const sceneBindings = this.config.interaction?.bindings;
+    if (sceneBindings) {
+      this.interactionSceneOut.timeOffset = this.config.timeOffset ?? 0;
+      this.interactionSceneOut.zoom = this.config.cameraZoom ?? 1;
+      const sceneArgs = { post: this.postPass.uniforms, out: this.interactionSceneOut };
+      for (const b of sceneBindings) {
+        const applier = SCENE_APPLIERS[b.target];
+        applier.apply(applier.base(this.config), sceneArgs);
+      }
+    }
+    if (this.interactionTimeOffset !== 0) {
+      // renderOnce ran updateTime() BEFORE this, so uTime already carries the live offset for the
+      // frame about to draw — zero it and re-run updateTime so the capture uses the authored time.
+      this.interactionTimeOffset = 0;
+      this.updateTime();
+    }
+    // Per-wave bindings → that wave's authored base.
+    for (let i = 0; i < this.waves.length; i++) {
+      const sc = this.config.waves[i];
+      const bindings = sc?.interaction?.bindings;
+      if (!sc || !bindings || bindings.length === 0) continue;
+      const wave = this.waves[i];
+      for (const b of bindings) {
+        const applier = WAVE_APPLIERS[b.target];
+        applier.apply(applier.base(sc), { u: wave.material.uniforms, mesh: wave.mesh });
+      }
+    }
   }
 
   /** Write the dynamic pointer-field uniforms to every wave that HAS a pointer field. Position /
@@ -1538,13 +1590,18 @@ export class WaveRenderer {
       // The twist pivot (the mesh's local origin) in world space = the safe sphere's centre.
       const center = this.clipTmpA.setFromMatrixPosition(mesh.matrixWorld);
       const disp = Math.abs(Number(wave.material.uniforms.uDispAmount.value) || 0);
-      // Extra wave-local displacement THIS wave's pointer field can add (agitation + ripple), so the
-      // deformed surface never crosses the fitted near/far planes. 0 when off → byte-identical.
+      // Extra wave-local displacement THIS wave's pointer field can add (agitation + push/wake +
+      // ripple — worst case they all stack at the cursor), so the deformed surface never crosses the
+      // fitted near/far planes. 0 when off → byte-identical.
       const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
       let pointerDisp = 0;
       if (wavePointerFxActive(this.config, sc)) {
         const h = sc.interaction?.hover;
-        pointerDisp = (h?.agitate ?? 0) + (sc.interaction?.press?.ripple ?? 0);
+        pointerDisp =
+          (h?.agitate ?? 0) +
+          Math.abs(h?.push ?? 0) +
+          (h?.wake ?? 0) +
+          (sc.interaction?.press?.ripple ?? 0);
       }
       const localRadius = bs.center.length() + bs.radius + disp + pointerDisp;
       const radius = localRadius * mesh.matrixWorld.getMaxScaleOnAxis() * 1.2;
