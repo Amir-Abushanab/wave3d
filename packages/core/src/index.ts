@@ -13,6 +13,7 @@ export type {
   WaveState,
   FallbackReason,
   SnapshotOptions,
+  PosterFit,
 } from "./shell/createWave";
 
 // Type-only re-exports (erased at build time — no runtime three import) so consumers can type

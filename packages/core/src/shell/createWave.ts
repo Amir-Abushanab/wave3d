@@ -1,7 +1,9 @@
 import type { StudioConfig } from "../config/model";
 import type { WaveRenderer, WaveRendererOptions } from "../renderer/WaveRenderer";
 import { hasWebGL, prefersReducedMotion, prefersReducedData } from "./probe";
-import { setupPoster, ensurePositioned, type Poster } from "./poster";
+import { setupPoster, ensurePositioned, type Poster, type PosterFit } from "./poster";
+
+export type { PosterFit } from "./poster";
 
 /** Why the shell showed the poster instead of a live wave. */
 export type FallbackReason =
@@ -20,6 +22,10 @@ type CoreModule = typeof import("../core-loader");
 export interface WaveOptions {
   /** Poster URL / data-URI. Defaults to adopting the container's `<img data-wave3d-poster>` (SSR). */
   poster?: string;
+  /** Poster `object-fit`. Default `"fill"` — matches the canvas (which renders edge-to-edge at the
+   *  container's aspect), so a poster captured at that aspect hands off with no visible jump. Use
+   *  `"cover"` to crop a different-aspect placeholder instead of stretching it. See {@link PosterFit}. */
+  posterFit?: PosterFit;
   /** Wait until the container nears the viewport before fetching the engine. Default true. */
   lazy?: boolean;
   /** IntersectionObserver margin for the lazy trigger. Default "200px". */
@@ -107,7 +113,7 @@ export function createWaveImpl(
   let lossCount = 0;
 
   ensurePositioned(container);
-  const poster: Poster | null = setupPoster(container, options.poster);
+  const poster: Poster | null = setupPoster(container, options.poster, options.posterFit);
 
   function setState(next: WaveState): void {
     if (state === next) return;

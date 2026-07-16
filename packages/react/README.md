@@ -49,6 +49,7 @@ Server-render your own poster by passing it as a child. The shell adopts it:
 | `preset`                 | `string \| () => Partial<StudioConfig>`   | a name (lazy-loads the presets chunk) or a function preset (tree-shakeable) |
 | `config`                 | `Partial<StudioConfig>`                   | escape hatch, applied last                                                  |
 | `poster`                 | `string`                                  | poster image shown before or instead of WebGL                               |
+| `posterFit`              | `"fill" \| "cover" \| "contain"`          | poster `object-fit`; `"fill"` (default) matches the canvas                  |
 | `lazy`                   | `boolean`                                 | defer the upgrade until visible                                             |
 | `webgl`                  | `"auto" \| "force" \| "off"`              | force or disable the WebGL upgrade                                          |
 | `respectReducedMotion`   | `boolean`                                 | freeze on the poster for reduced-motion users                               |

@@ -13,6 +13,7 @@ import type {
   WaveOptions,
   WaveRenderer,
   FallbackReason,
+  PosterFit,
 } from "@wave3d/core";
 
 /** Flat props mapped onto the first wave. */
@@ -49,6 +50,8 @@ export interface Wave3DProps extends FlatWaveProps, FlatSceneProps {
   /** Escape hatch: a full/partial config, applied last. Precedence: default ← preset ← flat props ← config. */
   config?: Partial<StudioConfig>;
   poster?: string;
+  /** Poster `object-fit`. Default `"fill"` (matches the canvas → seamless handoff); `"cover"` crops. */
+  posterFit?: PosterFit;
   lazy?: boolean;
   webgl?: "auto" | "force" | "off";
   respectReducedMotion?: boolean;
@@ -160,6 +163,7 @@ export function Wave3D(props: Wave3DProps): ReactElement {
     let cancelled = false;
     const options: WaveOptions = {
       poster: props.poster,
+      posterFit: props.posterFit,
       lazy: props.lazy,
       webgl: props.webgl,
       respectReducedMotion: props.respectReducedMotion,

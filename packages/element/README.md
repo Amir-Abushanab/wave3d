@@ -26,15 +26,16 @@ Importing the package registers `<wave-3d>` for you:
 
 ## Attributes & properties
 
-| Attribute | What                                                  |
-| --------- | ----------------------------------------------------- |
-| `preset`  | a built-in preset name (lazy-loads the presets chunk) |
-| `config`  | an inline JSON config                                 |
-| `src`     | URL to a config JSON to fetch                         |
-| `poster`  | poster image shown before or instead of WebGL         |
-| `paused`  | pause or resume the animation                         |
-| `lazy`    | defer the upgrade until visible                       |
-| `webgl`   | `auto` \| `force` \| `off`                            |
+| Attribute    | What                                                                              |
+| ------------ | --------------------------------------------------------------------------------- |
+| `preset`     | a built-in preset name (lazy-loads the presets chunk)                             |
+| `config`     | an inline JSON config                                                             |
+| `src`        | URL to a config JSON to fetch                                                     |
+| `poster`     | poster image shown before or instead of WebGL                                     |
+| `poster-fit` | poster `object-fit`: `fill` (default, matches the canvas) \| `cover` \| `contain` |
+| `paused`     | pause or resume the animation                                                     |
+| `lazy`       | defer the upgrade until visible                                                   |
+| `webgl`      | `auto` \| `force` \| `off`                                                        |
 
 There's also a `config` **property** (merged last, over the attributes) and a read-only `handle` getter. Precedence: **default → `preset` → `src` → `config` attribute → `config` property**.
 
