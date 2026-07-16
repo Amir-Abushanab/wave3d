@@ -67,6 +67,27 @@ body {
   height: 100%;
 }
 
+/* Fade the wave in on its first drawn frame so it doesn't hard-pop — on a cold load and, paired with
+   the page transition, when navigating back into the studio (the WebGL canvas draws a beat after the
+   DOM swaps, so it would otherwise appear mid-crossfade). Pure CSS so it's fail-safe (always ends
+   visible, no JS timing to depend on) and it begins as the renderer inserts the canvas, so the fade
+   rides the first frame. Motion-safe: no fade under reduced-motion — the canvas is just visible from
+   the start. Exports read the GL framebuffer, not the composited canvas, so canvas opacity can never
+   affect a capture. */
+@media (prefers-reduced-motion: no-preference) {
+  #stage canvas {
+    animation: wv-wave-in 360ms ease-out both;
+  }
+  @keyframes wv-wave-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+}
+
 #capture-size {
   position: absolute;
   z-index: 5;
