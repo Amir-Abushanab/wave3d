@@ -227,6 +227,39 @@ const IX_SCENE_TARGETS: Record<string, SceneInteractionTarget> = {
   Grain: "grain",
 };
 
+/** Default "to (at full)" per binding target — the value the param reaches at full input. A blanket
+ *  1 is invisible for wide-range params (hueShift is ±180°, so scroll→hueShift barely moved), so each
+ *  target seeds a clearly-visible swing scaled to its own range. Used for a fresh slot and re-seeded
+ *  when you switch the target. Anything unlisted falls back to 1. */
+const IX_TARGET_DEFAULT_TO: Record<string, number> = {
+  // Wave targets (ranges mirror the section sliders).
+  displaceAmount: 6, // ±12
+  detailAmount: 3, // ±6
+  twistPowerX: 4, // 0..8
+  twistPowerY: 4,
+  twistPowerZ: 4,
+  twistFrequencyX: 1.5, // ±2
+  twistFrequencyY: 1.5,
+  twistFrequencyZ: 1.5,
+  hueShift: 180, // ±180°
+  gradientShift: 0.6, // 0..0.6
+  colorSaturation: 2, // 0..2
+  opacity: 0, // rest is usually 1 (full), so sweep toward 0 → a fade, not a no-op
+  lineThickness: 3, // 0..3
+  lineAmount: 900, // 1..1200
+  fiberStrength: 1, // 0..1
+  sheen: 2, // 0..2
+  iridescence: 1, // 0..1
+  positionX: 300, // ±600
+  positionY: 300,
+  // Scene targets.
+  timeOffset: 20, // 0..60 (scrub the animation)
+  cameraZoom: 1.8, // multiplier over the authored zoom
+  blur: 0.15, // 0..0.3
+  grain: 2, // 0..3
+};
+const defaultToFor = (target: string): number => IX_TARGET_DEFAULT_TO[target] ?? 1;
+
 /** Panel-local model for one binding slot. */
 interface UiSlot {
   source: string; // "off" | InteractionSource
@@ -241,12 +274,13 @@ function uiSlotFrom(
   b: { source: string; target: string; from?: number; to: number; smoothing?: number } | undefined,
   defaultTarget: string,
 ): UiSlot {
+  const target = b?.target ?? defaultTarget;
   return {
     source: b ? b.source : "off",
-    target: b?.target ?? defaultTarget,
+    target,
     fromBase: !b || b.from === undefined,
     from: b?.from ?? 0,
-    to: b?.to ?? 1,
+    to: b?.to ?? defaultToFor(target),
     smoothing: b?.smoothing ?? 0.25,
   };
 }
@@ -1191,10 +1225,13 @@ export class ControlPanel {
         "change",
         onChange,
       );
-      bf.addBinding(slot, "target", { label: "parameter", options: targets }).on(
-        "change",
-        onChange,
-      );
+      bf.addBinding(slot, "target", { label: "parameter", options: targets }).on("change", () => {
+        // Re-seed "to (at full)" so the new parameter actually moves — a blanket 1 is invisible for
+        // wide-range params like hueShift (±180°) — then reflect the new value in the field.
+        slot.to = defaultToFor(slot.target);
+        onChange();
+        this.pane.refresh();
+      });
       bf.addBinding(slot, "to", { label: "to (at full)", step: 0.01 }).on("change", onChange);
       const tune = bf.addFolder({ title: "fine-tune", expanded: false });
       tune.addBinding(slot, "fromBase", { label: "start at rest value" }).on("change", onChange);
