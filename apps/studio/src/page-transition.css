@@ -1,0 +1,36 @@
+/* Cross-document page transitions between the studio (/) and the gallery (/gallery/). The two are
+   one same-origin site, so a subtle crossfade smooths the hop between them instead of a hard cut.
+
+   Progressive enhancement: browsers without cross-document view transitions (e.g. Firefox) just do a
+   normal instant navigation — nothing here is required for the pages to work. `navigation: auto`
+   excludes reloads, so only real route changes (and back/forward) animate, and the whole thing is
+   gated behind prefers-reduced-motion. Imported by BOTH main.ts and gallery.ts so the two entry
+   points share one definition (a cross-document transition needs the same opt-in on each page). */
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition {
+    navigation: auto;
+  }
+
+  /* A soft crossfade with a hair of scale for depth: the outgoing page accelerates away and recedes,
+     the incoming one decelerates in and settles (ease-out reads as responsive). Page-scale motion, so
+     ~200–280ms; exit a touch quicker than enter. */
+  ::view-transition-old(root) {
+    animation: wv-page-out 200ms cubic-bezier(0.4, 0, 1, 1) both;
+  }
+  ::view-transition-new(root) {
+    animation: wv-page-in 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  @keyframes wv-page-out {
+    to {
+      opacity: 0;
+      transform: scale(1.008);
+    }
+  }
+  @keyframes wv-page-in {
+    from {
+      opacity: 0;
+      transform: scale(0.992);
+    }
+  }
+}
