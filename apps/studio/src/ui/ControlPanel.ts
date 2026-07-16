@@ -1112,7 +1112,7 @@ export class ControlPanel {
     wave: WaveConfig,
     refresh: () => void,
   ): FolderApi {
-    const ix = parent.addFolder({ title: "Interaction", expanded: false });
+    const ix = parent.addFolder({ title: "Interaction", expanded: true });
     const h = wave.interaction?.hover;
     const uiHover = {
       agitate: h?.agitate ?? 6,
