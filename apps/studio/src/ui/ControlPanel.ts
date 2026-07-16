@@ -1109,6 +1109,9 @@ export class ControlPanel {
       radius: it?.radius ?? 0.3,
       touch: it?.touch ?? false,
     };
+    // `enabled` is a developer API (the layer's master switch — not authorable here); like custom:*
+    // bindings below, carry an explicit value through every rebuild instead of silently dropping it.
+    const enabled = it?.enabled;
     const loaded = cfg.interaction?.bindings ?? [];
     // custom:* bindings are a developer API (not authorable here) — preserve them untouched; every
     // other binding becomes an editable slot, so any number of scene reactions round-trips.
@@ -1119,9 +1122,10 @@ export class ControlPanel {
 
     const sync = (): void => {
       const bindings = compactSlots(slots).concat(preserved) as SceneInteractionBinding[];
-      const nonDefault = uiInputs.touch || uiInputs.radius !== 0.3;
+      const nonDefault = uiInputs.touch || uiInputs.radius !== 0.3 || enabled !== undefined;
       if (bindings.length || nonDefault) {
         const next: NonNullable<StudioConfig["interaction"]> = {};
+        if (enabled !== undefined) next.enabled = enabled;
         if (uiInputs.radius !== 0.3) next.radius = uiInputs.radius;
         if (uiInputs.touch) next.touch = true;
         if (bindings.length) next.bindings = bindings;

@@ -14,7 +14,6 @@ import { linter, lintGutter } from "@codemirror/lint";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { showMinimap } from "@replit/codemirror-minimap";
 import { injectStyleOnce } from "../util/dom";
-import { showToast } from "./Toast";
 import { flashButtonSuccess, flashButtonError } from "./buttonFeedback";
 import { downloadText, pickConfigFile } from "../export/exporters";
 import type { StudioConfig } from "@wave3d/core";
@@ -110,7 +109,11 @@ class ColorSwatchWidget extends WidgetType {
         view.dispatch({ changes: { from: range.from, to: range.to, insert: input.value } });
         range = { from: range.from, to: range.from + input.value.length };
       });
-      input.addEventListener("change", () => input.remove(), { once: true });
+      // `change` fires on commit, `cancel` on Esc/dismiss — either way the input's spent. ({ once }
+      // on both is safe: remove() on an already-detached node is a no-op.)
+      const cleanup = (): void => input.remove();
+      input.addEventListener("change", cleanup, { once: true });
+      input.addEventListener("cancel", cleanup, { once: true });
       input.click();
     });
     return sw;
@@ -286,7 +289,10 @@ export class ConfigEditorDialog {
     const ftSpacer = document.createElement("div");
     ftSpacer.className = "spacer";
     ft.append(
-      button("📂 Load .json…", () => void this.load()),
+      button("📂 Load .json…", async (btn) => {
+        // In-button feedback (a toast would sit under the modal's top layer anyway).
+        if (await this.load()) flashButtonSuccess(btn, "Loaded — review, then Apply");
+      }),
       ftSpacer,
       button("Copy", async (btn) => {
         if (await this.copy()) flashButtonSuccess(btn, "Copied");
@@ -386,15 +392,18 @@ export class ConfigEditorDialog {
     downloadText(this.getDoc(), "wave.json", "application/json");
   }
 
-  private async load(): Promise<void> {
+  /** Load a picked .json into the editor (not applied until Apply). True on success; false on
+   *  cancel (silent) or failure (shown in the error strip). */
+  private async load(): Promise<boolean> {
     try {
       const cfg = await pickConfigFile();
       this.setDoc(JSON.stringify(cfg, null, 2));
       this.clearError();
-      showToast({ message: "Loaded into the editor — review, then Apply", duration: 2500 });
+      return true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (!/no file selected/i.test(msg)) this.showError(`Load failed — ${msg}`);
+      return false;
     }
   }
 
