@@ -1,7 +1,7 @@
 import { Pane } from "tweakpane";
 import waveStudioLogoUrl from "../assets/favicon.png?inline";
 import { injectStyleOnce } from "../util/dom";
-import { flashButtonSuccess } from "./buttonFeedback";
+import { flashButtonSuccess, flashButtonError } from "./buttonFeedback";
 import { roundTo } from "../util/math";
 import {
   resizeWaves,
@@ -597,10 +597,11 @@ export class ControlPanel {
       this.applyIcons();
     };
     imageFormatBinding.on("change", refreshImageControls);
-    exportImageBtn.on("click", async () => {
-      await this.hooks.onExportImage?.(this.state.imageFormat, this.state.imageQuality);
-      flashButtonSuccess(exportImageBtn.element, "Exported");
-    });
+    exportImageBtn.on("click", () =>
+      this.flashAction(exportImageBtn.element, "Exported", () =>
+        this.hooks.onExportImage?.(this.state.imageFormat, this.state.imageQuality),
+      ),
+    );
     refreshImageControls();
     // Boxed like the recording group: format + Export on one line, the (lossy-only) quality
     // slider stacked beneath.
@@ -653,16 +654,26 @@ export class ControlPanel {
     );
     // Standalone HTML page export goes last: image, then video, then embed, then code snippets.
     const embedBtn = output.addButton({ title: "🔗 Export embed (.html)" });
-    embedBtn.on("click", async () => {
-      await this.hooks.onExportEmbed?.();
-      flashButtonSuccess(embedBtn.element, "Saved");
-    });
+    embedBtn.on("click", () =>
+      this.flashAction(embedBtn.element, "Saved", () => this.hooks.onExportEmbed?.()),
+    );
     output.addButton({ title: "⟨⟩ Export code…" }).on("click", () => this.hooks.onExportCode?.());
     const wallpaperBtn = output.addButton({ title: "🖼 Wallpaper folder (.zip)" });
-    wallpaperBtn.on("click", async () => {
-      await this.hooks.onExportWallpaper?.();
-      flashButtonSuccess(wallpaperBtn.element, "Saved");
-    });
+    wallpaperBtn.on("click", () =>
+      this.flashAction(wallpaperBtn.element, "Saved", () => this.hooks.onExportWallpaper?.()),
+    );
+  }
+
+  /** Run a button's action, flashing ✓ on success / ✕ on failure ON that button; the error is
+   *  re-thrown so the global handler still surfaces the details. */
+  private async flashAction(el: HTMLElement, okLabel: string, run: () => unknown): Promise<void> {
+    try {
+      await run();
+      flashButtonSuccess(el, okLabel);
+    } catch (e) {
+      flashButtonError(el, "Failed");
+      throw e;
+    }
   }
 
   /** "Actions" folder: randomize/reset/save/load/share. */
@@ -677,10 +688,9 @@ export class ControlPanel {
     actions.addButton({ title: "🔄 Reset to default" }).on("click", () => this.hooks.onReset?.());
     actions.addButton({ title: "✏️ Edit config…" }).on("click", () => this.hooks.onEditConfig?.());
     const saveBtn = actions.addButton({ title: "💾 Save state (.json)" });
-    saveBtn.on("click", async () => {
-      await this.hooks.onExportConfig?.();
-      flashButtonSuccess(saveBtn.element, "Saved");
-    });
+    saveBtn.on("click", () =>
+      this.flashAction(saveBtn.element, "Saved", () => this.hooks.onExportConfig?.()),
+    );
     actions
       .addButton({ title: "📂 Load state (.json)" })
       .on("click", () => this.hooks.onImportConfig?.());

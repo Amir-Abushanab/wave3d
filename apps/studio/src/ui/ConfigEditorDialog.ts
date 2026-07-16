@@ -15,7 +15,7 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { showMinimap } from "@replit/codemirror-minimap";
 import { injectStyleOnce } from "../util/dom";
 import { showToast } from "./Toast";
-import { flashButtonSuccess } from "./buttonFeedback";
+import { flashButtonSuccess, flashButtonError } from "./buttonFeedback";
 import { downloadText, pickConfigFile } from "../export/exporters";
 import type { StudioConfig } from "@wave3d/core";
 
@@ -290,6 +290,7 @@ export class ConfigEditorDialog {
       ftSpacer,
       button("Copy", async (btn) => {
         if (await this.copy()) flashButtonSuccess(btn, "Copied");
+        else flashButtonError(btn, "Copy failed");
       }),
       button("💾 Download .json", (btn) => {
         this.download();
@@ -377,7 +378,6 @@ export class ConfigEditorDialog {
       await navigator.clipboard.writeText(this.getDoc());
       return true;
     } catch {
-      this.showError("Clipboard copy was blocked — select the text and copy it manually.");
       return false;
     }
   }

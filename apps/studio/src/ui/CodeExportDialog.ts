@@ -1,6 +1,5 @@
 import { injectStyleOnce } from "../util/dom";
-import { showToast } from "./Toast";
-import { flashButtonSuccess } from "./buttonFeedback";
+import { flashButtonSuccess, flashButtonError } from "./buttonFeedback";
 import {
   diffFromDefault,
   generateSnippet,
@@ -178,6 +177,7 @@ export class CodeExportDialog {
     });
     const copyBtn = button("Copy", async (btn) => {
       if (await this.copy()) flashButtonSuccess(btn, "Copied");
+      else flashButtonError(btn, "Copy failed");
     });
     copyBtn.classList.add("primary");
     ft.append(inlineLabel, ftSpacer, posterBtn, fileBtn, copyBtn);
@@ -254,7 +254,6 @@ export class CodeExportDialog {
       await navigator.clipboard.writeText(this.rawCode);
       return true;
     } catch {
-      showToast({ message: "Couldn't copy — select the code and copy it manually" });
       return false;
     }
   }
