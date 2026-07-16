@@ -23,19 +23,52 @@ import type {
 
 /** Click-ripple ring-buffer size. MUST match the `[4]` array sizes in shaders.ts (POINTER_RIPPLES). */
 export const RIPPLE_SLOTS = 4;
-const RIPPLE_LIFETIME = 2.5; // seconds a ripple lives before its slot frees
+const RIPPLE_LIFETIME = 1.5; // seconds a ripple lives (crest travels out + fades by then)
 const VELOCITY_TAU = 0.08; // pointer-velocity smoothing time constant (seconds)
 const POINTER_SPEED_REF = 4.0; // NDC/s that normalizes pointerSpeed to 1.0
 const SCROLL_VELOCITY_REF = 2.0; // progress/s that normalizes scrollVelocity to 1.0
 const SCROLL_VELOCITY_TAU = 0.15; // scroll-velocity smoothing (seconds)
 const DEFAULT_POINTER_TAU = 0.12; // pointer-follow smoothing default (seconds)
 const DEFAULT_BINDING_TAU = 0.25; // per-binding source smoothing default (seconds)
+const POINTER_SPRING_ZETA = 0.7; // pointer-field damping ratio (<1 → slight overshoot = "weight")
+const MIN_POINTER_TAU = 0.02; // floor before smoothing→spring frequency (omega = 1/tau)
+const SPRING_MAX_STEP = 1 / 120; // substep the spring below this dt so it stays stable after a stall
+const SPRING_MAX_SUBSTEPS = 6;
 
 type AnyBinding = WaveInteractionBinding | SceneInteractionBinding;
 
 /** Frame-rate-independent exponential smoothing factor for time constant `tau` (seconds). */
 function alpha(tau: number, dt: number): number {
   return tau > 0 ? 1 - Math.exp(-dt / tau) : 1;
+}
+
+/**
+ * Advance a damped spring (`pos`/`vel`) toward `target` by `dt`, using semi-implicit (symplectic)
+ * Euler. `omega` is the natural angular frequency (≈ 1/response-time), `zeta` the damping ratio
+ * (<1 underdamped → overshoots and settles; 1 critical; >1 sluggish). Unlike a first-order lag this
+ * carries momentum, so motion has weight and settles instead of creeping to a dead stop. Substeps
+ * when `dt` spikes (e.g. the tab was backgrounded) so a stiff spring can't blow up; ~1 step at 60fps.
+ */
+function springVec2(
+  pos: THREE.Vector2,
+  vel: THREE.Vector2,
+  target: THREE.Vector2,
+  omega: number,
+  zeta: number,
+  dt: number,
+): void {
+  if (dt <= 0) return;
+  const steps =
+    dt > SPRING_MAX_STEP ? Math.min(Math.ceil(dt / SPRING_MAX_STEP), SPRING_MAX_SUBSTEPS) : 1;
+  const h = dt / steps;
+  const k = omega * omega;
+  const c = 2 * zeta * omega;
+  for (let s = 0; s < steps; s++) {
+    vel.x += (k * (target.x - pos.x) - c * vel.x) * h;
+    vel.y += (k * (target.y - pos.y) - c * vel.y) * h;
+    pos.x += vel.x * h;
+    pos.y += vel.y * h;
+  }
 }
 
 // ---- Binding applier tables -----------------------------------------------------------------
@@ -284,6 +317,8 @@ export interface InteractionSample {
 export interface PointerField {
   /** Smoothed pointer position for this wave, NDC (-1..1). */
   ndc: THREE.Vector2;
+  /** Spring velocity of `ndc` (NDC/s) — internal spring state, not read by the renderer. */
+  vel: THREE.Vector2;
   /** Smoothed pointer presence 0..1 for this wave. */
   presence: number;
 }
@@ -430,19 +465,29 @@ export class InteractionController {
     }
     this.pointerSpeed = this.presence * clamp01(this.velNdc.length() / POINTER_SPEED_REF);
 
-    // Per-wave pointer FIELD: each wave lags toward the same raw cursor target at its OWN smoothing,
-    // so a stack trails the cursor at different rates (a parallax drag).
+    // Per-wave pointer FIELD: each wave's position is a damped SPRING toward the raw cursor target,
+    // so a stack trails the cursor at different rates (parallax) and — because the spring is slightly
+    // underdamped — carries a little weight: it overshoots and settles instead of creeping to a dead
+    // stop. Presence stays a plain ramp (a spring there could dip below 0 and invert the effect).
+    // A wave's hover `smoothing` sets the spring frequency (omega = 1/tau).
     const waves = cfg.waves;
     if (this.fields.length > waves.length) this.fields.length = waves.length;
     for (let i = 0; i < waves.length; i++) {
       let f = this.fields[i];
       if (!f) {
-        f = { ndc: this.ndcTarget.clone(), presence: this.presenceTarget };
+        f = {
+          ndc: this.ndcTarget.clone(),
+          vel: new THREE.Vector2(),
+          presence: this.presenceTarget,
+        };
         this.fields[i] = f;
       }
-      const k = alpha(waves[i].interaction?.hover?.smoothing ?? DEFAULT_POINTER_TAU, d);
-      f.ndc.lerp(this.ndcTarget, k);
-      f.presence += (this.presenceTarget - f.presence) * k;
+      const tau = Math.max(
+        waves[i].interaction?.hover?.smoothing ?? DEFAULT_POINTER_TAU,
+        MIN_POINTER_TAU,
+      );
+      springVec2(f.ndc, f.vel, this.ndcTarget, 1 / tau, POINTER_SPRING_ZETA, d);
+      f.presence += (this.presenceTarget - f.presence) * alpha(tau, d);
     }
 
     // Scroll progress + velocity.
@@ -538,6 +583,13 @@ export class InteractionController {
     return this.fields[waveIdx] ?? null;
   }
 
+  /** Velocity-driven agitation drive 0..1 (how fast the cursor is moving, presence-gated). The
+   *  renderer scales each wave's hover `agitate` by this, so the churn tracks the gesture instead
+   *  of buzzing at a constant rate whenever the cursor is merely present. */
+  pointerFlux(): number {
+    return this.pointerSpeed;
+  }
+
   /** Feed a `custom:<name>` input (developer API; staged/forwarded by the shell). */
   setInput(name: string, value: number): void {
     if (typeof name !== "string" || !Number.isFinite(value)) return;
@@ -561,6 +613,7 @@ export class InteractionController {
     this.ndcPrev.set(0, 0);
     for (const f of this.fields) {
       f.ndc.set(0, 0);
+      f.vel.set(0, 0);
       f.presence = 0;
     }
     for (const r of this.ripples) {

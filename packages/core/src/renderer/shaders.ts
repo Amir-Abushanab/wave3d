@@ -200,9 +200,10 @@ uniform vec2  uRippleOrigin[4]; // NDC
 uniform float uRippleAge[4];    // seconds since spawn (CPU-computed)
 uniform float uRippleAmp[4];    // shared 0..1 decay envelope per slot (CPU-computed; 0 = slot free)
 uniform float uPointerRipple;   // THIS wave's ripple amplitude (scales the shared envelope)
-const float RIPPLE_FREQ = 24.0;  // spatial frequency of the ring
-const float RIPPLE_SPEED = 7.0;  // outward phase speed
-const float RIPPLE_MAX_R = 0.9;  // NDC reach where the ring fully fades
+const float RIPPLE_WAVE_SPEED = 0.85; // NDC/s the ring crest travels outward
+const float RIPPLE_SIGMA = 0.14;      // gaussian half-width of the travelling packet (NDC)
+const float RIPPLE_FREQ = 11.0;       // oscillation within the packet (one crest + faint troughs)
+const float RIPPLE_MAX_R = 1.2;       // reach where the crest has fully left the frame
 #endif
 #endif
 
@@ -309,8 +310,15 @@ void main(){
   for (int i = 0; i < 4; i++) {
     if (uRippleAmp[i] > 0.0) {
       float rd = length((preClip.xy / max(preClip.w, 1.0e-6) - uRippleOrigin[i]) * vec2(uPointerAspect, 1.0));
-      disp += uPointerRipple * uRippleAmp[i] * sin(rd * RIPPLE_FREQ - uRippleAge[i] * RIPPLE_SPEED)
-            * smoothstep(RIPPLE_MAX_R, 0.0, rd);
+      // A wave PACKET whose crest travels outward at RIPPLE_WAVE_SPEED: a gaussian window centred on
+      // the moving front carrying a short oscillation (a raised ring with faint trailing troughs),
+      // so the energy radiates instead of throbbing at the click point. The shared uRippleAmp
+      // envelope fades the whole packet over its lifetime; reach fades it as the crest leaves frame.
+      float front = uRippleAge[i] * RIPPLE_WAVE_SPEED;
+      float band  = rd - front;
+      float packet = exp(-band * band / (2.0 * RIPPLE_SIGMA * RIPPLE_SIGMA)) * cos(band * RIPPLE_FREQ);
+      float reach = 1.0 - smoothstep(RIPPLE_MAX_R * 0.7, RIPPLE_MAX_R, front);
+      disp += uPointerRipple * uRippleAmp[i] * packet * reach;
     }
   }
 #endif

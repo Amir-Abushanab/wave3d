@@ -1376,10 +1376,17 @@ export class WaveRenderer {
     const dh = this.camera.top - this.camera.bottom;
     const aspect = dh !== 0 ? dw / dh : 1;
     const ripples = ic.sample().ripples;
+    // Velocity-driven agitation: the configured `agitate` is the full-gesture strength; when the
+    // cursor is still the drive drops to a low idle floor, so the churn tracks how you move instead
+    // of buzzing at a constant rate the whole time the cursor is merely present.
+    const AGITATE_IDLE = 0.2; // fraction of `agitate` still shown when the cursor holds still
+    const AGITATE_GAIN = 0.85; // how much cursor speed adds back on top (capped at full strength)
+    const agitateDrive = Math.min(1, AGITATE_IDLE + AGITATE_GAIN * ic.pointerFlux());
     for (let i = 0; i < this.waves.length; i++) {
       const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
       if (!wavePointerFxActive(this.config, sc)) continue;
       const u = this.waves[i].material.uniforms;
+      u.uPointerAgitate.value = (sc.interaction?.hover?.agitate ?? 0) * agitateDrive;
       const f = ic.fieldFor(i);
       if (f) {
         (u.uPointer.value as THREE.Vector2).copy(f.ndc);
