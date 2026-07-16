@@ -210,19 +210,14 @@ const panel = new ControlPanel(panelEl, renderer, config, {
   onExportSizeChange: applyExportSize,
   onSizeControlsActive: (active) => stage!.classList.toggle("size-adjusting", active),
   onOpenScrollTest: () => scrollTest.toggle(),
-  onExportImage: (format, quality) => {
-    void exportImage(renderer, exportSize, format, config.transparentBackground, quality);
-  },
-  onExportEmbed: () => {
-    void exportEmbed(config, exportSize);
-  },
+  onExportImage: (format, quality) =>
+    exportImage(renderer, exportSize, format, config.transparentBackground, quality),
+  onExportEmbed: () => exportEmbed(config, exportSize),
   onExportCode: () => {
     codeDialog ??= new CodeExportDialog(() => config, renderer);
     codeDialog.show();
   },
-  onExportWallpaper: () => {
-    void exportWallpaperFolder(config, exportSize, renderer);
-  },
+  onExportWallpaper: () => exportWallpaperFolder(config, exportSize, renderer),
   onToggleRecord: (format, webpQuality) => {
     if (recorder.recording) {
       stopRecording();

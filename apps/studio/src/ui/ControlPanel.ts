@@ -1,6 +1,7 @@
 import { Pane } from "tweakpane";
 import waveStudioLogoUrl from "../assets/favicon.png?inline";
 import { injectStyleOnce } from "../util/dom";
+import { flashButtonSuccess } from "./buttonFeedback";
 import { roundTo } from "../util/math";
 import {
   resizeWaves,
@@ -92,13 +93,15 @@ export interface PanelHooks {
   onRandomize?: () => void;
   onReset?: () => void;
   onExportConfig?: () => void;
+  // Export hooks may return a promise; the panel awaits it to flash success on the button when it
+  // actually finishes.
   onImportConfig?: () => void;
   /** Open the "Edit config" dialog — view/manipulate the whole config as JSON and apply it. */
   onEditConfig?: () => void;
-  onExportImage?: (format: ImageFormat, quality: number) => void;
-  onExportEmbed?: () => void;
+  onExportImage?: (format: ImageFormat, quality: number) => void | Promise<void>;
+  onExportEmbed?: () => void | Promise<void>;
   onExportCode?: () => void;
-  onExportWallpaper?: () => void;
+  onExportWallpaper?: () => void | Promise<void>;
   onCopyLink?: () => Promise<boolean> | void;
   onPublishToGallery?: () => void;
   onToggleRecord?: (format: RecordFormat, webpQuality: number) => void;
@@ -594,9 +597,10 @@ export class ControlPanel {
       this.applyIcons();
     };
     imageFormatBinding.on("change", refreshImageControls);
-    exportImageBtn.on("click", () =>
-      this.hooks.onExportImage?.(this.state.imageFormat, this.state.imageQuality),
-    );
+    exportImageBtn.on("click", async () => {
+      await this.hooks.onExportImage?.(this.state.imageFormat, this.state.imageQuality);
+      flashButtonSuccess(exportImageBtn.element, "Exported");
+    });
     refreshImageControls();
     // Boxed like the recording group: format + Export on one line, the (lossy-only) quality
     // slider stacked beneath.
@@ -648,13 +652,17 @@ export class ControlPanel {
       [recordQualityBinding.element, this.recordCapHint],
     );
     // Standalone HTML page export goes last: image, then video, then embed, then code snippets.
-    output
-      .addButton({ title: "🔗 Export embed (.html)" })
-      .on("click", () => this.hooks.onExportEmbed?.());
+    const embedBtn = output.addButton({ title: "🔗 Export embed (.html)" });
+    embedBtn.on("click", async () => {
+      await this.hooks.onExportEmbed?.();
+      flashButtonSuccess(embedBtn.element, "Saved");
+    });
     output.addButton({ title: "⟨⟩ Export code…" }).on("click", () => this.hooks.onExportCode?.());
-    output
-      .addButton({ title: "🖼 Wallpaper folder (.zip)" })
-      .on("click", () => this.hooks.onExportWallpaper?.());
+    const wallpaperBtn = output.addButton({ title: "🖼 Wallpaper folder (.zip)" });
+    wallpaperBtn.on("click", async () => {
+      await this.hooks.onExportWallpaper?.();
+      flashButtonSuccess(wallpaperBtn.element, "Saved");
+    });
   }
 
   /** "Actions" folder: randomize/reset/save/load/share. */
@@ -668,17 +676,18 @@ export class ControlPanel {
     randomizeAll.element.classList.add("wv-randomize-all");
     actions.addButton({ title: "🔄 Reset to default" }).on("click", () => this.hooks.onReset?.());
     actions.addButton({ title: "✏️ Edit config…" }).on("click", () => this.hooks.onEditConfig?.());
-    actions
-      .addButton({ title: "💾 Save state (.json)" })
-      .on("click", () => this.hooks.onExportConfig?.());
+    const saveBtn = actions.addButton({ title: "💾 Save state (.json)" });
+    saveBtn.on("click", async () => {
+      await this.hooks.onExportConfig?.();
+      flashButtonSuccess(saveBtn.element, "Saved");
+    });
     actions
       .addButton({ title: "📂 Load state (.json)" })
       .on("click", () => this.hooks.onImportConfig?.());
     const linkBtn = actions.addButton({ title: "🔗 Copy share link" });
     linkBtn.on("click", async () => {
       const ok = await this.hooks.onCopyLink?.();
-      linkBtn.title = ok === false ? "✓ URL updated (copy it)" : "✓ Link copied!";
-      setTimeout(() => (linkBtn.title = "🔗 Copy share link"), 1600);
+      flashButtonSuccess(linkBtn.element, ok === false ? "URL updated" : "Link copied!");
     });
     // The gallery lives at /gallery/ on the same origin (dev proxy + combined build), so a plain
     // same-origin navigation works in both. Same tab: the studio and gallery are one site.
@@ -2011,6 +2020,9 @@ export class ControlPanel {
       ),
       "⏹": svg(
         '<rect x="3.5" y="3.5" width="9" height="9" rx="1.6" fill="currentColor" stroke="none"/>',
+      ),
+      "✏": svg(
+        '<path d="M2.7 13.3 3.6 9.9 10.4 3.1l2.5 2.5-6.8 6.8-3.4.9Z"/><path d="M9 4.5l2.5 2.5"/>',
       ),
       "🖼": svg(
         '<rect x="2.2" y="3.4" width="11.6" height="9.2" rx="1.4"/><circle cx="5.7" cy="6.6" r="1.15"/><path d="m2.7 11.4 3-3 2.1 1.8 2.5-2.7 3 3.2"/>',

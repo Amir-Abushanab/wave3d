@@ -15,6 +15,7 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { showMinimap } from "@replit/codemirror-minimap";
 import { injectStyleOnce } from "../util/dom";
 import { showToast } from "./Toast";
+import { flashButtonSuccess } from "./buttonFeedback";
 import { downloadText, pickConfigFile } from "../export/exporters";
 import type { StudioConfig } from "@wave3d/core";
 
@@ -229,12 +230,16 @@ const editorTheme = EditorView.theme({
   ".cm-gutters": { backgroundColor: "#0e0f13" },
 });
 
-function button(label: string, onClick: () => void, primary = false): HTMLButtonElement {
+function button(
+  label: string,
+  onClick: (btn: HTMLButtonElement) => void,
+  primary = false,
+): HTMLButtonElement {
   const b = document.createElement("button");
   b.type = "button";
   b.className = primary ? "b primary" : "b";
   b.textContent = label;
-  b.addEventListener("click", onClick);
+  b.addEventListener("click", () => onClick(b));
   return b;
 }
 
@@ -283,9 +288,20 @@ export class ConfigEditorDialog {
     ft.append(
       button("📂 Load .json…", () => void this.load()),
       ftSpacer,
-      button("Copy", () => void this.copy()),
-      button("💾 Download .json", () => this.download()),
-      button("Apply", () => this.apply(), true),
+      button("Copy", async (btn) => {
+        if (await this.copy()) flashButtonSuccess(btn, "Copied");
+      }),
+      button("💾 Download .json", (btn) => {
+        this.download();
+        flashButtonSuccess(btn, "Saved");
+      }),
+      button(
+        "Apply",
+        (btn) => {
+          if (this.apply()) flashButtonSuccess(btn, "Applied");
+        },
+        true,
+      ),
     );
 
     this.dialog.append(hd, this.host, this.errEl, ft);
@@ -333,35 +349,36 @@ export class ConfigEditorDialog {
     return this.view?.state.doc.toString() ?? "";
   }
 
-  private apply(): void {
+  private apply(): boolean {
     let parsed: unknown;
     try {
       parsed = JSON.parse(this.getDoc());
     } catch (e) {
       this.showError(`Invalid JSON — ${e instanceof Error ? e.message : String(e)}`);
-      return;
+      return false;
     }
     if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as StudioConfig).waves)) {
       this.showError('Not a wave config — expected an object with a "waves" array.');
-      return;
+      return false;
     }
     try {
       this.onApply(parsed as StudioConfig); // routes through ensureStudioConfig + history in the app
     } catch (e) {
       this.showError(`Couldn't apply — ${e instanceof Error ? e.message : String(e)}`);
-      return;
+      return false;
     }
     this.clearError();
-    showToast({ message: "Config applied", duration: 2000 });
     // Stay open (translucent backdrop) so you can keep iterating.
+    return true;
   }
 
-  private async copy(): Promise<void> {
+  private async copy(): Promise<boolean> {
     try {
       await navigator.clipboard.writeText(this.getDoc());
-      showToast({ message: "Copied config JSON", duration: 2000 });
+      return true;
     } catch {
       this.showError("Clipboard copy was blocked — select the text and copy it manually.");
+      return false;
     }
   }
 

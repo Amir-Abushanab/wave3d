@@ -1,5 +1,6 @@
 import { injectStyleOnce } from "../util/dom";
 import { showToast } from "./Toast";
+import { flashButtonSuccess } from "./buttonFeedback";
 import {
   diffFromDefault,
   generateSnippet,
@@ -167,9 +168,17 @@ export class CodeExportDialog {
     inlineLabel.append(this.inlineToggle, document.createTextNode("inline LQIP poster"));
     const ftSpacer = document.createElement("div");
     ftSpacer.className = "spacer";
-    const posterBtn = button("Download poster.png", () => void this.downloadPoster());
-    const fileBtn = button("Download file", () => this.downloadFile());
-    const copyBtn = button("Copy", () => void this.copy());
+    const posterBtn = button("Download poster.png", async (btn) => {
+      await this.downloadPoster();
+      flashButtonSuccess(btn, "Saved");
+    });
+    const fileBtn = button("Download file", (btn) => {
+      this.downloadFile();
+      flashButtonSuccess(btn, "Saved");
+    });
+    const copyBtn = button("Copy", async (btn) => {
+      if (await this.copy()) flashButtonSuccess(btn, "Copied");
+    });
     copyBtn.classList.add("primary");
     ft.append(inlineLabel, ftSpacer, posterBtn, fileBtn, copyBtn);
 
@@ -240,31 +249,30 @@ export class CodeExportDialog {
       });
   }
 
-  private async copy(): Promise<void> {
+  private async copy(): Promise<boolean> {
     try {
       await navigator.clipboard.writeText(this.rawCode);
-      showToast({ message: "Snippet copied to clipboard", duration: 2000 });
+      return true;
     } catch {
       showToast({ message: "Couldn't copy — select the code and copy it manually" });
+      return false;
     }
   }
 
   private downloadFile(): void {
     downloadBlob(new Blob([this.rawCode], { type: "text/plain" }), this.framework.file);
-    showToast({ message: `Saved ${this.framework.file}`, duration: 2000 });
   }
 
   private async downloadPoster(): Promise<void> {
     const blob = await this.renderer.captureImage("image/png", true);
     downloadBlob(blob, "wave-poster.png");
-    showToast({ message: "Poster downloaded", duration: 2000 });
   }
 }
 
-function button(label: string, onClick: () => void): HTMLButtonElement {
+function button(label: string, onClick: (btn: HTMLButtonElement) => void): HTMLButtonElement {
   const b = document.createElement("button");
   b.type = "button";
   b.textContent = label;
-  b.addEventListener("click", onClick);
+  b.addEventListener("click", () => onClick(b));
   return b;
 }
