@@ -590,6 +590,12 @@ export class InteractionController {
     return this.pointerSpeed;
   }
 
+  /** Smoothed pointer velocity, NDC/s (direction + speed of the drag). The renderer feeds it to the
+   *  drag-wake shader so the trailing trough forms behind the motion. Live reference — read per frame. */
+  pointerVelocity(): THREE.Vector2 {
+    return this.velNdc;
+  }
+
   /** Feed a `custom:<name>` input (developer API; staged/forwarded by the shell). */
   setInput(name: string, value: number): void {
     if (typeof name !== "string" || !Number.isFinite(value)) return;

@@ -308,6 +308,13 @@ export interface WaveHoverConfig {
   /** Local churn-octave amplitude near the cursor — the wave agitates under the pointer. The studio
    *  defaults this positive when you enable a hover field, so a fresh hover reacts out of the box. */
   agitate?: number;
+  /** Membrane push/pull: a smooth dome at the cursor that swells toward you (repel, +) or dents away
+   *  (attract, −), carried by the sprung field so it drags like a poke under fabric. World units;
+   *  0 = off. */
+  push?: number;
+  /** Drag-wake: while the cursor moves, the surface just BEHIND it is pulled into a trailing trough
+   *  that heals once you stop; scales with pointer speed. World units; 0 = off. */
+  wake?: number;
   /** 0..1 — wireframe strands taper to hairlines; solid gains local translucency. */
   thin?: number;
   /** Local hue rotation near the cursor, degrees. */
@@ -806,6 +813,8 @@ export function normalizeWaveInteraction(wave: WaveConfig): void {
   const h = it.hover;
   if (h) {
     if (h.agitate !== undefined) h.agitate = clampNumber(h.agitate, 0, 60, 0);
+    if (h.push !== undefined) h.push = clampNumber(h.push, -40, 40, 0);
+    if (h.wake !== undefined) h.wake = clampNumber(h.wake, 0, 40, 0);
     if (h.thin !== undefined) h.thin = clampNumber(h.thin, 0, 1, 0);
     if (h.hueShift !== undefined) h.hueShift = clampNumber(h.hueShift, -360, 360, 0);
     if (h.lighten !== undefined) h.lighten = clampNumber(h.lighten, -1, 1, 0);

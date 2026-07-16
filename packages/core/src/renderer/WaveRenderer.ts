@@ -502,6 +502,9 @@ export class WaveRenderer {
       uPointerRadius: { value: 0.6 }, // falloff radius in NDC-y (config radius × 2)
       uPointerAspect: { value: 1 }, // drawing-buffer dw/dh
       uPointerAgitate: { value: 0 },
+      uPointerPush: { value: 0 }, // signed membrane dome at the cursor (+ repel / − attract)
+      uPointerWake: { value: 0 }, // drag-wake trough amplitude
+      uPointerVel: { value: new THREE.Vector2(0, 0) }, // smoothed pointer velocity, NDC/s (wake dir)
       uPointerThin: { value: 0 },
       uPointerHue: { value: 0 },
       uPointerLighten: { value: 0 },
@@ -807,6 +810,8 @@ export class WaveRenderer {
       const h = sc.interaction?.hover;
       u.uPointerRadius.value = sharedRadius;
       u.uPointerAgitate.value = h?.agitate ?? 0;
+      u.uPointerPush.value = h?.push ?? 0;
+      u.uPointerWake.value = h?.wake ?? 0;
       u.uPointerThin.value = h?.thin ?? 0;
       u.uPointerHue.value = h?.hueShift ?? 0;
       u.uPointerLighten.value = h?.lighten ?? 0;
@@ -1382,11 +1387,13 @@ export class WaveRenderer {
     const AGITATE_IDLE = 0.2; // fraction of `agitate` still shown when the cursor holds still
     const AGITATE_GAIN = 0.85; // how much cursor speed adds back on top (capped at full strength)
     const agitateDrive = Math.min(1, AGITATE_IDLE + AGITATE_GAIN * ic.pointerFlux());
+    const vel = ic.pointerVelocity();
     for (let i = 0; i < this.waves.length; i++) {
       const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
       if (!wavePointerFxActive(this.config, sc)) continue;
       const u = this.waves[i].material.uniforms;
       u.uPointerAgitate.value = (sc.interaction?.hover?.agitate ?? 0) * agitateDrive;
+      (u.uPointerVel.value as THREE.Vector2).copy(vel);
       const f = ic.fieldFor(i);
       if (f) {
         (u.uPointer.value as THREE.Vector2).copy(f.ndc);

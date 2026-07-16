@@ -194,6 +194,9 @@ uniform float uPointerActive;  // presence ramp 0..1 × per-wave influence
 uniform float uPointerRadius;  // falloff radius in NDC-y units (config radius × 2)
 uniform float uPointerAspect;  // drawing-buffer dw/dh (circular screen falloff)
 uniform float uPointerAgitate;
+uniform float uPointerPush;    // signed membrane dome at the cursor (+ repel / − attract)
+uniform float uPointerWake;    // drag-wake trough amplitude (behind the moving cursor)
+uniform vec2  uPointerVel;     // smoothed pointer velocity, NDC/s (drag-wake direction)
 varying float vPointerFall;    // falloff × presence — consumed by both fragment themes
 #ifdef POINTER_RIPPLES
 uniform vec2  uRippleOrigin[4]; // NDC
@@ -306,6 +309,18 @@ void main(){
   float disp = uPointerAgitate * vPointerFall
         * simplexNoise(vec2(pos.x * uDispFreqX * 3.0 + t * 4.0, pos.z * uDispFreqZ * 3.0));
 #endif
+  // Membrane push/pull: a smooth dome (vPointerFall is the falloff) that swells toward you (+ repel)
+  // or dents away (− attract) at the cursor, riding along with the sprung field.
+  disp += uPointerPush * vPointerFall;
+  // Drag-wake: pull the surface just BEHIND the moving cursor into a trailing trough. dp points
+  // from cursor to vertex; "behind" is how far the vertex sits opposite the velocity (0 ahead → 1 a
+  // radius behind), gated by speed so it only forms while dragging and heals when the cursor stops.
+  vec2 velC = uPointerVel * vec2(uPointerAspect, 1.0);
+  float wakeSpeed = length(velC);
+  if (uPointerWake != 0.0 && wakeSpeed > 1.0e-4) {
+    float behind = clamp(dot(-dp, velC) / (wakeSpeed * uPointerRadius), 0.0, 1.0);
+    disp -= uPointerWake * vPointerFall * behind * smoothstep(0.05, 0.6, wakeSpeed);
+  }
 #ifdef POINTER_RIPPLES
   for (int i = 0; i < 4; i++) {
     if (uRippleAmp[i] > 0.0) {
