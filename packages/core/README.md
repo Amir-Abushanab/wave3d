@@ -50,7 +50,7 @@ const blob = await handle.snapshot(); // resolves null until running. options: {
 
 Interactivity is **per wave** and **off by default** — omit it and the wave (and its compiled shader) is byte-for-byte unchanged. Each wave takes an optional `interaction` with three parts:
 
-- **`hover`** — the cursor-follow field: `agitate` (local churn), `thin`, `hueShift`, `lighten`, and `smoothing` (this wave's follow-lag — vary it across a stack for a parallax drag).
+- **`hover`** — the cursor-follow field: `agitate` (local churn), `push` (a ± dome that repels or attracts the surface), `wake` (a trailing trough behind the moving cursor), `thin`, `hueShift`, `lighten`, and `smoothing` (this wave's follow-lag — vary it across a stack for a parallax drag).
 - **`press`** — `ripple` (rings from a click / tap).
 - **`bindings`** — inputs that drive this wave's params: `{ source, target, from?, to }`.
 

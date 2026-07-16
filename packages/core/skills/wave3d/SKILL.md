@@ -113,8 +113,9 @@ poster) for every entry — the fastest way to hand a designed wave to a develop
 
 Interactivity is **per wave** and **off by default / additive** — omit it and the wave renders
 byte-for-byte as before. Each `WaveConfig.interaction` has three parts: **`hover`** (the cursor-follow
-field — `agitate` churn, `thin`, `hueShift`, `lighten`), **`press`** (`ripple`
-rings from a click/tap), and **`bindings`** that smoothly drive that wave's params from an input.
+field — `agitate` churn, `push` ± repel/attract dome, `wake` drag-trough, `thin`, `hueShift`,
+`lighten`), **`press`** (`ripple` rings from a click/tap), and **`bindings`** that smoothly drive
+that wave's params from an input.
 Sources: `scroll`, `hover`, `pointerX` / `pointerY`, `pointerSpeed`, `press`, `scrollVelocity`,
 `appear`, or a developer-fed `custom:*` (via `handle.setInteractionInput(name, value)` /
 `renderer.setInteractionInput`). Each binding rests at the authored value and moves toward `to` as
@@ -128,9 +129,9 @@ Interaction folder for the shared inputs and a scroll preview.
 
 ## Presets
 
-13 built-in presets (`@wave3d/core/presets`): **Hero**, **Wave 2**, **Wave 3**, **Wave 4**,
+14 built-in presets (`@wave3d/core/presets`): **Hero**, **Wave 2**, **Wave 3**, **Wave 4**,
 **Wireframe**, **Neon Dark Multistrand**, **Mesh Gradient**, **Solar Bloom**, **Holographic**,
-**Aurora**, **Palestine**, **Vaporwave Sunset**, **Kaleidoscope**.
+**Aurora**, **Palestine**, **Spain**, **Vaporwave Sunset**, **Kaleidoscope**.
 
 - React: `preset="Hero"` (a **string** lazy-imports the presets chunk) or
   `preset={() => PRESETS["Hero"]()}` (a **function** is tree-shakeable — bundles only that preset).
