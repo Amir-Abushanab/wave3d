@@ -7,7 +7,16 @@ import type {
   FallbackReason,
 } from "@wave3d/core";
 
-const OBSERVED = ["config", "src", "preset", "poster", "paused", "lazy", "webgl"] as const;
+const OBSERVED = [
+  "config",
+  "src",
+  "preset",
+  "poster",
+  "poster-fit",
+  "paused",
+  "lazy",
+  "webgl",
+] as const;
 
 // SSR-safe base: `class extends HTMLElement` evaluates HTMLElement at import time, which throws
 // under Node. Fall back to a dummy base there — the element is never instantiated server-side
@@ -19,9 +28,10 @@ const ElementBase: typeof HTMLElement =
 
 /**
  * `<wave-3d>` — the framework-agnostic drop-in (Vue/Svelte/plain HTML). Light DOM, `display:block`.
- * Attributes: `config` (JSON), `src` (URL to a config JSON), `preset` (name), `poster`, `paused`,
- * `lazy`, `webgl`. Also a `config` property and a read-only `handle` getter. Emits `wave3d-ready`
- * (detail = renderer) and `wave3d-fallback` (detail = reason) events.
+ * Attributes: `config` (JSON), `src` (URL to a config JSON), `preset` (name), `poster`,
+ * `poster-fit` (`fill` | `cover` | `contain`), `paused`, `lazy`, `webgl`. Also a `config` property
+ * and a read-only `handle` getter. Emits `wave3d-ready` (detail = renderer) and `wave3d-fallback`
+ * (detail = reason) events.
  */
 export class Wave3DElement extends ElementBase {
   static get observedAttributes(): string[] {
@@ -72,6 +82,7 @@ export class Wave3DElement extends ElementBase {
     if (!this.isConnected) return; // disconnected while the config resolved
     const options: WaveOptions = {
       poster: this.getAttribute("poster") ?? undefined,
+      posterFit: (this.getAttribute("poster-fit") as WaveOptions["posterFit"]) ?? undefined,
       lazy: this.#boolAttr("lazy"),
       webgl: (this.getAttribute("webgl") as WaveOptions["webgl"]) ?? undefined,
       paused: this.#boolAttr("paused"),

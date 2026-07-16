@@ -207,6 +207,154 @@ export interface WaveConfig {
   opacity: number;
   /** Phase/seed so waves don't move in lockstep. */
   seed: number;
+  /** Optional per-wave interactivity: how THIS wave reacts to the shared pointer + inputs (hover
+   *  field, click ripples, param bindings). ABSENT = this wave is inert / byte-identical. */
+  interaction?: WaveInteractionConfig;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Interactivity layer (optional, additive, default-off). Split by concern: the SHARED inputs (one
+// cursor + scroll + smoothing/touch) and scene-param effects live on SceneConfig.interaction; each
+// wave's own RESPONSE (hover field, click ripples, param bindings) lives on WaveConfig.interaction.
+// ABSENT blocks mean fully off — the compiled shader and rendered pixels stay byte-identical to a
+// non-interactive wave (the normalizers below run present-only; ensureSceneDefaults never calls them).
+// ---------------------------------------------------------------------------------------------
+
+/** The built-in interaction input names (the open-ended `custom:*` family is handled separately).
+ *  Kept in sync by hand with the {@link InteractionSource} union below. */
+const INTERACTION_SOURCE_NAMES = [
+  "scroll",
+  "hover",
+  "pointerX",
+  "pointerY",
+  "pointerSpeed",
+  "press",
+  "scrollVelocity",
+  "appear",
+] as const;
+
+/**
+ * An interaction INPUT: a normalized signal that can smoothly drive config params through an
+ * {@link InteractionBinding}. Every source is exponentially smoothed before it is applied.
+ */
+export type InteractionSource =
+  | "scroll" // container progress through the viewport, 0 (entering) .. 1 (scrolled past)
+  | "hover" // smoothed pointer presence over the container, 0..1
+  | "pointerX" // smoothed pointer X across the container, 0..1; relaxes to 0.5 on leave
+  | "pointerY" // smoothed pointer Y across the container, 0..1; relaxes to 0.5 on leave
+  | "pointerSpeed" // normalized smoothed pointer speed, 0..1
+  | "press" // pointer button / touch held, smoothed 0..1
+  | "scrollVelocity" // normalized smoothed |d(scroll progress)/dt|, 0..1
+  | "appear" // one-shot 0→1 latch on first visibility (entrance choreography)
+  | `custom:${string}`; // developer-fed each frame via setInteractionInput(name, value)
+
+/** Per-WAVE params a binding may drive. Single source of truth for WAVE_APPLIERS in
+ *  renderer/interaction.ts (checked via `satisfies`) and validated by normalizeWaveInteraction. */
+const WAVE_TARGET_NAMES = [
+  "displaceAmount",
+  "detailAmount",
+  "twistPowerX",
+  "twistPowerY",
+  "twistPowerZ",
+  "twistFrequencyX",
+  "twistFrequencyY",
+  "twistFrequencyZ",
+  "hueShift",
+  "gradientShift",
+  "colorSaturation",
+  "opacity",
+  "lineThickness",
+  "lineAmount",
+  "fiberStrength",
+  "sheen",
+  "iridescence",
+  "positionX",
+  "positionY",
+] as const;
+/** A per-wave param a {@link WaveInteractionBinding} can drive. */
+export type WaveInteractionTarget = (typeof WAVE_TARGET_NAMES)[number];
+
+/** SCENE params a binding may drive (post / camera / time — shared, not per wave). Single source of
+ *  truth for SCENE_APPLIERS in renderer/interaction.ts, validated by normalizeSceneInteraction. */
+const SCENE_TARGET_NAMES = ["timeOffset", "cameraZoom", "blur", "grain"] as const;
+/** A scene-level param a {@link SceneInteractionBinding} can drive. */
+export type SceneInteractionTarget = (typeof SCENE_TARGET_NAMES)[number];
+
+/** Shared fields of an input→param binding: per frame `value = mix(from ?? authoredBase, to,
+ *  smoothedSource)`, written straight to uniforms — never mutates config, so any refresh restores
+ *  the authored base (removal needs no undo step). */
+interface InteractionBindingBase {
+  /** The input signal driving this binding. */
+  source: InteractionSource;
+  /** Value at source = 0. OMITTED = the authored base value, so at rest the authored look shows. */
+  from?: number;
+  /** Value at source = 1. */
+  to: number;
+  /** Exponential smoothing time constant, seconds (default 0.25); also shapes the `appear` ramp. */
+  smoothing?: number;
+}
+/** A binding on a wave, driving one of that wave's params. */
+export interface WaveInteractionBinding extends InteractionBindingBase {
+  target: WaveInteractionTarget;
+}
+/** A scene-level binding, driving a shared scene param. */
+export interface SceneInteractionBinding extends InteractionBindingBase {
+  target: SceneInteractionTarget;
+}
+
+/** Hover pointer-field: localized effects that follow the cursor over this wave. Present ⇒ the
+ *  POINTER_FX shader path compiles for this wave; an absent effect is 0 (inert). */
+export interface WaveHoverConfig {
+  /** Local churn-octave amplitude near the cursor — the wave agitates under the pointer. The studio
+   *  defaults this positive when you enable a hover field, so a fresh hover reacts out of the box. */
+  agitate?: number;
+  /** Membrane push/pull: a smooth dome at the cursor that swells toward you (repel, +) or dents away
+   *  (attract, −), carried by the sprung field so it drags like a poke under fabric. World units;
+   *  0 = off. */
+  push?: number;
+  /** Drag-wake: while the cursor moves, the surface just BEHIND it is pulled into a trailing trough
+   *  that heals once you stop; scales with pointer speed. World units; 0 = off. */
+  wake?: number;
+  /** 0..1 — wireframe strands taper to hairlines; solid gains local translucency. */
+  thin?: number;
+  /** Local hue rotation near the cursor, degrees. */
+  hueShift?: number;
+  /** Local brightness lift near the cursor, -1..1. */
+  lighten?: number;
+  /** Pointer-follow smoothing for THIS wave's hover field, seconds — how quickly the swell trails
+   *  the cursor. Vary it across a stack so strands lag at different rates (a parallax drag).
+   *  Default 0.12. */
+  smoothing?: number;
+}
+
+/** Click / touch pointer-field: what a tap or click on this wave triggers. */
+export interface WavePressConfig {
+  /** Click-ripple amplitude; 0 keeps this wave's POINTER_RIPPLES path uncompiled. */
+  ripple?: number;
+}
+
+/** Per-wave interactivity: this wave's own reaction to the shared pointer + inputs. ABSENT ⇒ inert. */
+export interface WaveInteractionConfig {
+  /** Hover field (cursor-follow agitation / thinning / hue-lighten). */
+  hover?: WaveHoverConfig;
+  /** Click & touch (ripples radiating from a tap/click on this wave). */
+  press?: WavePressConfig;
+  /** Input→param bindings driving THIS wave's params (any source, incl. scroll / hover / custom). */
+  bindings?: WaveInteractionBinding[];
+}
+
+/** Scene-level interactivity: the SHARED inputs (one cursor + scroll, touch) plus bindings that
+ *  drive shared scene params. Pointer-follow smoothing is per-wave (see WaveHoverConfig.smoothing).
+ *  ABSENT ⇒ inputs use defaults; `enabled: false` is the master OFF switch for the whole layer. */
+export interface SceneInteractionConfig {
+  /** Master switch for the whole interaction layer. Default true (only `false` turns it all off). */
+  enabled?: boolean;
+  /** Pointer falloff radius, as a fraction of viewport height. Default 0.3. */
+  radius?: number;
+  /** Follow coarse (touch) pointers. Default false — touch is ignored unless this is true. */
+  touch?: boolean;
+  /** Input→param bindings driving SCENE params (timeOffset, cameraZoom, blur, grain). */
+  bindings?: SceneInteractionBinding[];
 }
 
 /**
@@ -263,6 +411,9 @@ export interface SceneConfig {
   /** Mirror the whole composition on screen (world-space flip). */
   mirrorH: boolean;
   mirrorV: boolean;
+  /** Shared interaction inputs (one cursor + scroll) + scene-param bindings. Per-wave response
+   *  lives on each WaveConfig.interaction. ABSENT = defaults; `enabled:false` disables the layer. */
+  interaction?: SceneInteractionConfig;
 }
 
 /** The full save-state: scene settings + one or more complete waves. */
@@ -578,6 +729,7 @@ export function normalizeWave(s: WaveConfig): void {
   if (typeof s.speed !== "number") s.speed = 0.04;
   if (typeof s.opacity !== "number") s.opacity = 1;
   if (typeof s.seed !== "number") s.seed = 0;
+  if (s.interaction) normalizeWaveInteraction(s); // present-only; absence stays inert
 }
 
 /** Backfill scene-level defaults (background/camera/post/lights/quality/mirror). */
@@ -599,6 +751,92 @@ export function ensureSceneDefaults(config: StudioConfig): void {
   if (typeof config.loopSeconds !== "number") config.loopSeconds = 0;
   if (typeof config.mirrorH !== "boolean") config.mirrorH = false;
   if (typeof config.mirrorV !== "boolean") config.mirrorV = false;
+  // NOTE: `interaction` (scene + per-wave) is deliberately NOT backfilled — absence is semantically
+  // "off" and keeps the compiled shader byte-identical. The present-only normalizers below run from
+  // ensureStudioConfig / normalizeWave only when a block is actually present.
+}
+
+/** Clamp an untrusted numeric field, falling back to `dflt` when it isn't a finite number. */
+function clampNumber(v: unknown, min: number, max: number, dflt: number): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? clamp(n, min, max) : dflt;
+}
+
+/** True for a valid interaction source string: a built-in name or a non-empty `custom:<name>`. */
+function isInteractionSource(v: unknown): v is InteractionSource {
+  return (
+    typeof v === "string" &&
+    ((INTERACTION_SOURCE_NAMES as readonly string[]).includes(v) ||
+      (v.startsWith("custom:") && v.length > "custom:".length))
+  );
+}
+
+/** Rebuild an untrusted bindings array into valid bindings for `valid` targets (loaded share-links /
+ *  presets are untrusted JSON; we validate source/target/to and rebuild clean objects). */
+function cleanBindings<T extends string>(
+  raw: unknown,
+  valid: readonly string[],
+): Array<InteractionBindingBase & { target: T }> {
+  const out: Array<InteractionBindingBase & { target: T }> = [];
+  if (!Array.isArray(raw)) return out;
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const b = item as Record<string, unknown>;
+    if (!isInteractionSource(b.source)) continue;
+    if (!valid.includes(b.target as string)) continue;
+    const to = Number(b.to);
+    if (!Number.isFinite(to)) continue;
+    const clean: InteractionBindingBase & { target: T } = {
+      source: b.source,
+      target: b.target as T,
+      to,
+    };
+    if (b.from !== undefined) {
+      const f = Number(b.from);
+      if (Number.isFinite(f)) clean.from = f;
+    }
+    if (b.smoothing !== undefined) clean.smoothing = clampNumber(b.smoothing, 0, 2, 0.25);
+    out.push(clean);
+  }
+  return out;
+}
+
+/**
+ * Present-only normalizer for a WAVE's interaction block: clamp the hover/press numerics that are
+ * present (absent fields stay absent, so the block stays lean and the renderer's defaults apply) and
+ * drop bindings with an unknown source/target or a non-finite `to`. NEVER call when the block is
+ * absent — absence is inert and byte-identical (normalizeWave gates on presence).
+ */
+export function normalizeWaveInteraction(wave: WaveConfig): void {
+  const it = wave.interaction;
+  if (!it) return;
+  const h = it.hover;
+  if (h) {
+    if (h.agitate !== undefined) h.agitate = clampNumber(h.agitate, 0, 60, 0);
+    if (h.push !== undefined) h.push = clampNumber(h.push, -40, 40, 0);
+    if (h.wake !== undefined) h.wake = clampNumber(h.wake, 0, 40, 0);
+    if (h.thin !== undefined) h.thin = clampNumber(h.thin, 0, 1, 0);
+    if (h.hueShift !== undefined) h.hueShift = clampNumber(h.hueShift, -360, 360, 0);
+    if (h.lighten !== undefined) h.lighten = clampNumber(h.lighten, -1, 1, 0);
+    if (h.smoothing !== undefined) h.smoothing = clampNumber(h.smoothing, 0, 2, 0.12);
+  }
+  if (it.press && it.press.ripple !== undefined) {
+    it.press.ripple = clampNumber(it.press.ripple, 0, 60, 0);
+  }
+  if (it.bindings !== undefined) {
+    it.bindings = cleanBindings<WaveInteractionTarget>(it.bindings, WAVE_TARGET_NAMES);
+  }
+}
+
+/** Present-only normalizer for the SCENE interaction block: clamp the shared pointer inputs and drop
+ *  invalid scene bindings. NEVER call when the block is absent. */
+export function normalizeSceneInteraction(config: StudioConfig): void {
+  const it = config.interaction;
+  if (!it) return;
+  if (it.radius !== undefined) it.radius = clampNumber(it.radius, 0.02, 2, 0.3);
+  if (it.bindings !== undefined) {
+    it.bindings = cleanBindings<SceneInteractionTarget>(it.bindings, SCENE_TARGET_NAMES);
+  }
 }
 
 /** Normalize an ingested config to the wave model: backfill the scene + every wave, and drop in
@@ -610,7 +848,9 @@ export function ensureStudioConfig(input: StudioConfig): StudioConfig {
   if (!Array.isArray(config.waves) || config.waves.length === 0) {
     config.waves = [makeWave()];
   }
-  config.waves.forEach(normalizeWave);
+  config.waves.forEach(normalizeWave); // each wave's normalizeWave runs normalizeWaveInteraction
   config.waveCount = config.waves.length;
+  // Present-only: a config without a scene `interaction` block is left untouched (stays "off").
+  if (config.interaction) normalizeSceneInteraction(config);
   return config;
 }

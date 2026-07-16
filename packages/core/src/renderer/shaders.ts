@@ -185,6 +185,31 @@ varying vec3 vWorldPos;
 varying vec3 vViewDir;
 varying vec4 vClipPosition; // = gl_Position, for the wireframe theme's depth fade
 
+// Pointer field (optional, additive). ALL declarations here sit behind POINTER_FX so a wave with
+// no interaction config compiles the exact same program (JS-side uniform entries are always present
+// — see makeUniforms — but three only uploads uniforms the compiled program actually declares).
+#ifdef POINTER_FX
+uniform vec2  uPointer;        // smoothed pointer, NDC (-1..1)
+uniform float uPointerActive;  // presence ramp 0..1 × per-wave influence
+uniform float uPointerRadius;  // falloff radius in NDC-y units (config radius × 2)
+uniform float uPointerAspect;  // drawing-buffer dw/dh (circular screen falloff)
+uniform float uPointerAgitate;
+uniform float uPointerPush;    // signed membrane dome at the cursor (+ repel / − attract)
+uniform float uPointerWake;    // drag-wake trough amplitude (behind the moving cursor)
+uniform vec2  uPointerVel;     // smoothed pointer velocity, NDC/s (drag-wake direction)
+varying float vPointerFall;    // falloff × presence — consumed by both fragment themes
+#ifdef POINTER_RIPPLES
+uniform vec2  uRippleOrigin[4]; // NDC
+uniform float uRippleAge[4];    // seconds since spawn (CPU-computed)
+uniform float uRippleAmp[4];    // shared 0..1 decay envelope per slot (CPU-computed; 0 = slot free)
+uniform float uPointerRipple;   // THIS wave's ripple amplitude (scales the shared envelope)
+const float RIPPLE_WAVE_SPEED = 0.85; // NDC/s the ring crest travels outward
+const float RIPPLE_SIGMA = 0.14;      // gaussian half-width of the travelling packet (NDC)
+const float RIPPLE_FREQ = 11.0;       // oscillation within the packet (one crest + faint troughs)
+const float RIPPLE_MAX_R = 1.2;       // reach where the crest has fully left the frame
+#endif
+#endif
+
 // expStep: a falloff from 1 (at x=0) toward 0, sharpness set by n. The
 // max() guards pow(0, n) (= Infinity → NaN) so negative n is safe — negative n
 // just concentrates the twist toward the OTHER end instead.
@@ -264,6 +289,57 @@ void main(){
   pos = (vec4(pos, 1.0) * rotB).xyz;
   pos = (vec4(pos, 1.0) * rotC).xyz;
 
+#ifdef POINTER_FX
+  // Pointer field: displace along the wave's own (post-twist) up-axis, weighted by a circular
+  // screen-space falloff around the smoothed cursor. Everything here is ADDITIVE and fenced, so
+  // the shared path above/below is untouched and byte-identical when POINTER_FX is off.
+  vec4 preClip = projectionMatrix * viewMatrix * modelMatrix * vec4(pos, 1.0);
+  vec2 dp = (preClip.xy / max(preClip.w, 1.0e-6) - uPointer) * vec2(uPointerAspect, 1.0);
+  float fall = smoothstep(uPointerRadius, 0.0, length(dp));
+  vPointerFall = fall * uPointerActive;
+  // Displacement axis = local +Y carried through the SAME three twist rotations as pos (row-vector
+  // convention). Rotations are linear, so post-twist axis displacement equals pre-twist Y displacement.
+  vec3 dispAxis = (((vec4(0.0, 1.0, 0.0, 0.0) * rotA) * rotB) * rotC).xyz;
+  // Agitation: a fast churn octave near the cursor (additive — never rewrites base noise t, which
+  // would force restructuring the shared path). Loop-safe under both time variants.
+#ifdef LOOP_MOTION
+  float disp = uPointerAgitate * vPointerFall
+        * simplexNoise(vec2(pos.x * uDispFreqX * 3.0, pos.z * uDispFreqZ * 3.0) + loopOff * 4.0);
+#else
+  float disp = uPointerAgitate * vPointerFall
+        * simplexNoise(vec2(pos.x * uDispFreqX * 3.0 + t * 4.0, pos.z * uDispFreqZ * 3.0));
+#endif
+  // Membrane push/pull: a smooth dome (vPointerFall is the falloff) that swells toward you (+ repel)
+  // or dents away (− attract) at the cursor, riding along with the sprung field.
+  disp += uPointerPush * vPointerFall;
+  // Drag-wake: pull the surface just BEHIND the moving cursor into a trailing trough. dp points
+  // from cursor to vertex; "behind" is how far the vertex sits opposite the velocity (0 ahead → 1 a
+  // radius behind), gated by speed so it only forms while dragging and heals when the cursor stops.
+  vec2 velC = uPointerVel * vec2(uPointerAspect, 1.0);
+  float wakeSpeed = length(velC);
+  if (uPointerWake != 0.0 && wakeSpeed > 1.0e-4) {
+    float behind = clamp(dot(-dp, velC) / (wakeSpeed * uPointerRadius), 0.0, 1.0);
+    disp -= uPointerWake * vPointerFall * behind * smoothstep(0.05, 0.6, wakeSpeed);
+  }
+#ifdef POINTER_RIPPLES
+  for (int i = 0; i < 4; i++) {
+    if (uRippleAmp[i] > 0.0) {
+      float rd = length((preClip.xy / max(preClip.w, 1.0e-6) - uRippleOrigin[i]) * vec2(uPointerAspect, 1.0));
+      // A wave PACKET whose crest travels outward at RIPPLE_WAVE_SPEED: a gaussian window centred on
+      // the moving front carrying a short oscillation (a raised ring with faint trailing troughs),
+      // so the energy radiates instead of throbbing at the click point. The shared uRippleAmp
+      // envelope fades the whole packet over its lifetime; reach fades it as the crest leaves frame.
+      float front = uRippleAge[i] * RIPPLE_WAVE_SPEED;
+      float band  = rd - front;
+      float packet = exp(-band * band / (2.0 * RIPPLE_SIGMA * RIPPLE_SIGMA)) * cos(band * RIPPLE_FREQ);
+      float reach = 1.0 - smoothstep(RIPPLE_MAX_R * 0.7, RIPPLE_MAX_R, front);
+      disp += uPointerRipple * uRippleAmp[i] * packet * reach;
+    }
+  }
+#endif
+  pos += dispAxis * disp;
+#endif
+
   // The scale / rotation / position transform lives on the mesh (modelMatrix), so the
   // orientation matches THREE's Euler-XYZ rather than an in-shader rotation order.
   vec4 world = modelMatrix * vec4(pos, 1.0);
@@ -316,6 +392,12 @@ varying vec4 vClipPosition; // clip-space depth (written by the vertex shader fo
 #endif
 #ifdef EDGE_FEATHER
 uniform float uEdgeFeather; // ribbon long-edge softness (only when it differs from the 0.1 default)
+#endif
+#ifdef POINTER_FX
+uniform float uPointerThin;    // 0..1 local translucency near the cursor
+uniform float uPointerHue;     // degrees, local hue rotation near the cursor
+uniform float uPointerLighten; // -1..1 local brightness lift near the cursor
+varying float vPointerFall;    // falloff × presence, written by the vertex shader
 #endif
 
 // Cheap value hash for the optional grain overlay (distinct from the simplex hash).
@@ -381,6 +463,12 @@ void main(){
   col = surfaceStreaks(vUv, col, crease);
   col = applyColorGrade(col);
 
+#ifdef POINTER_FX
+  // Local hue rotation + brightness lift near the cursor (both fade out with vPointerFall).
+  col = hueShift(col, radians(uPointerHue) * vPointerFall);
+  col *= 1.0 + uPointerLighten * vPointerFall;
+#endif
+
   // Iridescence: a thin-film / holographic hue that shifts with view angle. Reuses the same
   // camera-facing ratio as roundness (recomputed here, since roundness may be off): grazing parts
   // of the ribbon (low facing) shift hue most, so the colour flows as the ribbon curves. Skipped
@@ -443,6 +531,9 @@ void main(){
   float ribEdge = smoothstep(0.0, 0.1, vUv.y) * (1.0 - smoothstep(0.9, 1.0, vUv.y));
 #endif
   float alpha = uOpacity * ribEdge;
+#ifdef POINTER_FX
+  alpha *= clamp(1.0 - uPointerThin * vPointerFall, 0.0, 1.0); // solid: local translucency
+#endif
   if (uEdgeFade > 0.001) {
     vec2 sc = gl_FragCoord.xy / max(uResolution, vec2(1.0));
     float vig =
@@ -487,6 +578,12 @@ uniform vec3 uClearColor;           // = page background colour (shown between t
 
 varying vec2 vUv;
 varying vec4 vClipPosition;
+#ifdef POINTER_FX
+uniform float uPointerThin;    // 0..1 — strands taper to hairlines near the cursor
+uniform float uPointerHue;     // degrees, local hue rotation near the cursor
+uniform float uPointerLighten; // -1..1 local brightness lift near the cursor
+varying float vPointerFall;    // falloff × presence, written by the vertex shader
+#endif
 
 ${colorFns}
 
@@ -494,9 +591,17 @@ void main(){
   // Same 2D palette sample + colour ops as the solid theme.
   vec3 color = applyColorGrade(waveBaseColor(vUv));
 
+#ifdef POINTER_FX
+  color = hueShift(color, radians(uPointerHue) * vPointerFall);
+  color *= 1.0 + uPointerLighten * vPointerFall;
+#endif
+
   // Carve into fine vertical lines; thickness from the screen-space uv derivative.
   vec2 dy = dFdy(vUv);
   float lineThickness = uLineThickness * pow(abs(dy.x * uMaxWidth), uLineDerivativePower);
+#ifdef POINTER_FX
+  lineThickness *= clamp(1.0 - uPointerThin * vPointerFall, 0.0, 1.0); // wireframe: taper strands
+#endif
   float a = abs(sin(vUv.x * uLineAmount));
   a = smoothstep(lineThickness, 0.0, a);
 

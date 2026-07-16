@@ -18,6 +18,7 @@ export const PRESETS: Record<string, () => StudioConfig> = {
   Holographic: CORE["Holographic"],
   Aurora: CORE["Aurora"],
   Palestine: CORE["Palestine"],
+  Spain: CORE["Spain"],
   "One Piece — Grand Line": PRESETS_EXTRA["One Piece — Grand Line"],
   "Spider-Man — Webbed City": PRESETS_EXTRA["Spider-Man — Webbed City"],
   "Vaporwave Sunset": CORE["Vaporwave Sunset"],

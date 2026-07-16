@@ -1,6 +1,7 @@
 import { Pane } from "tweakpane";
 import waveStudioLogoUrl from "../assets/favicon.png?inline";
 import { injectStyleOnce } from "../util/dom";
+import { flashButtonSuccess, flashButtonError } from "./buttonFeedback";
 import { roundTo } from "../util/math";
 import {
   resizeWaves,
@@ -15,7 +16,15 @@ import {
   MAX_NOISE_BANDS,
   MAX_WAVES,
 } from "@wave3d/core";
-import type { StudioConfig, WaveConfig } from "@wave3d/core";
+import type {
+  StudioConfig,
+  WaveConfig,
+  WaveInteractionConfig,
+  WaveInteractionBinding,
+  WaveInteractionTarget,
+  SceneInteractionBinding,
+  SceneInteractionTarget,
+} from "@wave3d/core";
 import {
   randomizeGradient,
   randomizeColor,
@@ -84,11 +93,15 @@ export interface PanelHooks {
   onRandomize?: () => void;
   onReset?: () => void;
   onExportConfig?: () => void;
+  // Export hooks may return a promise; the panel awaits it to flash success on the button when it
+  // actually finishes.
   onImportConfig?: () => void;
-  onExportImage?: (format: ImageFormat, quality: number) => void;
-  onExportEmbed?: () => void;
+  /** Open the "Edit config" dialog — view/manipulate the whole config as JSON and apply it. */
+  onEditConfig?: () => void;
+  onExportImage?: (format: ImageFormat, quality: number) => void | Promise<void>;
+  onExportEmbed?: () => void | Promise<void>;
   onExportCode?: () => void;
-  onExportWallpaper?: () => void;
+  onExportWallpaper?: () => void | Promise<void>;
   onCopyLink?: () => Promise<boolean> | void;
   onPublishToGallery?: () => void;
   onToggleRecord?: (format: RecordFormat, webpQuality: number) => void;
@@ -100,6 +113,9 @@ export interface PanelHooks {
   /** Fired with true/false as the pointer/focus enters/leaves the size controls, so the app can
    *  reveal the export-area readout for live feedback while you adjust the dimensions. */
   onSizeControlsActive?: (active: boolean) => void;
+  /** Open (toggle) the scroll-test overlay — a scrollable surface over the wave for testing
+   *  `scroll` / `scrollVelocity` reactions by actually scrolling (companion to the preview slider). */
+  onOpenScrollTest?: () => void;
 }
 
 /**
@@ -117,6 +133,187 @@ type VecRows = (
   opts: { min?: number; max?: number; step?: number },
   axisLabels?: [string, string, string],
 ) => void;
+
+/** Move a freshly-added button to the top of its folder, so every section leads with its 🎲
+ *  in the same spot — regardless of when it's added during a build (Tweakpane only ever appends). */
+function seatRandomAtTop(folder: FolderApi, el: HTMLElement): void {
+  const root = folder.element;
+  const content = (root.querySelector(".tp-fldv_c") as HTMLElement | null) ?? root;
+  content.prepend(el);
+}
+
+/**
+ * "Tasteful Randomize" wears an animated gradient border — rolling it is the fastest way for a
+ * newcomer to grok what the whole tool does, so we make the button catch the eye. Implementation
+ * notes:
+ *   • A masked `::after` ring paints the gradient over the button's *native* fill + hover and adds
+ *     no layout box, so it stays pixel-aligned with the sibling action buttons.
+ *   • `@property --wv-ra-angle` makes the conic angle animatable (the ring slowly rotates, with a
+ *     soft glint sweeping around it); engines without `@property` just render a static gradient ring.
+ *   • All motion is dropped under prefers-reduced-motion.
+ */
+const RANDOMIZE_ALL_CSS = `
+@property --wv-ra-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+.wv-randomize-all .tp-btnv_b {
+  position: relative;
+}
+.wv-randomize-all .tp-btnv_b::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(from var(--wv-ra-angle, 0deg),
+    #ff6ea9, #ffb14e, #ffe86b, #eafff5, #5fe3a1, #4fc9ff, #9b7bff, #ff6ea9);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  animation: wv-ra-spin 5s linear infinite;
+}
+@keyframes wv-ra-spin {
+  to { --wv-ra-angle: 360deg; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wv-randomize-all .tp-btnv_b::after { animation: none; }
+}
+`;
+
+// ---- Interaction authoring (per-wave response + shared scene inputs) ----
+
+/** Binding-source options for the studio dropdowns (custom:* is a developer API — not authorable). */
+const IX_SOURCE_OPTIONS: Record<string, string> = {
+  Off: "off",
+  Scroll: "scroll",
+  Hover: "hover",
+  "Pointer X": "pointerX",
+  "Pointer Y": "pointerY",
+  "Pointer speed": "pointerSpeed",
+  Press: "press",
+  "Scroll velocity": "scrollVelocity",
+  Appear: "appear",
+};
+/** Per-wave binding targets. */
+const IX_WAVE_TARGETS: Record<string, WaveInteractionTarget> = {
+  "Displace amount": "displaceAmount",
+  "Detail amount": "detailAmount",
+  "Twist power X": "twistPowerX",
+  "Twist power Y": "twistPowerY",
+  "Twist power Z": "twistPowerZ",
+  "Twist freq X": "twistFrequencyX",
+  "Twist freq Y": "twistFrequencyY",
+  "Twist freq Z": "twistFrequencyZ",
+  "Hue shift": "hueShift",
+  "Gradient shift": "gradientShift",
+  Saturation: "colorSaturation",
+  Opacity: "opacity",
+  "Line thickness": "lineThickness",
+  "Line amount": "lineAmount",
+  "Fiber strength": "fiberStrength",
+  Sheen: "sheen",
+  Iridescence: "iridescence",
+  "Position X": "positionX",
+  "Position Y": "positionY",
+};
+/** Scene-level binding targets (shared post / camera / time). */
+const IX_SCENE_TARGETS: Record<string, SceneInteractionTarget> = {
+  "Time offset": "timeOffset",
+  "Camera zoom": "cameraZoom",
+  Blur: "blur",
+  Grain: "grain",
+};
+
+/** Default "to (at full)" per binding target — the value the param reaches at full input. A blanket
+ *  1 is invisible for wide-range params (hueShift is ±180°, so scroll→hueShift barely moved), so each
+ *  target seeds a clearly-visible swing scaled to its own range. Used for a fresh slot and re-seeded
+ *  when you switch the target. Anything unlisted falls back to 1. */
+const IX_TARGET_DEFAULT_TO: Record<string, number> = {
+  // Wave targets (ranges mirror the section sliders).
+  displaceAmount: 6, // ±12
+  detailAmount: 3, // ±6
+  twistPowerX: 4, // 0..8
+  twistPowerY: 4,
+  twistPowerZ: 4,
+  twistFrequencyX: 1.5, // ±2
+  twistFrequencyY: 1.5,
+  twistFrequencyZ: 1.5,
+  hueShift: 180, // ±180°
+  gradientShift: 0.6, // 0..0.6
+  colorSaturation: 2, // 0..2
+  opacity: 0, // rest is usually 1 (full), so sweep toward 0 → a fade, not a no-op
+  lineThickness: 3, // 0..3
+  lineAmount: 900, // 1..1200
+  fiberStrength: 1, // 0..1
+  sheen: 2, // 0..2
+  iridescence: 1, // 0..1
+  positionX: 300, // ±600
+  positionY: 300,
+  // Scene targets.
+  timeOffset: 20, // 0..60 (scrub the animation)
+  cameraZoom: 1.8, // multiplier over the authored zoom
+  blur: 0.15, // 0..0.3
+  grain: 2, // 0..3
+};
+const defaultToFor = (target: string): number => IX_TARGET_DEFAULT_TO[target] ?? 1;
+
+/** Panel-local model for one binding slot. */
+interface UiSlot {
+  source: string; // "off" | InteractionSource
+  target: string; // a wave or scene target name
+  fromBase: boolean;
+  from: number;
+  to: number;
+  smoothing: number;
+}
+/** Build a slot's UI model from a loaded binding (or a blank slot with `defaultTarget`). */
+function uiSlotFrom(
+  b: { source: string; target: string; from?: number; to: number; smoothing?: number } | undefined,
+  defaultTarget: string,
+): UiSlot {
+  const target = b?.target ?? defaultTarget;
+  return {
+    source: b ? b.source : "off",
+    target,
+    fromBase: !b || b.from === undefined,
+    from: b?.from ?? 0,
+    to: b?.to ?? defaultToFor(target),
+    smoothing: b?.smoothing ?? 0.25,
+  };
+}
+/** Compact UI slots to serialized bindings (drop "off"; omit default from/smoothing), keeping any
+ *  preserved (custom:* / overflow) bindings the studio can't author. */
+function compactSlots(
+  slots: UiSlot[],
+): Array<{ source: string; target: string; from?: number; to: number; smoothing?: number }> {
+  const out: Array<{
+    source: string;
+    target: string;
+    from?: number;
+    to: number;
+    smoothing?: number;
+  }> = [];
+  for (const s of slots) {
+    if (s.source === "off") continue;
+    const b: { source: string; target: string; from?: number; to: number; smoothing?: number } = {
+      source: s.source,
+      target: s.target,
+      to: s.to,
+    };
+    if (!s.fromBase) b.from = s.from;
+    if (s.smoothing !== 0.25) b.smoothing = s.smoothing;
+    out.push(b);
+  }
+  return out;
+}
 
 export class ControlPanel {
   private pane!: Pane;
@@ -401,7 +598,9 @@ export class ControlPanel {
     };
     imageFormatBinding.on("change", refreshImageControls);
     exportImageBtn.on("click", () =>
-      this.hooks.onExportImage?.(this.state.imageFormat, this.state.imageQuality),
+      this.flashAction(exportImageBtn.element, "Exported", () =>
+        this.hooks.onExportImage?.(this.state.imageFormat, this.state.imageQuality),
+      ),
     );
     refreshImageControls();
     // Boxed like the recording group: format + Export on one line, the (lossy-only) quality
@@ -454,40 +653,60 @@ export class ControlPanel {
       [recordQualityBinding.element, this.recordCapHint],
     );
     // Standalone HTML page export goes last: image, then video, then embed, then code snippets.
-    output
-      .addButton({ title: "🔗 Export embed (.html)" })
-      .on("click", () => this.hooks.onExportEmbed?.());
+    const embedBtn = output.addButton({ title: "🔗 Export embed (.html)" });
+    embedBtn.on("click", () =>
+      this.flashAction(embedBtn.element, "Saved", () => this.hooks.onExportEmbed?.()),
+    );
     output.addButton({ title: "⟨⟩ Export code…" }).on("click", () => this.hooks.onExportCode?.());
-    output
-      .addButton({ title: "🖼 Wallpaper folder (.zip)" })
-      .on("click", () => this.hooks.onExportWallpaper?.());
+    const wallpaperBtn = output.addButton({ title: "🖼 Wallpaper folder (.zip)" });
+    wallpaperBtn.on("click", () =>
+      this.flashAction(wallpaperBtn.element, "Saved", () => this.hooks.onExportWallpaper?.()),
+    );
+  }
+
+  /** Run a button's action, flashing ✓ on success / ✕ on failure ON that button; the error is
+   *  re-thrown so the global handler still surfaces the details. */
+  private async flashAction(el: HTMLElement, okLabel: string, run: () => unknown): Promise<void> {
+    try {
+      await run();
+      flashButtonSuccess(el, okLabel);
+    } catch (e) {
+      flashButtonError(el, "Failed");
+      throw e;
+    }
   }
 
   /** "Actions" folder: randomize/reset/save/load/share. */
   private buildActionsFolder(mkFolder: MkFolder): void {
     const actions = mkFolder("Actions", true);
-    actions.addButton({ title: "🎲 Randomize All" }).on("click", () => this.hooks.onRandomize?.());
+    // Give "Tasteful Randomize" an animated gradient border so newcomers immediately spot the
+    // quickest way to see what the tool can do (styles injected once — see RANDOMIZE_ALL_CSS).
+    injectStyleOnce("wv-randomize-all-style", RANDOMIZE_ALL_CSS);
+    const randomizeAll = actions.addButton({ title: "🎲 Tasteful Randomize" });
+    randomizeAll.on("click", () => this.hooks.onRandomize?.());
+    randomizeAll.element.classList.add("wv-randomize-all");
     actions.addButton({ title: "🔄 Reset to default" }).on("click", () => this.hooks.onReset?.());
-    actions
-      .addButton({ title: "💾 Save state (.json)" })
-      .on("click", () => this.hooks.onExportConfig?.());
+    actions.addButton({ title: "✏️ Edit config…" }).on("click", () => this.hooks.onEditConfig?.());
+    const saveBtn = actions.addButton({ title: "💾 Save state (.json)" });
+    saveBtn.on("click", () =>
+      this.flashAction(saveBtn.element, "Saved", () => this.hooks.onExportConfig?.()),
+    );
     actions
       .addButton({ title: "📂 Load state (.json)" })
       .on("click", () => this.hooks.onImportConfig?.());
     const linkBtn = actions.addButton({ title: "🔗 Copy share link" });
     linkBtn.on("click", async () => {
       const ok = await this.hooks.onCopyLink?.();
-      linkBtn.title = ok === false ? "✓ URL updated (copy it)" : "✓ Link copied!";
-      setTimeout(() => (linkBtn.title = "🔗 Copy share link"), 1600);
+      flashButtonSuccess(linkBtn.element, ok === false ? "URL updated" : "Link copied!");
     });
-    actions
-      .addButton({ title: "✨ Publish to gallery" })
-      .on("click", () => this.hooks.onPublishToGallery?.());
     // The gallery lives at /gallery/ on the same origin (dev proxy + combined build), so a plain
     // same-origin navigation works in both. Same tab: the studio and gallery are one site.
     actions
       .addButton({ title: "🏄 Surf the gallery" })
       .on("click", () => window.location.assign("/gallery/"));
+    actions
+      .addButton({ title: "✨ Publish to gallery" })
+      .on("click", () => this.hooks.onPublishToGallery?.());
   }
 
   /** "Global" folder: preset picker, quality/DPR, playback, post fx, mirror. */
@@ -876,6 +1095,204 @@ export class ControlPanel {
     }
   }
 
+  /** Shared interaction INPUTS (one cursor + scroll) + scene-param bindings + the studio-only scroll
+   *  preview. Collapsed; per-WAVE effects (hover / click / bindings) live in each wave's folder. The
+   *  block is written only when a control is set, so untouched presets stay byte-identical. */
+  private buildSceneInteractionFolder(
+    mkFolder: MkFolder,
+    cfg: StudioConfig,
+    refresh: () => void,
+  ): void {
+    const folder = mkFolder("Interaction", true);
+    const it = cfg.interaction;
+    const uiInputs = {
+      radius: it?.radius ?? 0.3,
+      touch: it?.touch ?? false,
+    };
+    // `enabled` is a developer API (the layer's master switch — not authorable here); like custom:*
+    // bindings below, carry an explicit value through every rebuild instead of silently dropping it.
+    const enabled = it?.enabled;
+    const loaded = cfg.interaction?.bindings ?? [];
+    // custom:* bindings are a developer API (not authorable here) — preserve them untouched; every
+    // other binding becomes an editable slot, so any number of scene reactions round-trips.
+    const preserved = loaded.filter((b) => b.source.startsWith("custom:"));
+    const slots: UiSlot[] = loaded
+      .filter((b) => !b.source.startsWith("custom:"))
+      .map((b) => uiSlotFrom(b, "timeOffset"));
+
+    const sync = (): void => {
+      const bindings = compactSlots(slots).concat(preserved) as SceneInteractionBinding[];
+      const nonDefault = uiInputs.touch || uiInputs.radius !== 0.3 || enabled !== undefined;
+      if (bindings.length || nonDefault) {
+        const next: NonNullable<StudioConfig["interaction"]> = {};
+        if (enabled !== undefined) next.enabled = enabled;
+        if (uiInputs.radius !== 0.3) next.radius = uiInputs.radius;
+        if (uiInputs.touch) next.touch = true;
+        if (bindings.length) next.bindings = bindings;
+        cfg.interaction = next;
+      } else {
+        delete cfg.interaction;
+      }
+      refresh();
+    };
+
+    folder
+      .addBinding(uiInputs, "radius", { label: "pointer radius", min: 0.05, max: 1, step: 0.01 })
+      .on("change", sync);
+    folder.addBinding(uiInputs, "touch").on("change", sync);
+
+    const bindingsF = folder.addFolder({ title: "Scene reactions", expanded: false });
+    this.renderBindingSlots(bindingsF, slots, IX_SCENE_TARGETS, "timeOffset", sync);
+
+    // Scroll preview: the studio page never scrolls, so one slider fakes the scroll position (0 = at
+    // rest, 1 = scrolled past) to author + test any `scroll` / `scrollVelocity` reaction. On a real
+    // page these read the actual container scroll; this is studio-only and NEVER touches config.
+    const scrollPrev = { preview: 0 };
+    const previewF = folder.addFolder({ title: "Scroll preview", expanded: true });
+    previewF
+      .addBinding(scrollPrev, "preview", {
+        label: "scroll (drag to test)",
+        min: 0,
+        max: 1,
+        step: 0.01,
+      })
+      .on("change", () => this.renderer.setScrollPreview(scrollPrev.preview));
+    // …or scroll for real: open a scrollable test surface over the wave (drives the same scroll input,
+    // and — unlike the slider — produces real scroll velocity). The control panel stays usable while it's open.
+    previewF
+      .addButton({ title: "🖱 Scroll to test…" })
+      .on("click", () => this.hooks.onOpenScrollTest?.());
+    this.renderer.setScrollPreview(scrollPrev.preview); // apply the rest state on (re)build
+  }
+
+  /** Per-wave interaction: how THIS wave reacts — a Hover field, Click & touch, and param Bindings
+   *  (each source-selectable, including Scroll). Written to wave.interaction only when in use, so an
+   *  untouched wave stays byte-identical. */
+  private buildWaveInteraction(
+    parent: FolderApi,
+    wave: WaveConfig,
+    refresh: () => void,
+  ): FolderApi {
+    const ix = parent.addFolder({ title: "Interaction", expanded: true });
+    const h = wave.interaction?.hover;
+    const uiHover = {
+      agitate: h?.agitate ?? 6,
+      push: h?.push ?? 0,
+      wake: h?.wake ?? 0,
+      thin: h?.thin ?? 0,
+      hueShift: h?.hueShift ?? 0,
+      lighten: h?.lighten ?? 0,
+      smoothing: h?.smoothing ?? 0.12,
+    };
+    const uiPress = { ripple: wave.interaction?.press?.ripple ?? 8 };
+    const on = { hover: !!wave.interaction?.hover, press: !!wave.interaction?.press };
+    const loaded = wave.interaction?.bindings ?? [];
+    // custom:* bindings are a developer API (not authorable here) — preserve them; every other
+    // binding becomes an editable slot, so any number of per-wave reactions round-trips.
+    const preserved = loaded.filter((b) => b.source.startsWith("custom:"));
+    const slots: UiSlot[] = loaded
+      .filter((b) => !b.source.startsWith("custom:"))
+      .map((b) => uiSlotFrom(b, "displaceAmount"));
+
+    const sync = (): void => {
+      const bindings = compactSlots(slots).concat(preserved) as WaveInteractionBinding[];
+      const next: WaveInteractionConfig = {};
+      if (on.hover) next.hover = uiHover;
+      if (on.press) next.press = uiPress;
+      if (bindings.length) next.bindings = bindings;
+      if (next.hover || next.press || next.bindings) wave.interaction = next;
+      else delete wave.interaction;
+      refresh();
+    };
+
+    const hoverF = ix.addFolder({ title: "Hover", expanded: true });
+    hoverF.addBinding(on, "hover", { label: "enabled" }).on("change", sync);
+    hoverF.addBinding(uiHover, "agitate", { min: 0, max: 15, step: 0.1 }).on("change", sync);
+    hoverF
+      .addBinding(uiHover, "push", {
+        label: "push (± repel/attract)",
+        min: -20,
+        max: 20,
+        step: 0.5,
+      })
+      .on("change", sync);
+    hoverF
+      .addBinding(uiHover, "wake", { label: "drag-wake", min: 0, max: 20, step: 0.5 })
+      .on("change", sync);
+    hoverF.addBinding(uiHover, "thin", { min: 0, max: 1, step: 0.01 }).on("change", sync);
+    hoverF
+      .addBinding(uiHover, "hueShift", { label: "hue shift", min: -180, max: 180, step: 1 })
+      .on("change", sync);
+    hoverF.addBinding(uiHover, "lighten", { min: -1, max: 1, step: 0.01 }).on("change", sync);
+    hoverF.addBinding(uiHover, "smoothing", { min: 0, max: 1, step: 0.01 }).on("change", sync);
+
+    const pressF = ix.addFolder({ title: "Click & touch", expanded: false });
+    pressF.addBinding(on, "press", { label: "enabled" }).on("change", sync);
+    pressF.addBinding(uiPress, "ripple", { min: 0, max: 20, step: 0.1 }).on("change", sync);
+
+    const bindingsF = ix.addFolder({ title: "Reactions", expanded: false });
+    this.renderBindingSlots(bindingsF, slots, IX_WAVE_TARGETS, "displaceAmount", sync);
+    return ix; // caller slots this into the wave's sub-section order (kept last)
+  }
+
+  /** Render the reaction list into a folder: any number of slots (each removable) plus an "Add
+   *  reaction" button, calling `onChange` on any edit. The everyday knobs (input → parameter → to)
+   *  sit up top; `from` / smoothing hide in a collapsed "fine-tune". Reads as: "as <input> goes 0→1,
+   *  drive <parameter> to <to>." `targets` is the scope's target list; `defaultTarget` seeds a new
+   *  slot. Add/remove re-renders THIS folder in place (no panel rebuild), so the live `slots` array —
+   *  and any half-configured slot — survives; `onChange` persists + records it for undo. */
+  private renderBindingSlots(
+    folder: FolderApi,
+    slots: UiSlot[],
+    targets: Record<string, string>,
+    defaultTarget: string,
+    onChange: () => void,
+  ): void {
+    const render = (): void => {
+      // Clear the folder (dispose removes each blade from it, so keep taking the first until empty —
+      // iterating a live children list while disposing would skip elements).
+      while (folder.children.length > 0) folder.children[0].dispose();
+      slots.forEach((slot, i) => {
+        // Expand only the last (newest) reaction so a long list stays scannable.
+        const bf = folder.addFolder({
+          title: `Reaction ${i + 1}`,
+          expanded: i === slots.length - 1,
+        });
+        bf.addBinding(slot, "source", { label: "input", options: IX_SOURCE_OPTIONS }).on(
+          "change",
+          onChange,
+        );
+        bf.addBinding(slot, "target", { label: "parameter", options: targets }).on("change", () => {
+          // Re-seed "to (at full)" so the new parameter actually moves — a blanket 1 is invisible for
+          // wide-range params like hueShift (±180°) — then reflect the new value in the field.
+          slot.to = defaultToFor(slot.target);
+          onChange();
+          this.pane.refresh();
+        });
+        bf.addBinding(slot, "to", { label: "to (at full)", step: 0.01 }).on("change", onChange);
+        const tune = bf.addFolder({ title: "fine-tune", expanded: false });
+        tune.addBinding(slot, "fromBase", { label: "start at rest value" }).on("change", onChange);
+        tune.addBinding(slot, "from", { label: "start value", step: 0.01 }).on("change", onChange);
+        tune.addBinding(slot, "smoothing", { min: 0, max: 1, step: 0.01 }).on("change", onChange);
+        bf.addButton({ title: "✕ Remove reaction" }).on("click", () => {
+          slots.splice(i, 1);
+          onChange();
+          render();
+        });
+      });
+      folder.addButton({ title: "＋ Add reaction" }).on("click", () => {
+        // Seed a working reaction (hover is demonstrable without the scroll test) so it persists and
+        // reacts immediately; the user retargets/retriggers from there.
+        const slot = uiSlotFrom(undefined, defaultTarget);
+        slot.source = "hover";
+        slots.push(slot);
+        onChange();
+        render();
+      });
+    };
+    render();
+  }
+
   private rebuildPanel(): void {
     // Remember which folders are open so the rebuild doesn't reset them.
     for (const f of this.folders) this.foldState[f.title] = f.api.expanded;
@@ -996,6 +1413,8 @@ export class ControlPanel {
     this.folders = [];
     const mkFolder = (title: string, expanded: boolean): Folder => {
       const api = pane.addFolder({ title, expanded: this.foldState[title] ?? expanded });
+      // Tag top-level sections so CSS can space them apart (see #panel .wv-section in style.css).
+      api.element.classList.add("wv-section");
       this.folders.push({ title, api });
       return api;
     };
@@ -1022,12 +1441,14 @@ export class ControlPanel {
     // renderer + refresh the sliders. `after` handles non-binding widgets (gradient
     // editor) or camera reframing.
     const randomBtn = (folder: Folder, fn: (c: StudioConfig) => void, after?: () => void): void => {
-      folder.addButton({ title: "🎲 randomize" }).on("click", () => {
+      const btn = folder.addButton({ title: "🎲 randomize" });
+      btn.on("click", () => {
         fn(cfg);
         refresh();
         pane.refresh();
         after?.();
       });
+      seatRandomAtTop(folder, btn.element);
     };
 
     this.buildOutputFolder(pane, mkFolder);
@@ -1036,6 +1457,7 @@ export class ControlPanel {
     this.buildBackgroundFolder(pane, mkFolder, randomBtn, cfg, refresh);
     camFolder = this.buildCameraFolder(mkFolder, cfg);
     this.buildLightsFolder(mkFolder, randomBtn, vec, cfg, refresh);
+    this.buildSceneInteractionFolder(mkFolder, cfg, refresh);
 
     // ---- Waves ----
     // Each WaveConfig is a COMPLETE wave: its own colour/gradient, finish, displacement, twist,
@@ -1046,11 +1468,13 @@ export class ControlPanel {
       // Per-section 🎲 that mutates only this wave's section, then rebuilds so the sliders
       // (some of which bind to replaced Vec objects) reflect the new values.
       const sectionRandom = (folder: Folder, fn: (s: WaveConfig) => void): void => {
-        folder.addButton({ title: "🎲 randomize" }).on("click", () => {
+        const btn = folder.addButton({ title: "🎲 randomize" });
+        btn.on("click", () => {
           fn(wave);
           refresh();
           setTimeout(() => this.rebuildPanel(), 0);
         });
+        seatRandomAtTop(folder, btn.element);
       };
       sf.addButton({ title: "🎲 randomize wave" }).on("click", () => {
         randomizeWave(wave);
@@ -1078,6 +1502,10 @@ export class ControlPanel {
       }).on("change", refresh);
       sf.addBinding(wave, "speed", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
       sf.addBinding(wave, "seed", { min: 0, max: 20, step: 0.1 }).on("change", refresh);
+
+      // How this wave reacts to the pointer + inputs (hover / click / reactions). Built here but
+      // positioned last among the wave's sub-sections (see the reorder below).
+      const waveIx = this.buildWaveInteraction(sf, wave, refresh);
 
       // --- Color & Gradient ---
       const gradF = sf.addFolder({ title: "Color & Gradient", expanded: true });
@@ -1471,10 +1899,12 @@ export class ControlPanel {
       twF.addBinding(wave, "twistMotion", { label: "twist wobble" }).on("change", refresh);
       sectionRandom(twF, randomizeTwist);
       // Order the sub-sections: appearance (colour, finish) → shape (displacement, twist) → pose
-      // (transform) → advanced (noise bands, last). DOM move so the blocks above stay grouped.
+      // (transform) → advanced (noise bands) → interaction (this wave's reactivity, last — mirrors
+      // the global Interaction folder sitting last in the panel). DOM move so the blocks stay grouped.
       const waveContent =
         (sf.element.querySelector(":scope > .tp-fldv_c") as HTMLElement | null) ?? sf.element;
-      for (const f of [gradF, finF, dispF, twF, trF, bandsF]) waveContent.appendChild(f.element);
+      for (const f of [gradF, finF, dispF, twF, trF, bandsF, waveIx])
+        waveContent.appendChild(f.element);
     };
 
     const wavesF = mkFolder("Waves", true);
@@ -1524,8 +1954,19 @@ export class ControlPanel {
     // Reorder the top-level folders, independent of the build order above (which stays grouped by
     // concern). Short meta/setup folders stay near the top (output/canvas, quick actions, presets,
     // then background/camera) so they're always reachable; the tall Waves section sits below them,
-    // above the rarely-used Lights. Done as a DOM move: appendChild re-appends in the given order.
-    const topOrder = ["Output", "Actions", "Global", "Background", "Camera", "Waves", "Lights"];
+    // then the Interaction (reactivity) layer you add last — right below the per-wave interaction it
+    // complements — above the rarely-used Lights. Done as a DOM move: appendChild re-appends in order.
+    // (Any folder omitted here is left where build() put it, so keep this in sync with the folders.)
+    const topOrder = [
+      "Output",
+      "Actions",
+      "Global",
+      "Background",
+      "Camera",
+      "Waves",
+      "Interaction",
+      "Lights",
+    ];
     for (const title of topOrder) {
       const f = this.folders.find((x) => x.title === title);
       if (f) paneContent.appendChild(f.api.element);
@@ -1594,6 +2035,31 @@ export class ControlPanel {
       "⏹": svg(
         '<rect x="3.5" y="3.5" width="9" height="9" rx="1.6" fill="currentColor" stroke="none"/>',
       ),
+      "✏": svg(
+        '<path d="M2.7 13.3 3.6 9.9 10.4 3.1l2.5 2.5-6.8 6.8-3.4.9Z"/><path d="M9 4.5l2.5 2.5"/>',
+      ),
+      "🖼": svg(
+        '<rect x="2.2" y="3.4" width="11.6" height="9.2" rx="1.4"/><circle cx="5.7" cy="6.6" r="1.15"/><path d="m2.7 11.4 3-3 2.1 1.8 2.5-2.7 3 3.2"/>',
+      ),
+      "🏄": svg(
+        '<rect x="2.3" y="2.3" width="4.7" height="4.7" rx="1"/><rect x="9" y="2.3" width="4.7" height="4.7" rx="1"/><rect x="2.3" y="9" width="4.7" height="4.7" rx="1"/><rect x="9" y="9" width="4.7" height="4.7" rx="1"/>',
+      ),
+      "✨": svg(
+        '<path d="M8 10.2V3.4"/><path d="M4.9 6.5 8 3.4l3.1 3.1"/><path d="M3.2 10.8v1.6a1 1 0 0 0 1 1h7.6a1 1 0 0 0 1-1v-1.6"/>',
+      ),
+      "⟨⟩": svg(
+        '<path d="M5.6 4.7 2.2 8l3.4 3.3"/><path d="M10.4 4.7 13.8 8l-3.4 3.3"/><path d="M9 3.6 7 12.4"/>',
+      ),
+      "↔": svg(
+        '<path d="M8 2.4v11.2" stroke-dasharray="1.4 1.7"/><path d="M3.2 4.8v6.4L6.6 8Z"/><path d="M12.8 4.8v6.4L9.4 8Z"/>',
+      ),
+      "↕": svg(
+        '<path d="M2.4 8h11.2" stroke-dasharray="1.4 1.7"/><path d="M4.8 3.2h6.4L8 6.6Z"/><path d="M4.8 12.8h6.4L8 9.4Z"/>',
+      ),
+      "⟲": svg(
+        '<path d="M3 5.6V3h2.6"/><path d="M10.4 3H13v2.6"/><path d="M13 10.4V13h-2.6"/><path d="M5.6 13H3v-2.6"/>',
+      ),
+      "🖱": svg('<rect x="4.7" y="2.2" width="6.6" height="11.6" rx="3.3"/><path d="M8 4.4v2.3"/>'),
     };
     injectStyleOnce(
       "wv-icon-style",
@@ -1603,8 +2069,10 @@ export class ControlPanel {
       const txt = el.textContent ?? "";
       for (const [emoji, icon] of Object.entries(ICONS)) {
         if (txt.startsWith(emoji)) {
+          // Strip the matched emoji + any leftover variation selector (U+FE0F) / spaces so only the
+          // label text follows the icon.
           (el as HTMLElement).innerHTML =
-            `<span class="wv-ic">${icon}</span>${txt.slice(emoji.length).trimStart()}`;
+            `<span class="wv-ic">${icon}</span>${txt.slice(emoji.length).replace(/^[\uFE0F\s]+/, "")}`;
           break;
         }
       }
@@ -1637,6 +2105,8 @@ export class ControlPanel {
         '<circle cx="8" cy="8" r="2.9"/><path d="M8 1.6v1.7M8 12.7v1.7M1.6 8h1.7M12.7 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M3.6 12.4l1.2-1.2M11.2 4.8l1.2-1.2"/>',
       ),
       Waves: svg('<path d="M5.5 2c3 2 3 4 0 6s-3 4 0 6"/><path d="M10.5 2c-3 2-3 4 0 6s3 4 0 6"/>'),
+      // A mouse-cursor — the interaction (pointer / scroll / touch reactivity) layer.
+      Interaction: svg('<path d="M2.8 2.4 2.8 11.4 5.3 9.1 7.1 13.2 8.9 12.4 7.1 8.4 10.6 8.4Z"/>'),
     };
     this.container.querySelectorAll(".tp-fldv_t").forEach((el) => {
       const txt = (el.textContent ?? "").trim();

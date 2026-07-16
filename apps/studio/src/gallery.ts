@@ -1,4 +1,5 @@
 import "./gallery.css";
+import "./page-transition.css"; // subtle crossfade when hopping between the studio and the gallery
 import { createWave } from "@wave3d/core";
 import type { StudioConfig } from "@wave3d/core";
 

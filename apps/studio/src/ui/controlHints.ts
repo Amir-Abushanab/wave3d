@@ -83,6 +83,34 @@ const CONTROL_HINTS: Record<string, string> = {
 
   // --- Output ---
   "lock ratio": "Keeps width and height proportional when you change either one.",
+
+  // --- Interaction ---
+  // Scene-level shared inputs (one cursor + scroll):
+  "pointer radius":
+    "Reach of the pointer/hover effects, as a fraction of viewport height. Shared by every wave. Larger = a broader area reacts.",
+  touch: "Also follow touch input. Off by default so touch-scrolling a page isn't hijacked.",
+  // Per-wave Hover field:
+  enabled:
+    "Turn this effect on for this wave. Off keeps the values but stops it affecting the wave.",
+  agitate: "Adds fast local churn (an extra noise octave) right around the cursor.",
+  thin: "Near the cursor: wireframe strands taper to hairlines; a solid surface turns locally translucent.",
+  "hue shift": "Rotates the colour near the cursor around the hue wheel (degrees).",
+  lighten: "Brightens (or, negative, darkens) the surface near the cursor.",
+  // Per-wave Click & touch:
+  ripple: "Amplitude of the rings that radiate out from a click/tap on THIS wave. 0 = no ripples.",
+  // Reactions (per wave or scene) — "as <input> goes 0→1, drive <parameter> to <to>":
+  input: "The signal that drives this reaction — Scroll, Hover, Pointer, Press, Appear…",
+  parameter: "The wave (or scene) parameter this reaction drives.",
+  "to (at full)":
+    "The parameter's value at full input (input = 1). At rest it stays the authored value.",
+  "start at rest value":
+    "Keep the value at input 0 equal to the wave's authored value, so at rest it looks unchanged.",
+  "start value": "The parameter's value at input 0 (used only when 'start at rest value' is off).",
+  smoothing:
+    "How much this reaction's response lags its input — larger is smoother/slower, 0 is instant (seconds).",
+  // Scroll preview (studio-only):
+  "scroll (drag to test)":
+    "The studio page never scrolls, so drag this to fake a scroll position (0 = at rest, 1 = scrolled past) and watch any scroll reaction. On a real page this reads the actual scroll; never saved to the config.",
 };
 
 /** Overrides for labels that mean different things in different folders. Keyed `Folder label`. */
@@ -92,6 +120,9 @@ const FOLDER_HINTS: Record<string, string> = {
   // Output → "quality" is the exported-image compression, not the Global mesh "quality".
   "Output quality":
     "Compression quality for the exported image — higher looks better but weighs more.",
+  // Hover → "smoothing" is this wave's cursor-follow lag, not a reaction's input smoothing.
+  "Hover smoothing":
+    "How quickly THIS wave's swell trails the cursor — larger lags more. Give stacked strands different values for a parallax drag.",
 };
 
 const SEP = " ";

@@ -1,7 +1,9 @@
 import type { StudioConfig } from "../config/model";
 import type { WaveRenderer, WaveRendererOptions } from "../renderer/WaveRenderer";
 import { hasWebGL, prefersReducedMotion, prefersReducedData } from "./probe";
-import { setupPoster, ensurePositioned, type Poster } from "./poster";
+import { setupPoster, ensurePositioned, type Poster, type PosterFit } from "./poster";
+
+export type { PosterFit } from "./poster";
 
 /** Why the shell showed the poster instead of a live wave. */
 export type FallbackReason =
@@ -20,6 +22,10 @@ type CoreModule = typeof import("../core-loader");
 export interface WaveOptions {
   /** Poster URL / data-URI. Defaults to adopting the container's `<img data-wave3d-poster>` (SSR). */
   poster?: string;
+  /** Poster `object-fit`. Default `"fill"` — matches the canvas (which renders edge-to-edge at the
+   *  container's aspect), so a poster captured at that aspect hands off with no visible jump. Use
+   *  `"cover"` to crop a different-aspect placeholder instead of stretching it. See {@link PosterFit}. */
+  posterFit?: PosterFit;
   /** Wait until the container nears the viewport before fetching the engine. Default true. */
   lazy?: boolean;
   /** IntersectionObserver margin for the lazy trigger. Default "200px". */
@@ -64,6 +70,9 @@ export interface WaveHandle {
   snapshot(options?: SnapshotOptions): Promise<Blob | null>;
   /** Merge a partial config. Staged before upgrade; after, setConfig() then refreshPlayback(). */
   set(config: Partial<StudioConfig>): void;
+  /** Feed a `custom:<name>` interaction input for `custom:*` bindings. Staged (last value per name)
+   *  before upgrade and replayed once the renderer is live; a no-op if no binding consumes it. */
+  setInteractionInput(name: string, value: number): void;
   play(): void;
   pause(): void;
   /** Safe to call in any state (aborts a pending upgrade, disposes a live renderer, removes the poster). */
@@ -95,6 +104,8 @@ export function createWaveImpl(
   let renderer: WaveRenderer | null = null;
   let staged: Partial<StudioConfig> = { ...config };
   if (options.paused !== undefined) staged.paused = options.paused;
+  // Interaction inputs fed before the renderer exists — last value per name, replayed on upgrade.
+  const stagedInputs = new Map<string, number>();
 
   let aborted = false;
   let io: IntersectionObserver | null = null;
@@ -102,7 +113,7 @@ export function createWaveImpl(
   let lossCount = 0;
 
   ensurePositioned(container);
-  const poster: Poster | null = setupPoster(container, options.poster);
+  const poster: Poster | null = setupPoster(container, options.poster, options.posterFit);
 
   function setState(next: WaveState): void {
     if (state === next) return;
@@ -162,6 +173,7 @@ export function createWaveImpl(
     canvas.addEventListener("webglcontextlost", onContextLost, false);
     canvas.addEventListener("webglcontextrestored", onContextRestored, false);
     renderer.start();
+    for (const [name, value] of stagedInputs) renderer.setInteractionInput(name, value);
     setState("running");
     options.onReady?.(renderer);
 
@@ -227,6 +239,10 @@ export function createWaveImpl(
       } else {
         staged = { ...staged, ...next };
       }
+    },
+    setInteractionInput(name, value) {
+      if (renderer) renderer.setInteractionInput(name, value);
+      else stagedInputs.set(name, value);
     },
     play() {
       if (renderer) {

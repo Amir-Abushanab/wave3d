@@ -19,6 +19,11 @@ export class StudioWaveRenderer extends WaveRenderer {
    *  panel mid-drag (the panel already knows the new value). */
   private suppressCameraChange = false;
 
+  /** Studio scroll-preview value (null = live). Persisted here so it survives controller
+   *  recreation — a scroll binding added after the preview was set still responds (see
+   *  onAfterRefresh). */
+  private scrollPreview: number | null = null;
+
   // Same for the minimap, which renders every frame while the camera rig is open.
   private readonly miniBox = new THREE.Box3();
   private readonly miniSphere = new THREE.Sphere();
@@ -395,6 +400,42 @@ export class StudioWaveRenderer extends WaveRenderer {
     if (!this.running) this.renderOnce();
   }
 
+  /** Studio-only scroll preview (the studio page doesn't scroll): override the `scroll` source with
+   *  a fixed 0..1 value, or pass null to return to the live container-progress read. NEVER touches
+   *  config. No-op until interaction is enabled (the controller exists). */
+  setScrollPreview(v: number | null): void {
+    this.scrollPreview = v;
+    if (this.interaction) {
+      this.interaction.scrollOverride = v;
+      // Apply the scrub immediately, whether or not the loop is "running". The studio page never
+      // really scrolls, so this is a manual scrub that must reflect the instant you drag the slider —
+      // we can't defer to the render loop to pick up scrollOverride, because the browser fully
+      // SUSPENDS requestAnimationFrame whenever the studio tab isn't the foreground tab, so a
+      // "running" loop is frozen and the slider looks dead. (The old `!this.running` guard only ever
+      // covered the explicitly-paused case, missing every background-tab / occluded-window case.)
+      // snapScroll() resolves just the scroll bindings, leaving live pointer/press state untouched.
+      this.interaction.snapScroll();
+      this.renderOnce();
+    }
+    // No controller yet → nothing to scrub; onAfterRefresh re-applies scrollPreview once one exists.
+  }
+
+  /** Feed a live scroll position (0..1) from the studio scroll-test overlay — a real scrollable
+   *  surface the user drags/wheels. Unlike setScrollPreview's instant snap (built for the slider and
+   *  a possibly-frozen loop), this leaves the RUNNING render loop's update() to smooth the bindings
+   *  and derive `scrollVelocity` from the real scroll delta, so the wave reacts exactly as it would on
+   *  a scrolling page (velocity included). Falls back to a snapped frame when the loop isn't running
+   *  (paused / reduced-motion), so the preview still tracks. Like setScrollPreview it NEVER touches config. */
+  setScrollTestProgress(v: number): void {
+    this.scrollPreview = v;
+    if (!this.interaction) return;
+    this.interaction.scrollOverride = v;
+    if (!this.running) {
+      this.interaction.snapScroll();
+      this.renderOnce();
+    }
+  }
+
   duplicateOffset(): { x: number; y: number; z: number } {
     this.camera.updateMatrixWorld();
     const worldW = (this.camera.right - this.camera.left) / this.camera.zoom; // visible world span
@@ -703,7 +744,11 @@ export class StudioWaveRenderer extends WaveRenderer {
       (this.camera.right - this.camera.left) / FRAME_W,
       (this.camera.top - this.camera.bottom) / FRAME_H,
     );
-    if (cover > 0) this.config.cameraZoom = roundTo(this.camera.zoom / cover, 3);
+    // Divide interactionZoom back out too: a live scroll→cameraZoom reaction multiplies camera.zoom
+    // for the preview, but only the authored zoom belongs in the persisted (and exported) config.
+    if (cover > 0) {
+      this.config.cameraZoom = roundTo(this.camera.zoom / cover / (this.interactionZoom || 1), 3);
+    }
     if (this.orbit) {
       const t = this.orbit.target;
       this.config.cameraTarget = {
@@ -1038,6 +1083,10 @@ export class StudioWaveRenderer extends WaveRenderer {
   protected override onAfterRefresh(): void {
     if (this.editMode === "light") this.syncLightHelpers();
     else if (this.editMode === "wave") this.syncWaveHelpers();
+    // refresh() may have just (re)created the interaction controller via syncInteraction(); re-apply
+    // the scroll preview so a freshly-added scroll binding responds immediately instead of being
+    // stuck on the (frozen, in-studio) live scroll.
+    if (this.interaction) this.interaction.scrollOverride = this.scrollPreview;
   }
 
   protected override onAfterRenderFrame(): void {

@@ -1,5 +1,5 @@
 /**
- * The "Randomize" helpers: `randomizeConfig` ("Randomize All") plus the per-section randomizers
+ * The "Randomize" helpers: `randomizeConfig` ("Tasteful Randomize") plus the per-section randomizers
  * the studio wires to each folder's 🎲. Studio-facing (not part of the renderer core), exposed via
  * the `@wave3d/core/studio` entry.
  */
@@ -28,7 +28,7 @@ function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-/** "Randomize All": keep the scene (background, camera, lights, quality) and randomize the
+/** "Tasteful Randomize": keep the scene (background, camera, lights, quality) and randomize the
  *  post-fx plus every wave independently — so a multi-wave stack becomes visibly varied.
  *  The camera is deliberately left alone so the result always lands in view. */
 export function randomizeConfig(base: StudioConfig): StudioConfig {
@@ -40,7 +40,7 @@ export function randomizeConfig(base: StudioConfig): StudioConfig {
 }
 
 /** Randomize a whole wave: colour, shape (displacement/twist), transform, finish + the
- *  compositing knobs (speed/opacity/seed/blend). Used by each wave's 🎲 and by "Randomize All". */
+ *  compositing knobs (speed/opacity/seed/blend). Used by each wave's 🎲 and by "Tasteful Randomize". */
 export function randomizeWave(s: WaveConfig): void {
   randomizeGradient(s);
   randomizeColor(s);
@@ -124,7 +124,7 @@ export function randomizeGradient(c: WaveConfig): void {
 }
 
 /** "Background" folder: a fresh random gradient (linear/radial/conic) or mesh backdrop. Left out
- *  of "Randomize All", which deliberately preserves the background. */
+ *  of "Tasteful Randomize", which deliberately preserves the background. */
 export function randomizeBackground(c: StudioConfig): void {
   const colors = pick(RANDOM_PALETTES);
   c.transparentBackground = false;

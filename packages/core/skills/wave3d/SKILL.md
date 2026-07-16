@@ -109,11 +109,29 @@ Omitted fields fall back to `createDefaultConfig()`.
 The studio's **Export code** button generates a ready-made snippet (a minimal config diff + a
 poster) for every entry — the fastest way to hand a designed wave to a developer.
 
+## Interactivity (optional)
+
+Interactivity is **per wave** and **off by default / additive** — omit it and the wave renders
+byte-for-byte as before. Each `WaveConfig.interaction` has three parts: **`hover`** (the cursor-follow
+field — `agitate` churn, `push` ± repel/attract dome, `wake` drag-trough, `thin`, `hueShift`,
+`lighten`), **`press`** (`ripple` rings from a click/tap), and **`bindings`** that smoothly drive
+that wave's params from an input.
+Sources: `scroll`, `hover`, `pointerX` / `pointerY`, `pointerSpeed`, `press`, `scrollVelocity`,
+`appear`, or a developer-fed `custom:*` (via `handle.setInteractionInput(name, value)` /
+`renderer.setInteractionInput`). Each binding rests at the authored value and moves toward `to` as
+its input rises 0→1 — `{ source: "hover", target: "displaceAmount", to: 12 }` grows the folds on
+hover. Each wave's `hover.smoothing` sets its own cursor-follow lag (vary it across a stack for a
+parallax drag). **Shared inputs** (one cursor + scroll: `radius`, `touch`) and **scene-param
+bindings** (`timeOffset`, `cameraZoom`, `blur`, `grain` — e.g. `scroll → timeOffset` scrubs the whole
+wave with the page) live on `SceneConfig.interaction`. In React the flat `interaction` prop targets
+the first wave; the studio authors it per wave (Hover / Click & touch / Bindings) plus a global
+Interaction folder for the shared inputs and a scroll preview.
+
 ## Presets
 
-13 built-in presets (`@wave3d/core/presets`): **Hero**, **Wave 2**, **Wave 3**, **Wave 4**,
+14 built-in presets (`@wave3d/core/presets`): **Hero**, **Wave 2**, **Wave 3**, **Wave 4**,
 **Wireframe**, **Neon Dark Multistrand**, **Mesh Gradient**, **Solar Bloom**, **Holographic**,
-**Aurora**, **Palestine**, **Vaporwave Sunset**, **Kaleidoscope**.
+**Aurora**, **Palestine**, **Spain**, **Vaporwave Sunset**, **Kaleidoscope**.
 
 - React: `preset="Hero"` (a **string** lazy-imports the presets chunk) or
   `preset={() => PRESETS["Hero"]()}` (a **function** is tree-shakeable — bundles only that preset).

@@ -8,10 +8,12 @@ import type {
   WaveConfig,
   ColorStop,
   BlendMode,
+  WaveInteractionConfig,
   WaveHandle,
   WaveOptions,
   WaveRenderer,
   FallbackReason,
+  PosterFit,
 } from "@wave3d/core";
 
 /** Flat props mapped onto the first wave. */
@@ -26,6 +28,9 @@ interface FlatWaveProps {
   opacity?: number;
   blendMode?: BlendMode;
   theme?: "solid" | "wireframe";
+  /** Per-wave interactivity for the first wave (hover field / click / bindings). Off when omitted.
+   *  Scene-level shared inputs + scene bindings go through the `config` prop. */
+  interaction?: WaveInteractionConfig;
 }
 
 /** Flat props mapped onto the scene. */
@@ -45,6 +50,8 @@ export interface Wave3DProps extends FlatWaveProps, FlatSceneProps {
   /** Escape hatch: a full/partial config, applied last. Precedence: default ← preset ← flat props ← config. */
   config?: Partial<StudioConfig>;
   poster?: string;
+  /** Poster `object-fit`. Default `"fill"` (matches the canvas → seamless handoff); `"cover"` crops. */
+  posterFit?: PosterFit;
   lazy?: boolean;
   webgl?: "auto" | "force" | "off";
   respectReducedMotion?: boolean;
@@ -91,6 +98,7 @@ function buildConfig(base: StudioConfig, props: Wave3DProps): Partial<StudioConf
   if (props.opacity !== undefined) w.opacity = props.opacity;
   if (props.blendMode !== undefined) w.blendMode = props.blendMode;
   if (props.theme !== undefined) w.theme = props.theme;
+  if (props.interaction !== undefined) w.interaction = props.interaction;
   if (props.background !== undefined) base.background = props.background;
   if (props.transparentBackground !== undefined)
     base.transparentBackground = props.transparentBackground;
@@ -123,6 +131,7 @@ function configKey(props: Wave3DProps): string {
     "loopSeconds",
     "introRamp",
     "paused",
+    "interaction",
   ] as const;
   for (const k of keys) if (props[k] !== undefined) flat[k] = props[k];
   return JSON.stringify({
@@ -154,6 +163,7 @@ export function Wave3D(props: Wave3DProps): ReactElement {
     let cancelled = false;
     const options: WaveOptions = {
       poster: props.poster,
+      posterFit: props.posterFit,
       lazy: props.lazy,
       webgl: props.webgl,
       respectReducedMotion: props.respectReducedMotion,

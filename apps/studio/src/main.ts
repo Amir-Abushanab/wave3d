@@ -1,11 +1,15 @@
 import "./style.css";
+import "./page-transition.css"; // subtle crossfade when hopping between the studio and the gallery
 import { StudioWaveRenderer } from "@wave3d/core/studio";
 import { ensureStudioConfig } from "@wave3d/core";
 import type { StudioConfig } from "@wave3d/core";
 import { randomizeConfig } from "@wave3d/core/studio";
 import { PRESETS } from "./presets";
 import { ControlPanel } from "./ui/ControlPanel";
+import { ScrollTestOverlay } from "./ui/ScrollTestOverlay";
 import { CodeExportDialog } from "./ui/CodeExportDialog";
+// Type-only: the dialog (and its CodeMirror mini-IDE) is lazy-imported on first open — see onEditConfig.
+import type { ConfigEditorDialog } from "./ui/ConfigEditorDialog";
 import { publishToGallery } from "./publishToGallery";
 import { OutputResizeHandle } from "./ui/OutputResizeHandle";
 import { RecordingOverlay } from "./ui/RecordingOverlay";
@@ -93,6 +97,8 @@ const makeDefault = (): StudioConfig => PRESETS[DEFAULT_PRESET]();
 const hasSharedLink = /[#&]w=/.test(location.hash);
 let config: StudioConfig = makeDefault();
 const renderer = new StudioWaveRenderer(stage, config, { skipIntroRamp: import.meta.env.DEV });
+// Scrollable test surface over the wave (opened from Interaction → Scroll preview → "Scroll to test…").
+const scrollTest = new ScrollTestOverlay(stage, renderer);
 const exportSize = { ...DEFAULT_EXPORT_SIZE };
 
 function updateExportPresentation(refitPreview: boolean): void {
@@ -168,6 +174,7 @@ function applyConfig(next: StudioConfig, presetName = "—", record = true, labe
 }
 
 let codeDialog: CodeExportDialog | undefined;
+let configEditor: ConfigEditorDialog | undefined;
 const panel = new ControlPanel(panelEl, renderer, config, {
   presetOptions,
   // Shared-link load isn't a named preset → "—"; otherwise show the default's name.
@@ -177,7 +184,7 @@ const panel = new ControlPanel(panelEl, renderer, config, {
     const make = PRESETS[name];
     if (make) applyConfig(make(), name, true, name);
   },
-  onRandomize: () => applyConfig(randomizeConfig(config), "—", true, "Randomize All"),
+  onRandomize: () => applyConfig(randomizeConfig(config), "—", true, "Tasteful Randomize"),
   onReset: () => applyConfig(makeDefault(), DEFAULT_PRESET, true, "Reset"),
   onCopyLink: () => copyShareLink(config),
   onPublishToGallery: () => publishToGallery(config),
@@ -189,22 +196,28 @@ const panel = new ControlPanel(panelEl, renderer, config, {
       console.error("Import failed:", err);
     }
   },
+  onEditConfig: async () => {
+    if (!configEditor) {
+      const { ConfigEditorDialog } = await import("./ui/ConfigEditorDialog");
+      configEditor = new ConfigEditorDialog(
+        () => config,
+        (next) => applyConfig(next, "—", true, "Edit config"),
+      );
+    }
+    configEditor.show();
+  },
   exportSize,
   onExportSizeChange: applyExportSize,
   onSizeControlsActive: (active) => stage!.classList.toggle("size-adjusting", active),
-  onExportImage: (format, quality) => {
-    void exportImage(renderer, exportSize, format, config.transparentBackground, quality);
-  },
-  onExportEmbed: () => {
-    void exportEmbed(config, exportSize);
-  },
+  onOpenScrollTest: () => scrollTest.toggle(),
+  onExportImage: (format, quality) =>
+    exportImage(renderer, exportSize, format, config.transparentBackground, quality),
+  onExportEmbed: () => exportEmbed(config, exportSize),
   onExportCode: () => {
     codeDialog ??= new CodeExportDialog(() => config, renderer);
     codeDialog.show();
   },
-  onExportWallpaper: () => {
-    void exportWallpaperFolder(config, exportSize, renderer);
-  },
+  onExportWallpaper: () => exportWallpaperFolder(config, exportSize, renderer),
   onToggleRecord: (format, webpQuality) => {
     if (recorder.recording) {
       stopRecording();

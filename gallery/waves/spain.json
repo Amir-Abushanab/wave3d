@@ -1,0 +1,248 @@
+{
+  "title": "Spain",
+  "author": "Amir-Abushanab",
+  "config": {
+    "background": "#1a0608",
+    "transparentBackground": false,
+    "backgroundMode": "color",
+    "backgroundPalette": [
+      {
+        "color": "#0a2540",
+        "pos": 0
+      },
+      {
+        "color": "#425466",
+        "pos": 0.3333333333333333
+      },
+      {
+        "color": "#7a73ff",
+        "pos": 0.6666666666666666
+      },
+      {
+        "color": "#f6f9fc",
+        "pos": 1
+      }
+    ],
+    "backgroundGradientType": "linear",
+    "backgroundGradientAngle": 135,
+    "backgroundGradientSource": "stops",
+    "backgroundMeshPoints": [
+      {
+        "color": "#5e5ce6",
+        "x": 0.08,
+        "y": 0.12,
+        "influence": 0.78
+      },
+      {
+        "color": "#64d2ff",
+        "x": 0.88,
+        "y": 0.08,
+        "influence": 0.72
+      },
+      {
+        "color": "#ff375f",
+        "x": 0.12,
+        "y": 0.88,
+        "influence": 0.72
+      },
+      {
+        "color": "#ff9f0a",
+        "x": 0.9,
+        "y": 0.86,
+        "influence": 0.78
+      },
+      {
+        "color": "#bf5af2",
+        "x": 0.5,
+        "y": 0.48,
+        "influence": 0.58
+      }
+    ],
+    "backgroundMeshSoftness": 0.62,
+    "backgroundImageSource": "vaporwave",
+    "backgroundImageFit": "cover",
+    "backgroundImageZoom": 1,
+    "backgroundImagePosition": {
+      "x": 0,
+      "y": 0
+    },
+    "waveCount": 1,
+    "quality": 1,
+    "dprMax": 2,
+    "paused": false,
+    "timeOffset": 0,
+    "introRamp": true,
+    "showCameraRig": false,
+    "cameraDistance": 5001,
+    "cameraPosition": {
+      "x": 100,
+      "y": 0,
+      "z": 5000
+    },
+    "cameraTarget": {
+      "x": -420,
+      "y": -200,
+      "z": 0
+    },
+    "cameraZoom": 0.55,
+    "grain": 0.3,
+    "blur": 0.02,
+    "blurSamples": 6,
+    "ambient": 0.45,
+    "lights": [],
+    "mirrorH": false,
+    "mirrorV": false,
+    "waves": [
+      {
+        "palette": [
+          {
+            "color": "#8e9dff",
+            "pos": 0
+          },
+          {
+            "color": "#c98fd0",
+            "pos": 0.14
+          },
+          {
+            "color": "#ff9326",
+            "pos": 0.3
+          },
+          {
+            "color": "#fd8108",
+            "pos": 0.52
+          },
+          {
+            "color": "#fb7a36",
+            "pos": 0.64
+          },
+          {
+            "color": "#d24ecc",
+            "pos": 0.78
+          },
+          {
+            "color": "#e95cae",
+            "pos": 0.9
+          },
+          {
+            "color": "#9b6ae0",
+            "pos": 1
+          }
+        ],
+        "gradientType": "linear",
+        "gradientAngle": 90,
+        "gradientShift": 0.15,
+        "meshGradientPoints": [
+          {
+            "color": "#5e5ce6",
+            "x": 0.08,
+            "y": 0.12,
+            "influence": 0.78
+          },
+          {
+            "color": "#64d2ff",
+            "x": 0.88,
+            "y": 0.08,
+            "influence": 0.72
+          },
+          {
+            "color": "#ff375f",
+            "x": 0.12,
+            "y": 0.88,
+            "influence": 0.72
+          },
+          {
+            "color": "#ff9f0a",
+            "x": 0.9,
+            "y": 0.86,
+            "influence": 0.78
+          },
+          {
+            "color": "#bf5af2",
+            "x": 0.5,
+            "y": 0.48,
+            "influence": 0.58
+          }
+        ],
+        "meshGradientSoftness": 0.62,
+        "usePaletteTexture": true,
+        "paletteSource": "spain",
+        "paletteTextureScale": {
+          "x": 1,
+          "y": 1
+        },
+        "paletteTextureOffset": {
+          "x": 0,
+          "y": 0
+        },
+        "paletteTextureRotation": 0,
+        "paletteDriftX": 0,
+        "paletteDriftY": 0,
+        "paletteEdgeColor": "#8e9dff",
+        "paletteEdgeAmount": 0.3,
+        "hueShift": 0,
+        "colorContrast": 1.18,
+        "colorSaturation": 1.25,
+        "fiberCount": 600,
+        "fiberStrength": 0.2,
+        "noiseBands": [],
+        "texture": 0,
+        "creaseLight": 1.6,
+        "creaseSharpness": 0.806,
+        "creaseSoftness": 0.834,
+        "sheen": 0,
+        "roundness": 0,
+        "iridescence": 0,
+        "edgeFade": 0.04,
+        "edgeFeather": 0.1,
+        "depthTint": 0,
+        "depthTintColor": "#0a2540",
+        "displaceFrequency": {
+          "x": 0.005831,
+          "y": 0.016001
+        },
+        "displaceAmount": -7.821,
+        "detailFrequency": 0.04,
+        "detailAmount": 0,
+        "twistFrequency": {
+          "x": -0.65,
+          "y": 0.41,
+          "z": -0.58
+        },
+        "twistPower": {
+          "x": 3.63,
+          "y": 0.7,
+          "z": 3.95
+        },
+        "twistMotion": false,
+        "theme": "solid",
+        "lineAmount": 425,
+        "lineThickness": 1,
+        "lineDerivativePower": 0.95,
+        "maxWidth": 1232,
+        "position": {
+          "x": 380,
+          "y": -301.7,
+          "z": -11.1
+        },
+        "rotation": {
+          "x": -25.75960951128668,
+          "y": -6.73741071294335,
+          "z": 107.3956101897781
+        },
+        "scale": {
+          "x": 9,
+          "y": 8,
+          "z": 5
+        },
+        "blendMode": "normal",
+        "speed": 0.04,
+        "opacity": 1,
+        "seed": 0
+      }
+    ],
+    "bloomStrength": 0,
+    "bloomRadius": 0.4,
+    "bloomThreshold": 0.85,
+    "loopSeconds": 0
+  }
+}

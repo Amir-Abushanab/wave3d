@@ -318,6 +318,21 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     c.transparentBackground = true;
     return c;
   },
+  Spain: () => {
+    const c = PRESETS["Hero"](); // the centred default "Hero" wave
+    const w = c.waves[0];
+    w.paletteSource = "spain";
+    w.blendMode = "normal";
+    w.hueShift = 0;
+    w.colorContrast = 1.18;
+    w.colorSaturation = 1.25;
+    w.creaseLight = 1.6; // moderate crease-light: rich crimson without washing to salmon (Hero's is 1.98)
+    c.grain = 0.3;
+    c.background = "#1a0608"; // deep oxblood stage
+    c.backgroundMode = "color";
+    c.transparentBackground = false; // opaque, so the dark stage makes the flag pop
+    return c;
+  },
   "Vaporwave Sunset": () => {
     // The Hero wave re-posed/re-framed, plus the vaporwave palette.
     const c = PRESETS["Hero"](); // the centred default "Hero" wave
