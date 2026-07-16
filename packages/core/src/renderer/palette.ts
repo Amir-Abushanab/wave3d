@@ -535,6 +535,20 @@ export const PALETTE_MAPS: Record<string, PaletteMapDef> = {
     edgeColor: "#e4312b",
     edgeAmount: 0.22,
   },
+  spain: {
+    label: "Spain",
+    kind: "gradient",
+    stops: mk([
+      ["#aa151b", 0], // crimson — top stripe
+      ["#aa151b", 0.24], // hold the red band
+      ["#f1bf00", 0.34], // into gold
+      ["#f1bf00", 0.66], // hold the wide gold band (middle 50%)
+      ["#aa151b", 0.76], // back to red
+      ["#aa151b", 1], // crimson — bottom stripe
+    ]),
+    edgeColor: "#7a0f14", // deep oxblood edge tint (mirrors Palestine's red edge)
+    edgeAmount: 0.22,
+  },
   grandLine: {
     label: "Grand Line",
     kind: "gradient",
