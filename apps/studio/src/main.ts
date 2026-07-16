@@ -8,7 +8,8 @@ import { PRESETS } from "./presets";
 import { ControlPanel } from "./ui/ControlPanel";
 import { ScrollTestOverlay } from "./ui/ScrollTestOverlay";
 import { CodeExportDialog } from "./ui/CodeExportDialog";
-import { ConfigEditorDialog } from "./ui/ConfigEditorDialog";
+// Type-only: the dialog (and its CodeMirror mini-IDE) is lazy-imported on first open — see onEditConfig.
+import type { ConfigEditorDialog } from "./ui/ConfigEditorDialog";
 import { publishToGallery } from "./publishToGallery";
 import { OutputResizeHandle } from "./ui/OutputResizeHandle";
 import { RecordingOverlay } from "./ui/RecordingOverlay";
@@ -195,11 +196,14 @@ const panel = new ControlPanel(panelEl, renderer, config, {
       console.error("Import failed:", err);
     }
   },
-  onEditConfig: () => {
-    configEditor ??= new ConfigEditorDialog(
-      () => config,
-      (next) => applyConfig(next, "—", true, "Edit config"),
-    );
+  onEditConfig: async () => {
+    if (!configEditor) {
+      const { ConfigEditorDialog } = await import("./ui/ConfigEditorDialog");
+      configEditor = new ConfigEditorDialog(
+        () => config,
+        (next) => applyConfig(next, "—", true, "Edit config"),
+      );
+    }
     configEditor.show();
   },
   exportSize,

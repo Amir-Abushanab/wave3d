@@ -667,7 +667,7 @@ export class ControlPanel {
     randomizeAll.on("click", () => this.hooks.onRandomize?.());
     randomizeAll.element.classList.add("wv-randomize-all");
     actions.addButton({ title: "🔄 Reset to default" }).on("click", () => this.hooks.onReset?.());
-    actions.addButton({ title: "🧬 Edit config…" }).on("click", () => this.hooks.onEditConfig?.());
+    actions.addButton({ title: "✏️ Edit config…" }).on("click", () => this.hooks.onEditConfig?.());
     actions
       .addButton({ title: "💾 Save state (.json)" })
       .on("click", () => this.hooks.onExportConfig?.());
