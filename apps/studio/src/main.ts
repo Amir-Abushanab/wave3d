@@ -8,6 +8,7 @@ import { PRESETS } from "./presets";
 import { ControlPanel } from "./ui/ControlPanel";
 import { ScrollTestOverlay } from "./ui/ScrollTestOverlay";
 import { CodeExportDialog } from "./ui/CodeExportDialog";
+import { ConfigEditorDialog } from "./ui/ConfigEditorDialog";
 import { publishToGallery } from "./publishToGallery";
 import { OutputResizeHandle } from "./ui/OutputResizeHandle";
 import { RecordingOverlay } from "./ui/RecordingOverlay";
@@ -172,6 +173,7 @@ function applyConfig(next: StudioConfig, presetName = "—", record = true, labe
 }
 
 let codeDialog: CodeExportDialog | undefined;
+let configEditor: ConfigEditorDialog | undefined;
 const panel = new ControlPanel(panelEl, renderer, config, {
   presetOptions,
   // Shared-link load isn't a named preset → "—"; otherwise show the default's name.
@@ -192,6 +194,13 @@ const panel = new ControlPanel(panelEl, renderer, config, {
     } catch (err) {
       console.error("Import failed:", err);
     }
+  },
+  onEditConfig: () => {
+    configEditor ??= new ConfigEditorDialog(
+      () => config,
+      (next) => applyConfig(next, "—", true, "Edit config"),
+    );
+    configEditor.show();
   },
   exportSize,
   onExportSizeChange: applyExportSize,

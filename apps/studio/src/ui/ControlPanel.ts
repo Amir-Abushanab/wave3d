@@ -93,6 +93,8 @@ export interface PanelHooks {
   onReset?: () => void;
   onExportConfig?: () => void;
   onImportConfig?: () => void;
+  /** Open the "Edit config" dialog — view/manipulate the whole config as JSON and apply it. */
+  onEditConfig?: () => void;
   onExportImage?: (format: ImageFormat, quality: number) => void;
   onExportEmbed?: () => void;
   onExportCode?: () => void;
@@ -665,6 +667,7 @@ export class ControlPanel {
     randomizeAll.on("click", () => this.hooks.onRandomize?.());
     randomizeAll.element.classList.add("wv-randomize-all");
     actions.addButton({ title: "🔄 Reset to default" }).on("click", () => this.hooks.onReset?.());
+    actions.addButton({ title: "🧬 Edit config…" }).on("click", () => this.hooks.onEditConfig?.());
     actions
       .addButton({ title: "💾 Save state (.json)" })
       .on("click", () => this.hooks.onExportConfig?.());
@@ -1088,11 +1091,12 @@ export class ControlPanel {
       touch: it?.touch ?? false,
     };
     const loaded = cfg.interaction?.bindings ?? [];
-    const preserved = loaded.filter((b) => b.source.startsWith("custom:")).concat(loaded.slice(2));
-    const slots: UiSlot[] = [
-      uiSlotFrom(loaded[0], "timeOffset"),
-      uiSlotFrom(loaded[1], "timeOffset"),
-    ];
+    // custom:* bindings are a developer API (not authorable here) — preserve them untouched; every
+    // other binding becomes an editable slot, so any number of scene reactions round-trips.
+    const preserved = loaded.filter((b) => b.source.startsWith("custom:"));
+    const slots: UiSlot[] = loaded
+      .filter((b) => !b.source.startsWith("custom:"))
+      .map((b) => uiSlotFrom(b, "timeOffset"));
 
     const sync = (): void => {
       const bindings = compactSlots(slots).concat(preserved) as SceneInteractionBinding[];
@@ -1115,7 +1119,7 @@ export class ControlPanel {
     folder.addBinding(uiInputs, "touch").on("change", sync);
 
     const bindingsF = folder.addFolder({ title: "Scene reactions", expanded: false });
-    this.renderBindingSlots(bindingsF, slots, IX_SCENE_TARGETS, sync);
+    this.renderBindingSlots(bindingsF, slots, IX_SCENE_TARGETS, "timeOffset", sync);
 
     // Scroll preview: the studio page never scrolls, so one slider fakes the scroll position (0 = at
     // rest, 1 = scrolled past) to author + test any `scroll` / `scrollVelocity` reaction. On a real
@@ -1160,14 +1164,12 @@ export class ControlPanel {
     const uiPress = { ripple: wave.interaction?.press?.ripple ?? 8 };
     const on = { hover: !!wave.interaction?.hover, press: !!wave.interaction?.press };
     const loaded = wave.interaction?.bindings ?? [];
-    const authorable = loaded.filter((b) => !b.source.startsWith("custom:"));
-    const preserved = loaded
-      .filter((b) => b.source.startsWith("custom:"))
-      .concat(authorable.slice(2));
-    const slots: UiSlot[] = [
-      uiSlotFrom(authorable[0], "displaceAmount"),
-      uiSlotFrom(authorable[1], "displaceAmount"),
-    ];
+    // custom:* bindings are a developer API (not authorable here) — preserve them; every other
+    // binding becomes an editable slot, so any number of per-wave reactions round-trips.
+    const preserved = loaded.filter((b) => b.source.startsWith("custom:"));
+    const slots: UiSlot[] = loaded
+      .filter((b) => !b.source.startsWith("custom:"))
+      .map((b) => uiSlotFrom(b, "displaceAmount"));
 
     const sync = (): void => {
       const bindings = compactSlots(slots).concat(preserved) as WaveInteractionBinding[];
@@ -1206,38 +1208,66 @@ export class ControlPanel {
     pressF.addBinding(uiPress, "ripple", { min: 0, max: 20, step: 0.1 }).on("change", sync);
 
     const bindingsF = ix.addFolder({ title: "Reactions", expanded: false });
-    this.renderBindingSlots(bindingsF, slots, IX_WAVE_TARGETS, sync);
+    this.renderBindingSlots(bindingsF, slots, IX_WAVE_TARGETS, "displaceAmount", sync);
     return ix; // caller slots this into the wave's sub-section order (kept last)
   }
 
-  /** Render N reaction slots into a folder, calling `onChange` on any edit. The everyday knobs
-   *  (input → parameter → to) sit up top; `from` / smoothing hide in a collapsed "fine-tune". Reads
-   *  as: "as <input> goes 0→1, drive <parameter> to <to>." `targets` is the scope's target list. */
+  /** Render the reaction list into a folder: any number of slots (each removable) plus an "Add
+   *  reaction" button, calling `onChange` on any edit. The everyday knobs (input → parameter → to)
+   *  sit up top; `from` / smoothing hide in a collapsed "fine-tune". Reads as: "as <input> goes 0→1,
+   *  drive <parameter> to <to>." `targets` is the scope's target list; `defaultTarget` seeds a new
+   *  slot. Add/remove re-renders THIS folder in place (no panel rebuild), so the live `slots` array —
+   *  and any half-configured slot — survives; `onChange` persists + records it for undo. */
   private renderBindingSlots(
     folder: FolderApi,
     slots: UiSlot[],
     targets: Record<string, string>,
+    defaultTarget: string,
     onChange: () => void,
   ): void {
-    slots.forEach((slot, i) => {
-      const bf = folder.addFolder({ title: `Reaction ${i + 1}`, expanded: i === 0 });
-      bf.addBinding(slot, "source", { label: "input", options: IX_SOURCE_OPTIONS }).on(
-        "change",
-        onChange,
-      );
-      bf.addBinding(slot, "target", { label: "parameter", options: targets }).on("change", () => {
-        // Re-seed "to (at full)" so the new parameter actually moves — a blanket 1 is invisible for
-        // wide-range params like hueShift (±180°) — then reflect the new value in the field.
-        slot.to = defaultToFor(slot.target);
-        onChange();
-        this.pane.refresh();
+    const render = (): void => {
+      // Clear the folder (dispose removes each blade from it, so keep taking the first until empty —
+      // iterating a live children list while disposing would skip elements).
+      while (folder.children.length > 0) folder.children[0].dispose();
+      slots.forEach((slot, i) => {
+        // Expand only the last (newest) reaction so a long list stays scannable.
+        const bf = folder.addFolder({
+          title: `Reaction ${i + 1}`,
+          expanded: i === slots.length - 1,
+        });
+        bf.addBinding(slot, "source", { label: "input", options: IX_SOURCE_OPTIONS }).on(
+          "change",
+          onChange,
+        );
+        bf.addBinding(slot, "target", { label: "parameter", options: targets }).on("change", () => {
+          // Re-seed "to (at full)" so the new parameter actually moves — a blanket 1 is invisible for
+          // wide-range params like hueShift (±180°) — then reflect the new value in the field.
+          slot.to = defaultToFor(slot.target);
+          onChange();
+          this.pane.refresh();
+        });
+        bf.addBinding(slot, "to", { label: "to (at full)", step: 0.01 }).on("change", onChange);
+        const tune = bf.addFolder({ title: "fine-tune", expanded: false });
+        tune.addBinding(slot, "fromBase", { label: "start at rest value" }).on("change", onChange);
+        tune.addBinding(slot, "from", { label: "start value", step: 0.01 }).on("change", onChange);
+        tune.addBinding(slot, "smoothing", { min: 0, max: 1, step: 0.01 }).on("change", onChange);
+        bf.addButton({ title: "✕ Remove reaction" }).on("click", () => {
+          slots.splice(i, 1);
+          onChange();
+          render();
+        });
       });
-      bf.addBinding(slot, "to", { label: "to (at full)", step: 0.01 }).on("change", onChange);
-      const tune = bf.addFolder({ title: "fine-tune", expanded: false });
-      tune.addBinding(slot, "fromBase", { label: "start at rest value" }).on("change", onChange);
-      tune.addBinding(slot, "from", { label: "start value", step: 0.01 }).on("change", onChange);
-      tune.addBinding(slot, "smoothing", { min: 0, max: 1, step: 0.01 }).on("change", onChange);
-    });
+      folder.addButton({ title: "＋ Add reaction" }).on("click", () => {
+        // Seed a working reaction (hover is demonstrable without the scroll test) so it persists and
+        // reacts immediately; the user retargets/retriggers from there.
+        const slot = uiSlotFrom(undefined, defaultTarget);
+        slot.source = "hover";
+        slots.push(slot);
+        onChange();
+        render();
+      });
+    };
+    render();
   }
 
   private rebuildPanel(): void {
