@@ -36,8 +36,8 @@ function esc(s: string): string {
 }
 
 /** Flash a "✓ label" success state on `el` (a Tweakpane button root or a plain button), then revert
- *  after `duration` ms. */
-export function flashButtonSuccess(el: HTMLElement, label = "Done", duration = 1500): void {
+ *  after `duration` ms — long enough to read the confirmation at a glance before it settles back. */
+export function flashButtonSuccess(el: HTMLElement, label = "Done", duration = 2500): void {
   injectStyleOnce("wv-btn-feedback-style", CSS);
   const target = el.querySelector<HTMLElement>(".tp-btnv_t") ?? el;
   // The FIRST flash captures the resting content (icon + label); a re-entrant flash reuses it and
