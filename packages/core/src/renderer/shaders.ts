@@ -197,6 +197,9 @@ uniform float uPointerAgitate;
 uniform float uPointerPush;    // signed membrane dome at the cursor (+ repel / − attract)
 uniform float uPointerWake;    // drag-wake trough amplitude (behind the moving cursor)
 uniform vec2  uPointerVel;     // smoothed pointer velocity, NDC/s (drag-wake direction)
+// Ribbon flow: stretch the falloff along the strip's length axis so the field reaches ALONG the
+// ribbon rather than as a screen disc. 0 = the plain circular smoothstep (byte-identical when off).
+uniform float uShapeFlow;
 varying float vPointerFall;    // falloff × presence — consumed by both fragment themes
 #ifdef POINTER_RIPPLES
 uniform vec2  uRippleOrigin[4]; // NDC
@@ -290,11 +293,35 @@ void main(){
   pos = (vec4(pos, 1.0) * rotC).xyz;
 
 #ifdef POINTER_FX
-  // Pointer field: displace along the wave's own (post-twist) up-axis, weighted by a circular
-  // screen-space falloff around the smoothed cursor. Everything here is ADDITIVE and fenced, so
-  // the shared path above/below is untouched and byte-identical when POINTER_FX is off.
-  vec4 preClip = projectionMatrix * viewMatrix * modelMatrix * vec4(pos, 1.0);
-  vec2 dp = (preClip.xy / max(preClip.w, 1.0e-6) - uPointer) * vec2(uPointerAspect, 1.0);
+  // Pointer field: displace along the wave's own (post-twist) up-axis, weighted by a screen-space
+  // falloff around the smoothed cursor — a circle at uShapeFlow 0, stretched along the ribbon as it
+  // rises. Everything here is ADDITIVE and fenced, so the shared path above/below is untouched and
+  // byte-identical when POINTER_FX is off.
+  // Shared clip-space transform, computed once and reused for the cursor metric and the ribbon
+  // tangent (the compiler is not guaranteed to CSE the triple product otherwise). Associativity is
+  // unchanged, so preClip is bit-for-bit what the plain P*V*M*v product produced.
+  mat4 mvp = projectionMatrix * viewMatrix * modelMatrix;
+  vec4 preClip = mvp * vec4(pos, 1.0);
+  // Screen-space offset from the cursor (aspect-corrected → round in pixels). The DEFAULT metric.
+  vec2 ndcHere = preClip.xy / max(preClip.w, 1.0e-6);
+  vec2 dp = (ndcHere - uPointer) * vec2(uPointerAspect, 1.0);
+  // Ribbon flow: stretch the metric along the strip's own LENGTH axis so the field reaches ALONG the
+  // ribbon and stays tight across it — the "flows with the material" feel, per-vertex (so it follows
+  // the strip's curve) with no CPU surface pick. The length axis is local +X (uv.x runs with x)
+  // carried through the SAME twist as the surface. The camera is orthographic (affine, w=1), so the
+  // axis's screen image is the linear map of the DIRECTION (w=0): one mat·dir, no second
+  // point-projection and no perspective divide. (A true per-pixel uv would need GPU picking — the
+  // visible surface is shader-displaced, so a CPU raycast of the base geometry misses.)
+  if (uShapeFlow > 0.0) {
+    vec3 tangentLocal = (((vec4(1.0, 0.0, 0.0, 0.0) * rotA) * rotB) * rotC).xyz;
+    vec2 tang = (mvp * vec4(tangentLocal, 0.0)).xy * vec2(uPointerAspect, 1.0);
+    float tl = length(tang);
+    if (tl > 1.0e-6) {
+      tang /= tl;
+      vec2 nrm = vec2(-tang.y, tang.x);
+      dp = vec2(dot(dp, tang) / (1.0 + uShapeFlow * 2.5), dot(dp, nrm)); // up to 3.5× reach along length
+    }
+  }
   float fall = smoothstep(uPointerRadius, 0.0, length(dp));
   vPointerFall = fall * uPointerActive;
   // Displacement axis = local +Y carried through the SAME three twist rotations as pos (row-vector

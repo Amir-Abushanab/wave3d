@@ -88,6 +88,8 @@ const CONTROL_HINTS: Record<string, string> = {
   // Scene-level shared inputs (one cursor + scroll):
   "pointer radius":
     "Reach of the pointer/hover effects, as a fraction of viewport height. Shared by every wave. Larger = a broader area reacts.",
+  "ribbon flow":
+    "Stretches the pointer's reach ALONG each ribbon's length instead of a round patch around the cursor, so the effect flows with the strip rather than sitting on top of it. 0 = a plain circle.",
   touch: "Also follow touch input. Off by default so touch-scrolling a page isn't hijacked.",
   // Per-wave Hover field:
   enabled:
