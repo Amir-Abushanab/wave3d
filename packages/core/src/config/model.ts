@@ -413,6 +413,14 @@ export interface SceneConfig {
   ditherScale?: number;
   /** Quantization levels per channel (>=2) — lower = heavier posterization. */
   ditherSteps?: number;
+  /** Domain-warp (liquid distortion) over the scene — another "layered" post shader in the spirit
+   *  of paper-design/shaders. 0 removes the pass entirely; scale & speed only bite once warp > 0.
+   *  Runs in the scene zone (under the film grain) and is time-driven (animated). */
+  warp?: number;
+  /** Warp field spatial frequency (higher = finer ripples). */
+  warpScale?: number;
+  /** Warp animation speed (0 = frozen distortion). */
+  warpSpeed?: number;
   /** Base ambient light level (0–1). */
   ambient: number;
   lights: LightConfig[];
@@ -585,6 +593,9 @@ export function createDefaultConfig(): StudioConfig {
     dither: 0, // off by default — the hero look is unchanged (the pass isn't inserted)
     ditherScale: 2,
     ditherSteps: 4,
+    warp: 0, // off by default (animated liquid distortion; keeps the hero deterministic)
+    warpScale: 3,
+    warpSpeed: 0.3,
     ambient: 0.45,
     lights: [], // hero has no lights — colour is the palette + the SrcColor² blend
     mirrorH: false,
@@ -760,6 +771,9 @@ export function ensureSceneDefaults(config: StudioConfig): void {
   if (typeof config.dither !== "number") config.dither = 0;
   if (typeof config.ditherScale !== "number") config.ditherScale = 2;
   if (typeof config.ditherSteps !== "number") config.ditherSteps = 4;
+  if (typeof config.warp !== "number") config.warp = 0;
+  if (typeof config.warpScale !== "number") config.warpScale = 3;
+  if (typeof config.warpSpeed !== "number") config.warpSpeed = 0.3;
   if (typeof config.showCameraRig !== "boolean") config.showCameraRig = false;
   if (typeof config.paused !== "boolean") config.paused = false;
   if (typeof config.loopSeconds !== "number") config.loopSeconds = 0;

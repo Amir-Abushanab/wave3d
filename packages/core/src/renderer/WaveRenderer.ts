@@ -11,6 +11,7 @@ import {
   postVertexShader,
   postFragmentShader,
   ditherFragmentShader,
+  warpFragmentShader,
 } from "./shaders";
 import { WaveGeometry } from "./WaveGeometry";
 import {
@@ -234,6 +235,7 @@ export class WaveRenderer {
   /** Optional bloom pass — created lazily when bloomStrength first goes >0, removed at 0. */
   private bloomPass?: UnrealBloomPass;
   private ditherPass?: ShaderPass;
+  private warpPass?: ShaderPass;
   protected readonly container: HTMLElement;
   private readonly respectReducedMotion: boolean;
   private readonly skipIntroRamp: boolean;
@@ -1161,6 +1163,7 @@ export class WaveRenderer {
     u.uGrainAmount.value = this.config.grain;
     u.uBlurSamples.value = Math.round(this.config.blurSamples ?? 6);
     this.applyBloom();
+    this.applyWarp();
     this.applyDither();
   }
 
@@ -1223,6 +1226,41 @@ export class WaveRenderer {
     }
   }
 
+  /** Insert / tune / remove the domain-warp pass — a time-driven "layered" post shader (liquid
+   *  distortion, in the spirit of paper-design/shaders). Like bloom & dither, warp 0 removes the
+   *  pass entirely (zero cost) and it's created lazily on first enable. It's inserted in the SCENE
+   *  zone (right after RenderPass, index 1) so the wave ripples UNDER the screen-locked film grain,
+   *  rather than dragging the grain along with it. uTime/uResolution are pushed in updateTime()/
+   *  resize(); we seed the resolution here so the first frame isn't undistorted. */
+  private applyWarp(): void {
+    const amount = this.config.warp ?? 0;
+    if (amount > 0) {
+      if (!this.warpPass) {
+        this.warpPass = new ShaderPass({
+          uniforms: {
+            tDiffuse: { value: null },
+            uResolution: { value: this.renderer.getDrawingBufferSize(new THREE.Vector2()) },
+            uTime: { value: 0 },
+            uWarpAmount: { value: amount },
+            uWarpScale: { value: this.config.warpScale ?? 3 },
+            uWarpSpeed: { value: this.config.warpSpeed ?? 0.3 },
+          },
+          vertexShader: postVertexShader,
+          fragmentShader: warpFragmentShader,
+        });
+        this.composer.insertPass(this.warpPass, 1); // scene zone → grain (in postPass) stays put
+      }
+      const u = this.warpPass.uniforms;
+      u.uWarpAmount.value = amount;
+      u.uWarpScale.value = Math.max(0.1, this.config.warpScale ?? 3);
+      u.uWarpSpeed.value = this.config.warpSpeed ?? 0.3;
+    } else if (this.warpPass) {
+      this.composer.removePass(this.warpPass);
+      this.warpPass.dispose();
+      this.warpPass = undefined;
+    }
+  }
+
   private onResize = (): void => {
     this.resize();
   };
@@ -1260,6 +1298,9 @@ export class WaveRenderer {
     const dw = w * dpr;
     const dh = h * dpr;
     (this.postPass.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
+    if (this.warpPass) {
+      (this.warpPass.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
+    }
     for (const s of this.waves) {
       (s.material.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
     }
@@ -1367,6 +1408,7 @@ export class WaveRenderer {
       }
     }
     this.postPass.uniforms.uTime.value = t;
+    if (this.warpPass) this.warpPass.uniforms.uTime.value = t;
   }
 
   /** Render exactly one frame at the current time. */

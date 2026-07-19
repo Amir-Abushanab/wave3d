@@ -803,6 +803,20 @@ export class ControlPanel {
       "change",
       refresh,
     );
+    // Domain warp (liquid distortion) — a time-driven "layered" post shader in the spirit of
+    // paper-design/shaders. 0 removes the pass entirely; scale & speed only bite once warp > 0.
+    g.addBinding(cfg, "warp", { min: 0, max: 0.2, step: 0.005, label: "warp" }).on(
+      "change",
+      refresh,
+    );
+    g.addBinding(cfg, "warpScale", { min: 0.5, max: 8, step: 0.1, label: "warp scale" }).on(
+      "change",
+      refresh,
+    );
+    g.addBinding(cfg, "warpSpeed", { min: 0, max: 2, step: 0.05, label: "warp speed" }).on(
+      "change",
+      refresh,
+    );
     // Whole-composition mirror (scene-level world-space flip).
     g.addButton({ title: "↔ mirror horizontal" }).on("click", () => {
       cfg.mirrorH = !cfg.mirrorH;
