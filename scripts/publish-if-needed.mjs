@@ -1,34 +1,31 @@
 #!/usr/bin/env node
 /**
- * Guarded publish. Shells into `changeset publish`, but leans on the npm registry
- * as the source of truth so two @changesets/cli 2.31 + npm-OIDC bugs can't redden
- * the release:
+ * Guarded publish: publishes only the package versions npm doesn't already have, driving
+ * `pnpm publish` directly rather than `changeset publish`.
  *
- *   1. No-op runs. `changesets/action` runs the publish command on every push to
- *      main with no pending changesets, expecting a clean no-op. Under npm OIDC /
- *      trusted publishing, `changeset publish` instead throws
- *      `TypeError: Cannot read properties of undefined (reading 'includes')`. We
- *      check the registry first and skip publishing entirely when nothing is new.
+ * @changesets/cli 2.31 is broken against the npm 11 the release workflow installs for OIDC trusted
+ * publishing. Its pre-publish check misreads npm 11 and thinks an already-published package (e.g.
+ * @wave3d/vite holding at 0.1.1 while core/react/element bump) is unpublished, tries to publish over
+ * it, then crashes on npm 11's E403 JSON (`Cannot read properties of undefined (reading 'includes')`)
+ * — aborting *before* it prints the `New tag:` lines changesets/action relies on. The packages still
+ * reach npm, but the job goes red with no git tags and no GitHub Releases.
  *
- *   2. Mixed sets. When the publish set contains an already-published package (e.g.
- *      the independent @wave3d/vite standing still while only the fixed
- *      core/react/element group bumped), `changeset publish` throws that same error
- *      — but only *after* publishing the genuinely-new packages and printing their
- *      `New tag:` lines. So we tolerate the non-zero exit and let the registry
- *      decide: if everything we meant to ship actually landed, it's a success. The
- *      changesets action still reads those `New tag:` lines from stdout to push
- *      tags + cut GitHub Releases; we only fail for real if something is missing.
+ * `changeset publish` is itself only a wrapper around `pnpm publish` (which rewrites workspace: deps
+ * and performs npm OIDC trusted publishing), so we call that directly — but only for versions the
+ * registry confirms are missing, so we never provoke the E403. For each package we publish we print
+ * the `New tag:` line ourselves; changesets/action scans this script's stdout for those (it ignores
+ * our exit code) and creates the git tag (at the release commit, via the GitHub API) and the Release.
  *
- * Run via `pnpm release`, which builds first and puts `changeset` on PATH.
- * Pass `--dry-run` to report what would publish without publishing.
+ * Run via `pnpm release`, which builds the packages first. Pass `--dry-run` to preview.
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 const dryRun = process.argv.includes("--dry-run");
 const packagesDir = new URL("../packages/", import.meta.url);
 
-/** Every non-private package.json under packages/. */
+/** Every non-private package under packages/, with its directory. */
 function publishablePackages() {
   const out = [];
   for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
@@ -40,7 +37,11 @@ function publishablePackages() {
       continue; // no readable package.json in this directory
     }
     if (pkg.private || !pkg.name || !pkg.version) continue;
-    out.push({ name: pkg.name, version: pkg.version });
+    out.push({
+      name: pkg.name,
+      version: pkg.version,
+      dir: fileURLToPath(new URL(`${entry.name}/`, packagesDir)),
+    });
   }
   return out;
 }
@@ -48,7 +49,9 @@ function publishablePackages() {
 /** Is this exact name@version already on the npm registry? */
 function isPublished(name, version) {
   try {
-    const raw = execFileSync("npm", ["view", name, "versions", "--json"], {
+    // --prefer-online revalidates npm's HTTP cache instead of trusting a possibly-stale local
+    // packument, so a version published moments ago is still seen.
+    const raw = execFileSync("npm", ["view", name, "versions", "--json", "--prefer-online"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -57,9 +60,9 @@ function isPublished(name, version) {
     return versions.includes(version);
   } catch (err) {
     const stderr = String(err?.stderr ?? "");
-    if (stderr.includes("E404") || stderr.includes("404")) return false; // package/version genuinely not on npm
-    // Any other failure (network, registry hiccup, auth) is not evidence that the
-    // version is unpublished. Fail loudly rather than trigger a bogus publish.
+    if (stderr.includes("E404") || stderr.includes("404")) return false; // genuinely not on npm
+    // Network / registry / auth hiccup is not evidence the version is unpublished — fail loudly
+    // rather than trigger a bogus publish.
     throw err;
   }
 }
@@ -75,30 +78,37 @@ if (pending.length === 0) {
 
 console.log(`Publishing: ${label(pending)}`);
 if (dryRun) {
-  console.log("(dry run) skipping `changeset publish`");
+  console.log("(dry run) skipping publish");
   process.exit(0);
 }
 
-// See bug #2 in the header: a non-zero exit here doesn't mean the publish failed — the new packages
-// land (and print their `New tag:` lines) before changeset chokes on an already-published one.
-try {
-  execFileSync("pnpm", ["exec", "changeset", "publish"], { stdio: "inherit" });
-} catch {
-  console.error("`changeset publish` exited non-zero — verifying against the registry…");
-}
-
-// Did everything we meant to ship actually land? Re-check a few times to ride out npm propagation
-// (each `npm view` is a fresh network round-trip, so the loop is naturally paced — no sleep needed).
-let missing = pending;
-for (let attempt = 0; attempt < 4 && missing.length > 0; attempt++) {
+const published = [];
+const failed = [];
+for (const p of pending) {
   try {
-    missing = missing.filter((p) => !isPublished(p.name, p.version));
+    // The same call `changeset publish` makes for a pnpm workspace: from the package dir (so
+    // workspace: deps get rewritten), --access public per .changeset/config.json, and
+    // --no-git-checks so pnpm doesn't balk at CI's git state. Provenance + npm OIDC trusted
+    // publishing come from the workflow env (NPM_CONFIG_PROVENANCE, id-token).
+    execFileSync("pnpm", ["publish", "--access", "public", "--no-git-checks"], {
+      cwd: p.dir,
+      stdio: "inherit",
+    });
+    console.log(`New tag: ${p.name}@${p.version}`);
+    published.push(p);
   } catch {
-    /* transient registry error — keep `missing` and try again */
+    // A non-zero exit is benign only if the version is already on npm (our pre-check raced a
+    // concurrent publish, or misfired); anything else is a real publish failure.
+    if (isPublished(p.name, p.version)) {
+      console.error(`${p.name}@${p.version} is already on npm — skipping.`);
+    } else {
+      failed.push(p);
+    }
   }
 }
-if (missing.length > 0) {
-  console.error(`Failed to publish: ${label(missing)}`);
+
+if (failed.length > 0) {
+  console.error(`Failed to publish: ${label(failed)}`);
   process.exit(1);
 }
-console.log(`Published: ${label(pending)}`);
+console.log(`Published: ${label(published)}`);
