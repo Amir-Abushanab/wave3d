@@ -238,4 +238,33 @@ export const BACKGROUND_SHADERS: Record<string, BgShaderDef> = {
       gl_FragColor = vec4(mix(palette(0.85) * pulse, palette(0.1) * 0.3, border), 1.0);
     `),
   },
+  water: {
+    label: "Water",
+    fragmentShader: bg(`
+      vec2 p = bgCoord() * uScale * 3.0;
+      float t = uTime * uSpeed;
+      float w = 0.0;
+      for (int i = 0; i < 4; i++){
+        float fi = float(i) + 1.0;
+        w += sin(p.x * fi * 1.3 + t * fi * 0.5) * cos(p.y * fi * 1.1 - t * fi * 0.4) / fi;
+      }
+      float caustic = pow(0.5 + 0.5 * sin(w * 3.0 + t), 3.0);
+      gl_FragColor = vec4(palette(clamp(0.45 + 0.4 * w + 0.3 * caustic, 0.0, 1.0)), 1.0);
+    `),
+  },
+  perlinNoise: {
+    label: "Perlin noise",
+    fragmentShader: bg(`
+      float n = fbm(bgCoord() * uScale * 3.0 + uTime * uSpeed * 0.2);
+      gl_FragColor = vec4(palette(n), 1.0);
+    `),
+  },
+  simplexNoise: {
+    label: "Simplex noise",
+    fragmentShader: bg(`
+      vec2 p = bgCoord() * uScale * 4.0 + uTime * uSpeed * 0.3;
+      float n = 0.5 * vnoise(p) + 0.35 * vnoise(p * 2.1 + 3.0) + 0.15 * vnoise(p * 4.3);
+      gl_FragColor = vec4(palette(n), 1.0);
+    `),
+  },
 };
