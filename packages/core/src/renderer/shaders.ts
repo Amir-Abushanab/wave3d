@@ -843,3 +843,91 @@ void main(){
   gl_FragColor = vec4(outc, mix(cg.a, a, clamp(uChroma, 0.0, 1.0)));
 }
 `;
+
+// ---- Post pass: heatmap (map luminance → thermal palette) — a finish-zone filter ----
+export const heatmapFragmentShader = /* glsl */ `
+uniform sampler2D tDiffuse;
+uniform float uHeatmap;   // 0..1 mix
+varying vec2 vUv;
+vec3 heat(float t){
+  t = clamp(t, 0.0, 1.0);
+  vec3 c = mix(vec3(0.0, 0.0, 0.4), vec3(0.0, 0.6, 1.0), smoothstep(0.0, 0.25, t));
+  c = mix(c, vec3(0.0, 1.0, 0.4), smoothstep(0.25, 0.5, t));
+  c = mix(c, vec3(1.0, 1.0, 0.0), smoothstep(0.5, 0.75, t));
+  c = mix(c, vec3(1.0, 0.1, 0.0), smoothstep(0.75, 1.0, t));
+  return c;
+}
+void main(){
+  vec4 src = texture2D(tDiffuse, vUv);
+  float l = dot(src.rgb, vec3(0.299, 0.587, 0.114));
+  gl_FragColor = vec4(mix(src.rgb, heat(l), clamp(uHeatmap, 0.0, 1.0)), src.a);
+}
+`;
+
+// ---- Post pass: fluted glass (vertical ribs that refract) — a finish-zone filter ----
+export const flutedGlassFragmentShader = /* glsl */ `
+uniform sampler2D tDiffuse;
+uniform float uFluted;      // 0..1 strength
+uniform float uFlutedCount; // number of ribs across the frame
+varying vec2 vUv;
+void main(){
+  float ribs = max(uFlutedCount, 1.0);
+  float local = fract(vUv.x * ribs) - 0.5;         // position within a rib (-0.5..0.5)
+  float shift = local * (0.6 / ribs) * uFluted;    // lens-like horizontal refraction
+  vec4 g = texture2D(tDiffuse, vec2(vUv.x + shift, vUv.y));
+  float ribShade = 0.85 + 0.15 * cos(local * 3.14159);  // bright at each rib's centre
+  gl_FragColor = vec4(g.rgb * mix(1.0, ribShade, clamp(uFluted, 0.0, 1.0)), g.a);
+}
+`;
+
+// ---- Post pass: paper texture (fibrous substrate shading) — a finish-zone overlay ----
+export const paperTextureFragmentShader = /* glsl */ `
+uniform sampler2D tDiffuse;
+uniform float uPaper;      // 0..1 strength
+uniform float uPaperScale; // grain scale
+varying vec2 vUv;
+float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+void main(){
+  vec4 src = texture2D(tDiffuse, vUv);
+  vec2 p = gl_FragCoord.xy / max(uPaperScale, 0.5);
+  float fiber = h21(floor(p)) * 0.5 + h21(floor(p * vec2(0.3, 3.0))) * 0.5; // directional fibers
+  float tex = mix(fiber, h21(gl_FragCoord.xy), 0.3);                        // + fine speckle
+  float shade = 1.0 - (tex - 0.5) * 0.35;
+  gl_FragColor = vec4(src.rgb * mix(1.0, shade, clamp(uPaper, 0.0, 1.0)), src.a);
+}
+`;
+
+// ---- Post pass: CMYK halftone (four rotated dot screens) — a finish-zone filter ----
+export const halftoneCmykFragmentShader = /* glsl */ `
+uniform sampler2D tDiffuse;
+uniform float uHalftoneCmyk;     // 0..1 mix
+uniform float uHalftoneCmykCell; // dot cell size in device px
+varying vec2 vUv;
+// One rotated halftone dot screen for a channel value.
+float dotScreen(vec2 coord, float value, float angle, float cell){
+  float ca = cos(angle);
+  float sa = sin(angle);
+  vec2 r = mat2(ca, sa, -sa, ca) * coord;
+  vec2 c = fract(r / max(cell, 2.0)) - 0.5;
+  float radius = sqrt(clamp(value, 0.0, 1.0)) * 0.5;
+  return smoothstep(radius, radius - 0.06, length(c));
+}
+void main(){
+  vec4 src = texture2D(tDiffuse, vUv);
+  float k = 1.0 - max(max(src.r, src.g), src.b);   // RGB → CMYK
+  float invK = max(1.0 - k, 1e-3);
+  float cyan = (1.0 - src.r - k) / invK;
+  float mag = (1.0 - src.g - k) / invK;
+  float yel = (1.0 - src.b - k) / invK;
+  vec2 coord = gl_FragCoord.xy;
+  float cell = uHalftoneCmykCell;
+  float dc = dotScreen(coord, cyan, 1.309, cell); // 75°
+  float dm = dotScreen(coord, mag, 0.262, cell);  // 15°
+  float dy = dotScreen(coord, yel, 0.0, cell);    // 0°
+  float dk = dotScreen(coord, k, 0.785, cell);    // 45°
+  // Subtractive: cyan ink absorbs red, magenta absorbs green, yellow absorbs blue, black absorbs all.
+  vec3 outc = vec3(1.0) - vec3(dc, 0.0, 0.0) - vec3(0.0, dm, 0.0) - vec3(0.0, 0.0, dy) - vec3(dk);
+  outc = clamp(outc, 0.0, 1.0);
+  gl_FragColor = vec4(mix(src.rgb, outc, clamp(uHalftoneCmyk, 0.0, 1.0)), src.a);
+}
+`;

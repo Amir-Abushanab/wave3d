@@ -16,6 +16,10 @@ import {
   godraysFragmentShader,
   halftoneFragmentShader,
   chromaFragmentShader,
+  heatmapFragmentShader,
+  flutedGlassFragmentShader,
+  paperTextureFragmentShader,
+  halftoneCmykFragmentShader,
 } from "./shaders";
 import { BACKGROUND_SHADERS, bgVertexShader, MAX_BG_COLORS } from "./backgroundShaders";
 import { WaveGeometry } from "./WaveGeometry";
@@ -244,6 +248,10 @@ export class WaveRenderer {
   private godraysPass?: ShaderPass;
   private halftonePass?: ShaderPass;
   private chromaPass?: ShaderPass;
+  private heatmapPass?: ShaderPass;
+  private flutedGlassPass?: ShaderPass;
+  private paperTexturePass?: ShaderPass;
+  private halftoneCmykPass?: ShaderPass;
   private bgRenderTarget?: THREE.WebGLRenderTarget;
   private bgQuad?: FullScreenQuad;
   private bgMaterial?: THREE.ShaderMaterial;
@@ -1266,6 +1274,10 @@ export class WaveRenderer {
     this.applyWarp();
     this.applyGodrays();
     this.applyHalftone();
+    this.applyHeatmap();
+    this.applyHalftoneCmyk();
+    this.applyFlutedGlass();
+    this.applyPaperTexture();
     this.applyChroma();
     this.applyDither();
   }
@@ -1451,6 +1463,104 @@ export class WaveRenderer {
       this.composer.removePass(this.chromaPass);
       this.chromaPass.dispose();
       this.chromaPass = undefined;
+    }
+  }
+
+  /** Heatmap: recolour the final image by luminance → thermal palette. Finish zone. */
+  private applyHeatmap(): void {
+    const strength = this.config.heatmap ?? 0;
+    if (strength > 0) {
+      if (!this.heatmapPass) {
+        this.heatmapPass = new ShaderPass({
+          uniforms: { tDiffuse: { value: null }, uHeatmap: { value: strength } },
+          vertexShader: postVertexShader,
+          fragmentShader: heatmapFragmentShader,
+        });
+        this.composer.addPass(this.heatmapPass);
+      }
+      this.heatmapPass.uniforms.uHeatmap.value = strength;
+    } else if (this.heatmapPass) {
+      this.composer.removePass(this.heatmapPass);
+      this.heatmapPass.dispose();
+      this.heatmapPass = undefined;
+    }
+  }
+
+  /** Fluted glass: vertical ribs that refract the image horizontally. Finish zone. */
+  private applyFlutedGlass(): void {
+    const strength = this.config.flutedGlass ?? 0;
+    if (strength > 0) {
+      if (!this.flutedGlassPass) {
+        this.flutedGlassPass = new ShaderPass({
+          uniforms: {
+            tDiffuse: { value: null },
+            uFluted: { value: strength },
+            uFlutedCount: { value: this.config.flutedGlassCount ?? 24 },
+          },
+          vertexShader: postVertexShader,
+          fragmentShader: flutedGlassFragmentShader,
+        });
+        this.composer.addPass(this.flutedGlassPass);
+      }
+      const u = this.flutedGlassPass.uniforms;
+      u.uFluted.value = strength;
+      u.uFlutedCount.value = Math.max(1, this.config.flutedGlassCount ?? 24);
+    } else if (this.flutedGlassPass) {
+      this.composer.removePass(this.flutedGlassPass);
+      this.flutedGlassPass.dispose();
+      this.flutedGlassPass = undefined;
+    }
+  }
+
+  /** Paper texture: fibrous substrate shading multiplied over the image. Finish zone. */
+  private applyPaperTexture(): void {
+    const strength = this.config.paperTexture ?? 0;
+    if (strength > 0) {
+      if (!this.paperTexturePass) {
+        this.paperTexturePass = new ShaderPass({
+          uniforms: {
+            tDiffuse: { value: null },
+            uPaper: { value: strength },
+            uPaperScale: { value: this.config.paperTextureScale ?? 2 },
+          },
+          vertexShader: postVertexShader,
+          fragmentShader: paperTextureFragmentShader,
+        });
+        this.composer.addPass(this.paperTexturePass);
+      }
+      const u = this.paperTexturePass.uniforms;
+      u.uPaper.value = strength;
+      u.uPaperScale.value = Math.max(0.5, this.config.paperTextureScale ?? 2);
+    } else if (this.paperTexturePass) {
+      this.composer.removePass(this.paperTexturePass);
+      this.paperTexturePass.dispose();
+      this.paperTexturePass = undefined;
+    }
+  }
+
+  /** CMYK halftone: four rotated dot screens (cyan/magenta/yellow/black). Finish zone. */
+  private applyHalftoneCmyk(): void {
+    const strength = this.config.halftoneCmyk ?? 0;
+    if (strength > 0) {
+      if (!this.halftoneCmykPass) {
+        this.halftoneCmykPass = new ShaderPass({
+          uniforms: {
+            tDiffuse: { value: null },
+            uHalftoneCmyk: { value: strength },
+            uHalftoneCmykCell: { value: this.config.halftoneCmykCell ?? 6 },
+          },
+          vertexShader: postVertexShader,
+          fragmentShader: halftoneCmykFragmentShader,
+        });
+        this.composer.addPass(this.halftoneCmykPass);
+      }
+      const u = this.halftoneCmykPass.uniforms;
+      u.uHalftoneCmyk.value = strength;
+      u.uHalftoneCmykCell.value = Math.max(2, this.config.halftoneCmykCell ?? 6);
+    } else if (this.halftoneCmykPass) {
+      this.composer.removePass(this.halftoneCmykPass);
+      this.halftoneCmykPass.dispose();
+      this.halftoneCmykPass = undefined;
     }
   }
 
@@ -2013,6 +2123,10 @@ export class WaveRenderer {
     this.godraysPass?.dispose();
     this.halftonePass?.dispose();
     this.chromaPass?.dispose();
+    this.heatmapPass?.dispose();
+    this.flutedGlassPass?.dispose();
+    this.paperTexturePass?.dispose();
+    this.halftoneCmykPass?.dispose();
     this.teardownShaderBackground();
     this.composer.dispose();
     this.renderer.dispose();

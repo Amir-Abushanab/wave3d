@@ -443,6 +443,17 @@ export interface SceneConfig {
    *  pass; amount only bites once chroma > 0. Finish-zone, runs last. */
   chroma?: number;
   chromaAmount?: number;
+  /** Heatmap recolour (luminance → thermal palette). 0 removes the pass. Finish-zone. */
+  heatmap?: number;
+  /** Fluted-glass refraction (vertical ribs). 0 removes the pass; count = rib frequency. */
+  flutedGlass?: number;
+  flutedGlassCount?: number;
+  /** Paper-texture overlay (fibrous substrate shading). 0 removes the pass; scale = grain size. */
+  paperTexture?: number;
+  paperTextureScale?: number;
+  /** CMYK halftone (four rotated dot screens). 0 removes the pass; cell = dot size px. */
+  halftoneCmyk?: number;
+  halftoneCmykCell?: number;
   /** Base ambient light level (0–1). */
   ambient: number;
   lights: LightConfig[];
@@ -631,6 +642,13 @@ export function createDefaultConfig(): StudioConfig {
     halftoneAngle: 0.4,
     chroma: 0,
     chromaAmount: 0.01,
+    heatmap: 0,
+    flutedGlass: 0,
+    flutedGlassCount: 24,
+    paperTexture: 0,
+    paperTextureScale: 2,
+    halftoneCmyk: 0,
+    halftoneCmykCell: 6,
     ambient: 0.45,
     lights: [], // hero has no lights — colour is the palette + the SrcColor² blend
     mirrorH: false,
@@ -823,6 +841,13 @@ export function ensureSceneDefaults(config: StudioConfig): void {
   if (typeof config.halftoneAngle !== "number") config.halftoneAngle = 0.4;
   if (typeof config.chroma !== "number") config.chroma = 0;
   if (typeof config.chromaAmount !== "number") config.chromaAmount = 0.01;
+  if (typeof config.heatmap !== "number") config.heatmap = 0;
+  if (typeof config.flutedGlass !== "number") config.flutedGlass = 0;
+  if (typeof config.flutedGlassCount !== "number") config.flutedGlassCount = 24;
+  if (typeof config.paperTexture !== "number") config.paperTexture = 0;
+  if (typeof config.paperTextureScale !== "number") config.paperTextureScale = 2;
+  if (typeof config.halftoneCmyk !== "number") config.halftoneCmyk = 0;
+  if (typeof config.halftoneCmykCell !== "number") config.halftoneCmykCell = 6;
   if (typeof config.showCameraRig !== "boolean") config.showCameraRig = false;
   if (typeof config.paused !== "boolean") config.paused = false;
   if (typeof config.loopSeconds !== "number") config.loopSeconds = 0;

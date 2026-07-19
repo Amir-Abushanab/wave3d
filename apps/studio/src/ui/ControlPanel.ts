@@ -873,6 +873,38 @@ export class ControlPanel {
       step: 0.001,
       label: "chroma amount",
     }).on("change", refresh);
+    // Filter-type effects ported from paper-design (finish-zone): heatmap recolour, fluted-glass
+    // refraction, paper-texture overlay, CMYK halftone.
+    g.addBinding(cfg, "heatmap", { min: 0, max: 1, step: 0.01, label: "heatmap" }).on(
+      "change",
+      refresh,
+    );
+    g.addBinding(cfg, "flutedGlass", { min: 0, max: 1, step: 0.01, label: "fluted glass" }).on(
+      "change",
+      refresh,
+    );
+    g.addBinding(cfg, "flutedGlassCount", { min: 4, max: 80, step: 1, label: "flute ribs" }).on(
+      "change",
+      refresh,
+    );
+    g.addBinding(cfg, "paperTexture", { min: 0, max: 1, step: 0.01, label: "paper texture" }).on(
+      "change",
+      refresh,
+    );
+    g.addBinding(cfg, "paperTextureScale", {
+      min: 0.5,
+      max: 6,
+      step: 0.5,
+      label: "paper scale",
+    }).on("change", refresh);
+    g.addBinding(cfg, "halftoneCmyk", { min: 0, max: 1, step: 0.01, label: "cmyk halftone" }).on(
+      "change",
+      refresh,
+    );
+    g.addBinding(cfg, "halftoneCmykCell", { min: 2, max: 16, step: 0.5, label: "cmyk cell" }).on(
+      "change",
+      refresh,
+    );
     // Whole-composition mirror (scene-level world-space flip).
     g.addButton({ title: "↔ mirror horizontal" }).on("click", () => {
       cfg.mirrorH = !cfg.mirrorH;
