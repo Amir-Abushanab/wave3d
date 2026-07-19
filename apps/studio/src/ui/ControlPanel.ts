@@ -803,20 +803,6 @@ export class ControlPanel {
       "change",
       refresh,
     );
-    // Domain warp (liquid distortion) — a time-driven "layered" post shader in the spirit of
-    // paper-design/shaders. 0 removes the pass entirely; scale & speed only bite once warp > 0.
-    g.addBinding(cfg, "warp", { min: 0, max: 0.2, step: 0.005, label: "warp" }).on(
-      "change",
-      refresh,
-    );
-    g.addBinding(cfg, "warpScale", { min: 0.5, max: 8, step: 0.1, label: "warp scale" }).on(
-      "change",
-      refresh,
-    );
-    g.addBinding(cfg, "warpSpeed", { min: 0, max: 2, step: 0.05, label: "warp speed" }).on(
-      "change",
-      refresh,
-    );
     // Godrays (volumetric light streaks) — scene-zone light scatter from the bright wave.
     g.addBinding(cfg, "godrays", { min: 0, max: 1, step: 0.01, label: "godrays" }).on(
       "change",
@@ -856,17 +842,6 @@ export class ControlPanel {
       max: 1.57,
       step: 0.01,
       label: "halftone angle",
-    }).on("change", refresh);
-    // Chromatic aberration (radial RGB split) — finish-zone lens fringing.
-    g.addBinding(cfg, "chroma", { min: 0, max: 1, step: 0.01, label: "chroma" }).on(
-      "change",
-      refresh,
-    );
-    g.addBinding(cfg, "chromaAmount", {
-      min: 0,
-      max: 0.05,
-      step: 0.001,
-      label: "chroma amount",
     }).on("change", refresh);
     // Filter-type effects ported from paper-design (finish-zone): heatmap recolour, fluted-glass
     // refraction, paper-texture overlay, CMYK halftone.

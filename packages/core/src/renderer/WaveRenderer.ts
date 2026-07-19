@@ -11,10 +11,8 @@ import {
   postVertexShader,
   postFragmentShader,
   ditherFragmentShader,
-  warpFragmentShader,
   godraysFragmentShader,
   halftoneFragmentShader,
-  chromaFragmentShader,
   heatmapFragmentShader,
   flutedGlassFragmentShader,
   paperTextureFragmentShader,
@@ -242,10 +240,8 @@ export class WaveRenderer {
   /** Optional bloom pass — created lazily when bloomStrength first goes >0, removed at 0. */
   private bloomPass?: UnrealBloomPass;
   private ditherPass?: ShaderPass;
-  private warpPass?: ShaderPass;
   private godraysPass?: ShaderPass;
   private halftonePass?: ShaderPass;
-  private chromaPass?: ShaderPass;
   private heatmapPass?: ShaderPass;
   private flutedGlassPass?: ShaderPass;
   private paperTexturePass?: ShaderPass;
@@ -1177,14 +1173,12 @@ export class WaveRenderer {
     u.uGrainAmount.value = this.config.grain;
     u.uBlurSamples.value = Math.round(this.config.blurSamples ?? 6);
     this.applyBloom();
-    this.applyWarp();
     this.applyGodrays();
     this.applyHalftone();
     this.applyHeatmap();
     this.applyHalftoneCmyk();
     this.applyFlutedGlass();
     this.applyPaperTexture();
-    this.applyChroma();
     this.applyDither();
   }
 
@@ -1248,41 +1242,6 @@ export class WaveRenderer {
     }
   }
 
-  /** Insert / tune / remove the domain-warp pass — a time-driven "layered" post shader (liquid
-   *  distortion, in the spirit of paper-design/shaders). Like bloom & dither, warp 0 removes the
-   *  pass entirely (zero cost) and it's created lazily on first enable. It's inserted in the SCENE
-   *  zone (right after RenderPass, index 1) so the wave ripples UNDER the screen-locked film grain,
-   *  rather than dragging the grain along with it. uTime/uResolution are pushed in updateTime()/
-   *  resize(); we seed the resolution here so the first frame isn't undistorted. */
-  private applyWarp(): void {
-    const amount = this.config.warp ?? 0;
-    if (amount > 0) {
-      if (!this.warpPass) {
-        this.warpPass = new ShaderPass({
-          uniforms: {
-            tDiffuse: { value: null },
-            uResolution: { value: this.renderer.getDrawingBufferSize(new THREE.Vector2()) },
-            uTime: { value: 0 },
-            uWarpAmount: { value: amount },
-            uWarpScale: { value: this.config.warpScale ?? 3 },
-            uWarpSpeed: { value: this.config.warpSpeed ?? 0.3 },
-          },
-          vertexShader: postVertexShader,
-          fragmentShader: warpFragmentShader,
-        });
-        this.composer.insertPass(this.warpPass, 1); // scene zone → grain (in postPass) stays put
-      }
-      const u = this.warpPass.uniforms;
-      u.uWarpAmount.value = amount;
-      u.uWarpScale.value = Math.max(0.1, this.config.warpScale ?? 3);
-      u.uWarpSpeed.value = this.config.warpSpeed ?? 0.3;
-    } else if (this.warpPass) {
-      this.composer.removePass(this.warpPass);
-      this.warpPass.dispose();
-      this.warpPass = undefined;
-    }
-  }
-
   /** Insert / tune / remove the godrays pass — volumetric light streaks scattered from the bright
    *  wave toward a light point (godraysX/Y in UV). Scene zone (index 1) so it scatters the raw wave
    *  like bloom. godrays 0 removes the pass entirely; created lazily on first enable. */
@@ -1343,33 +1302,6 @@ export class WaveRenderer {
       this.composer.removePass(this.halftonePass);
       this.halftonePass.dispose();
       this.halftonePass = undefined;
-    }
-  }
-
-  /** Insert / tune / remove the chromatic-aberration pass — a radial RGB split (lens fringing) on
-   *  the final image. chroma 0 removes the pass entirely; created lazily on first enable. */
-  private applyChroma(): void {
-    const strength = this.config.chroma ?? 0;
-    if (strength > 0) {
-      if (!this.chromaPass) {
-        this.chromaPass = new ShaderPass({
-          uniforms: {
-            tDiffuse: { value: null },
-            uChroma: { value: strength },
-            uChromaAmount: { value: this.config.chromaAmount ?? 0.01 },
-          },
-          vertexShader: postVertexShader,
-          fragmentShader: chromaFragmentShader,
-        });
-        this.composer.addPass(this.chromaPass); // finish zone: lens fringing, runs last
-      }
-      const u = this.chromaPass.uniforms;
-      u.uChroma.value = strength;
-      u.uChromaAmount.value = this.config.chromaAmount ?? 0.01;
-    } else if (this.chromaPass) {
-      this.composer.removePass(this.chromaPass);
-      this.chromaPass.dispose();
-      this.chromaPass = undefined;
     }
   }
 
@@ -1509,9 +1441,6 @@ export class WaveRenderer {
     const dh = h * dpr;
     (this.postPass.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
     if (this.ditherPass) (this.ditherPass.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
-    if (this.warpPass) {
-      (this.warpPass.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
-    }
     for (const s of this.waves) {
       (s.material.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
     }
@@ -1619,7 +1548,6 @@ export class WaveRenderer {
       }
     }
     this.postPass.uniforms.uTime.value = t;
-    if (this.warpPass) this.warpPass.uniforms.uTime.value = t;
   }
 
   /** Render exactly one frame at the current time. */
@@ -2019,11 +1947,9 @@ export class WaveRenderer {
       s.palette.dispose();
     }
     this.bloomPass?.dispose();
-    this.warpPass?.dispose();
     this.ditherPass?.dispose();
     this.godraysPass?.dispose();
     this.halftonePass?.dispose();
-    this.chromaPass?.dispose();
     this.heatmapPass?.dispose();
     this.flutedGlassPass?.dispose();
     this.paperTexturePass?.dispose();

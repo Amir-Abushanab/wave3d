@@ -28,7 +28,5 @@ upstream source):
 | ---------------------- | -------------------------------- |
 | `ditherFragmentShader` | `image-dithering`                |
 
-The remaining post effects (`warpFragmentShader`, `godraysFragmentShader`,
-`chromaFragmentShader`, `heatmapFragmentShader`, `halftoneFragmentShader`,
-`halftoneCmykFragmentShader`, `flutedGlassFragmentShader`,
-`paperTextureFragmentShader`) are original to this project.
+The remaining post effects (`godraysFragmentShader`, `heatmapFragmentShader`,
+`halftoneCmykFragmentShader`) are original to this project.

@@ -413,14 +413,6 @@ export interface SceneConfig {
   ditherScale?: number;
   /** Quantization levels per channel (>=2) — lower = heavier posterization. */
   ditherSteps?: number;
-  /** Domain-warp (liquid distortion) over the scene — another "layered" post shader in the spirit
-   *  of paper-design/shaders. 0 removes the pass entirely; scale & speed only bite once warp > 0.
-   *  Runs in the scene zone (under the film grain) and is time-driven (animated). */
-  warp?: number;
-  /** Warp field spatial frequency (higher = finer ripples). */
-  warpScale?: number;
-  /** Warp animation speed (0 = frozen distortion). */
-  warpSpeed?: number;
   /** Volumetric light streaks (godrays) scattered from the bright wave toward a light point
    *  (godraysX/Y in UV). 0 removes the pass; density/decay/centre only bite once godrays > 0.
    *  Scene-zone (scatters the raw wave, like bloom). */
@@ -434,10 +426,6 @@ export interface SceneConfig {
   halftone?: number;
   halftoneCell?: number;
   halftoneAngle?: number;
-  /** Chromatic aberration: a radial RGB split (lens fringing) on the final image. 0 removes the
-   *  pass; amount only bites once chroma > 0. Finish-zone, runs last. */
-  chroma?: number;
-  chromaAmount?: number;
   /** Heatmap recolour (luminance → thermal palette). 0 removes the pass. Finish-zone. */
   heatmap?: number;
   /** Fluted-glass refraction (vertical ribs). 0 removes the pass; count = rib frequency. */
@@ -621,9 +609,6 @@ export function createDefaultConfig(): StudioConfig {
     dither: 0, // off by default — the hero look is unchanged (the pass isn't inserted)
     ditherScale: 2,
     ditherSteps: 4,
-    warp: 0, // off by default (animated liquid distortion; keeps the hero deterministic)
-    warpScale: 3,
-    warpSpeed: 0.3,
     godrays: 0,
     godraysDensity: 0.5,
     godraysDecay: 0.95,
@@ -632,8 +617,6 @@ export function createDefaultConfig(): StudioConfig {
     halftone: 0,
     halftoneCell: 6,
     halftoneAngle: 0.4,
-    chroma: 0,
-    chromaAmount: 0.01,
     heatmap: 0,
     flutedGlass: 0,
     flutedGlassCount: 24,
@@ -816,9 +799,6 @@ export function ensureSceneDefaults(config: StudioConfig): void {
   if (typeof config.dither !== "number") config.dither = 0;
   if (typeof config.ditherScale !== "number") config.ditherScale = 2;
   if (typeof config.ditherSteps !== "number") config.ditherSteps = 4;
-  if (typeof config.warp !== "number") config.warp = 0;
-  if (typeof config.warpScale !== "number") config.warpScale = 3;
-  if (typeof config.warpSpeed !== "number") config.warpSpeed = 0.3;
   if (typeof config.godrays !== "number") config.godrays = 0;
   if (typeof config.godraysDensity !== "number") config.godraysDensity = 0.5;
   if (typeof config.godraysDecay !== "number") config.godraysDecay = 0.95;
@@ -827,8 +807,6 @@ export function ensureSceneDefaults(config: StudioConfig): void {
   if (typeof config.halftone !== "number") config.halftone = 0;
   if (typeof config.halftoneCell !== "number") config.halftoneCell = 6;
   if (typeof config.halftoneAngle !== "number") config.halftoneAngle = 0.4;
-  if (typeof config.chroma !== "number") config.chroma = 0;
-  if (typeof config.chromaAmount !== "number") config.chromaAmount = 0.01;
   if (typeof config.heatmap !== "number") config.heatmap = 0;
   if (typeof config.flutedGlass !== "number") config.flutedGlass = 0;
   if (typeof config.flutedGlassCount !== "number") config.flutedGlassCount = 24;

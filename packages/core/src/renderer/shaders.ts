@@ -728,61 +728,6 @@ void main(){
 }
 `;
 
-// ---- Post pass: domain warp (liquid distortion) — another "layered" post shader ----
-//
-// In the spirit of paper-design/shaders' warp/liquid effects: displace the sample coord by an
-// animated fbm field so the whole composite ripples. Self-contained — its own value-noise, no
-// dependency on the wave's simplex. It samples the full RGBA at the warped coord, so the
-// silhouette (alpha) ripples coherently — the transparent edge wobbles cleanly.
-// Runs in the scene zone (before the film grain), so grain stays screen-locked. Time-driven, so
-// unlike the dither this pass makes a still frame non-deterministic (same as the wave's own noise).
-export const warpFragmentShader = /* glsl */ `
-uniform sampler2D tDiffuse;
-uniform vec2 uResolution;
-uniform float uTime;
-uniform float uWarpAmount;  // max UV displacement (0 = off)
-uniform float uWarpScale;   // warp field spatial frequency (higher = finer ripples)
-uniform float uWarpSpeed;   // animation speed (0 = frozen distortion)
-varying vec2 vUv;
-
-// Compact value-noise fbm — self-contained, so warp never reaches into the wave's simplex.
-float hash21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
-float vnoise(vec2 p){
-  vec2 i = floor(p);
-  vec2 f = fract(p);
-  vec2 u = f * f * (3.0 - 2.0 * f);          // smoothstep-weighted interpolation
-  float a = hash21(i);
-  float b = hash21(i + vec2(1.0, 0.0));
-  float c = hash21(i + vec2(0.0, 1.0));
-  float d = hash21(i + vec2(1.0, 1.0));
-  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
-}
-float fbm(vec2 p){
-  float v = 0.0;
-  float amp = 0.5;
-  for (int i = 0; i < 4; i++){
-    v += amp * vnoise(p);
-    p *= 2.0;
-    amp *= 0.5;
-  }
-  return v;
-}
-
-void main(){
-  // Aspect-correct the sample space so ripples stay round on wide frames.
-  vec2 aspect = vec2(uResolution.x / max(uResolution.y, 1.0), 1.0);
-  vec2 p = vUv * aspect * uWarpScale;
-  float t = uTime * uWarpSpeed;
-  // Two decorrelated fbm fields drive x/y displacement; flowing through noise space animates it.
-  vec2 disp = vec2(
-    fbm(p + vec2(0.0, t)),
-    fbm(p + vec2(5.2, 1.3) - vec2(t, 0.0))
-  ) - 0.5;
-  vec2 uv = vUv + disp * uWarpAmount;
-  gl_FragColor = texture2D(tDiffuse, uv); // rgba → the silhouette (alpha) ripples too
-}
-`;
-
 // ---- Post pass: godrays (volumetric light streaks) — another "layered" post shader ----
 //
 // Radial light-scattering (à la GPU Gems 3): from each pixel, march toward a light point and
@@ -844,30 +789,6 @@ void main(){
   float mask = smoothstep(radius, radius - 0.07, d);    // 1 inside the dot, 0 outside
   vec4 dots = vec4(src.rgb, src.a * mask);              // wave-coloured dots on transparency
   gl_FragColor = mix(src, dots, clamp(uHalftone, 0.0, 1.0));
-}
-`;
-
-// ---- Post pass: chromatic aberration (radial RGB split) — a finish-zone "layered" post shader ----
-//
-// Lens fringing: sample R/G/B at a radial offset that grows toward the frame edges, so colour
-// separates at the periphery and stays crisp in the centre. The union of the three alphas keeps
-// the silhouette from tearing open. Runs last, over the final image.
-export const chromaFragmentShader = /* glsl */ `
-uniform sampler2D tDiffuse;
-uniform float uChroma;        // 0..1 mix
-uniform float uChromaAmount;  // radial offset scale
-varying vec2 vUv;
-
-void main(){
-  vec2 center = vUv - 0.5;
-  vec2 offset = center * dot(center, center) * uChromaAmount * 4.0; // radial, stronger at edges
-  vec4 cr = texture2D(tDiffuse, vUv - offset);
-  vec4 cg = texture2D(tDiffuse, vUv);
-  vec4 cb = texture2D(tDiffuse, vUv + offset);
-  vec3 split = vec3(cr.r, cg.g, cb.b);
-  float a = max(max(cr.a, cg.a), cb.a); // union → the silhouette doesn't split open
-  vec3 outc = mix(cg.rgb, split, clamp(uChroma, 0.0, 1.0));
-  gl_FragColor = vec4(outc, mix(cg.a, a, clamp(uChroma, 0.0, 1.0)));
 }
 `;
 
