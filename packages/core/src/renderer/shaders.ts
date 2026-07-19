@@ -764,31 +764,49 @@ void main(){
 }
 `;
 
-// ---- Post pass: halftone (rotated dot screen) — a finish-zone "layered" post shader ----
+// ---- Post pass: halftone (rotated dot screen) ----
 //
-// Print-style dots: a rotated grid where each cell's dot grows with local brightness, filled with
-// the wave's own colour and transparent between dots — the wave rendered as a dot screen. Runs in
-// the finish zone (over the tone-mapped image), keyed off gl_FragCoord so a still frame is stable.
+// DERIVED FROM @paper-design/shaders `halftone-dots` (https://github.com/paper-design/shaders,
+// Apache-2.0 — see THIRD-PARTY-NOTICES.md). Ports the "classic" dot type + "original colours" path:
+// paper's getCircle (dot radius ← 1 − luminance, fwidth-antialiased) and sigmoid-contrast luminance,
+// sampled once per cell centre. Adapted to a post pass — samples the composited scene (tDiffuse)
+// instead of paper's sized u_image, drops the gooey/holes/soft dot types, the diagonal grid and the
+// grain layers, and composites transparent between dots. Contrast/radius fixed at paper's defaults.
 export const halftoneFragmentShader = /* glsl */ `
 uniform sampler2D tDiffuse;
+uniform vec2 uResolution;
 uniform float uHalftone;      // 0..1 mix
-uniform float uHalftoneCell;  // cell size in device px
-uniform float uHalftoneAngle; // screen rotation (radians)
+uniform float uHalftoneCell;  // dot cell size in device px (paper: u_size)
+uniform float uHalftoneAngle; // screen rotation (radians, paper: u_rotation)
 varying vec2 vUv;
 
-float luma(vec3 c){ return dot(c, vec3(0.299, 0.587, 0.114)); }
+float sigmoid(float x, float k){ return 1.0 / (1.0 + exp(-k * (x - 0.5))); }
+// paper's classic dot: radius grows as the sampled cell darkens (1 - lum), soft edge via fwidth.
+float getCircle(vec2 uv, float lum, float baseR){
+  float r = mix(0.25 * baseR, 0.0, lum);
+  float d = length(uv - 0.5);
+  float aa = fwidth(d);
+  return 1.0 - smoothstep(r - aa, r + aa, d);
+}
 
 void main(){
-  vec4 src = texture2D(tDiffuse, vUv);
   float ca = cos(uHalftoneAngle);
   float sa = sin(uHalftoneAngle);
-  vec2 rot = mat2(ca, sa, -sa, ca) * gl_FragCoord.xy;   // rotate the screen grid
-  vec2 cell = fract(rot / max(uHalftoneCell, 2.0)) - 0.5;
-  float d = length(cell);
-  float radius = clamp(luma(src.rgb), 0.0, 1.0) * 0.5;  // brighter → bigger dot
-  float mask = smoothstep(radius, radius - 0.07, d);    // 1 inside the dot, 0 outside
-  vec4 dots = vec4(src.rgb, src.a * mask);              // wave-coloured dots on transparency
-  gl_FragColor = mix(src, dots, clamp(uHalftone, 0.0, 1.0));
+  mat2 rot = mat2(ca, sa, -sa, ca);
+  float cell = max(uHalftoneCell, 2.0);
+  vec2 gridPx = rot * gl_FragCoord.xy;                      // rotate the screen into the dot grid
+  vec2 cellId = floor(gridPx / cell);
+  vec2 inCell = fract(gridPx / cell);                       // position within the cell (0..1)
+  vec2 centrePx = transpose(rot) * ((cellId + 0.5) * cell); // cell centre, back in screen px
+  vec4 tex = texture2D(tDiffuse, centrePx / max(uResolution, vec2(1.0)));
+
+  float k = 2.0;                                            // sigmoid contrast (paper default)
+  vec3 c = vec3(sigmoid(tex.r, k), sigmoid(tex.g, k), sigmoid(tex.b, k));
+  float lum = dot(vec3(0.2126, 0.7152, 0.0722), c);
+  lum = mix(1.0, lum, tex.a);
+  float dot = getCircle(inCell, lum, 1.3);                 // baseR 1.3 ≈ paper original-colours default
+  vec4 dots = vec4(tex.rgb, tex.a * dot);                  // wave-coloured dots, transparent between
+  gl_FragColor = mix(texture2D(tDiffuse, vUv), dots, clamp(uHalftone, 0.0, 1.0));
 }
 `;
 

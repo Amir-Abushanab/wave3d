@@ -1285,6 +1285,7 @@ export class WaveRenderer {
         this.halftonePass = new ShaderPass({
           uniforms: {
             tDiffuse: { value: null },
+            uResolution: { value: this.renderer.getDrawingBufferSize(new THREE.Vector2()) },
             uHalftone: { value: strength },
             uHalftoneCell: { value: this.config.halftoneCell ?? 6 },
             uHalftoneAngle: { value: this.config.halftoneAngle ?? 0.4 },
@@ -1441,6 +1442,8 @@ export class WaveRenderer {
     const dh = h * dpr;
     (this.postPass.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
     if (this.ditherPass) (this.ditherPass.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
+    if (this.halftonePass)
+      (this.halftonePass.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
     for (const s of this.waves) {
       (s.material.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
     }

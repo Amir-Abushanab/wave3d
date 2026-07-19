@@ -24,9 +24,10 @@ aspect UV plumbing is removed or simplified.
 Derived shaders (see per-shader header comments in that file for the exact
 upstream source):
 
-| Our shader             | Upstream `@paper-design/shaders` |
-| ---------------------- | -------------------------------- |
-| `ditherFragmentShader` | `image-dithering`                |
+| Our shader               | Upstream `@paper-design/shaders` |
+| ------------------------ | -------------------------------- |
+| `ditherFragmentShader`   | `image-dithering`                |
+| `halftoneFragmentShader` | `halftone-dots`                  |
 
 The remaining post effects (`godraysFragmentShader`, `heatmapFragmentShader`,
 `halftoneCmykFragmentShader`) are original to this project.
