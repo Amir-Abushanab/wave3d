@@ -34,7 +34,7 @@ export type BlendMode = "squared" | "normal" | "additive" | "multiply";
 export type BasicGradientType = "linear" | "radial" | "conic";
 export type GradientType = BasicGradientType | "mesh";
 
-export type BackgroundMode = "color" | "gradient" | "image";
+export type BackgroundMode = "color" | "gradient" | "image" | "shader";
 export type BackgroundImageFit = "cover" | "contain" | "stretch";
 
 /** What fills the 2D palette texture: the baked hero LUT, our editable stops, or
@@ -366,6 +366,11 @@ export interface SceneConfig {
   background: string;
   transparentBackground: boolean;
   backgroundMode: BackgroundMode;
+  /** Generative shader backdrop (backgroundMode "shader") — a key into BACKGROUND_SHADERS. Colours
+   *  come from backgroundPalette; speed/scale tune it. Rendered offscreen → scene.background. */
+  backgroundShader?: string;
+  backgroundShaderSpeed?: number;
+  backgroundShaderScale?: number;
   backgroundPalette: ColorStop[];
   backgroundGradientType: GradientType;
   backgroundGradientAngle: number;
@@ -579,6 +584,9 @@ export function createDefaultConfig(): StudioConfig {
     background: "#ffffff",
     transparentBackground: true,
     backgroundMode: "color",
+    backgroundShader: "swirl",
+    backgroundShaderSpeed: 1,
+    backgroundShaderScale: 1,
     backgroundPalette: makeStops(["#0a2540", "#425466", "#7a73ff", "#f6f9fc"]),
     backgroundGradientType: "linear",
     backgroundGradientAngle: 135,
@@ -680,10 +688,14 @@ export function normalizeBackground(config: StudioConfig): void {
   if (
     config.backgroundMode !== "gradient" &&
     config.backgroundMode !== "image" &&
-    config.backgroundMode !== "color"
+    config.backgroundMode !== "color" &&
+    config.backgroundMode !== "shader"
   ) {
     config.backgroundMode = "color";
   }
+  if (typeof config.backgroundShader !== "string") config.backgroundShader = "swirl";
+  if (typeof config.backgroundShaderSpeed !== "number") config.backgroundShaderSpeed = 1;
+  if (typeof config.backgroundShaderScale !== "number") config.backgroundShaderScale = 1;
   const palette = config.backgroundPalette as unknown as Array<string | ColorStop> | undefined;
   if (!palette || palette.length < 2) {
     config.backgroundPalette = makeStops(["#0a2540", "#425466", "#7a73ff", "#f6f9fc"]);

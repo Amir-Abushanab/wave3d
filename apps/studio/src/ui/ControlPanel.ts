@@ -38,7 +38,12 @@ import {
   randomizeWave,
 } from "@wave3d/core/studio";
 import type { StudioWaveRenderer } from "@wave3d/core/studio";
-import { PALETTE_MAPS, buildPaletteCanvas, paletteMapCanvas } from "@wave3d/core/renderer";
+import {
+  PALETTE_MAPS,
+  buildPaletteCanvas,
+  paletteMapCanvas,
+  BACKGROUND_SHADERS,
+} from "@wave3d/core/renderer";
 import { buildHeroPaletteCanvas } from "@wave3d/core/renderer";
 import { GradientEditor } from "./GradientEditor";
 import { MeshGradientEditor } from "./MeshGradientEditor";
@@ -903,7 +908,12 @@ export class ControlPanel {
     bgF
       .addBinding(cfg, "backgroundMode", {
         label: "fill",
-        options: { "Solid color": "color", Gradient: "gradient", "Image / video": "image" },
+        options: {
+          "Solid color": "color",
+          Gradient: "gradient",
+          "Image / video": "image",
+          Shader: "shader",
+        },
       })
       .on("change", () => {
         updateBackgroundControls();
@@ -911,6 +921,29 @@ export class ControlPanel {
       });
     const bBackgroundColor = bgF
       .addBinding(cfg, "background", { view: "color", label: "color / matte" })
+      .on("change", refresh);
+    // Generative shader backdrop: pick a shader; colours reuse the gradient stops editor below.
+    const bgShaderOptions = Object.fromEntries(
+      Object.entries(BACKGROUND_SHADERS).map(([id, def]) => [def.label, id]),
+    );
+    const bBackgroundShader = bgF
+      .addBinding(cfg, "backgroundShader", { label: "shader", options: bgShaderOptions })
+      .on("change", refresh);
+    const bBackgroundShaderSpeed = bgF
+      .addBinding(cfg, "backgroundShaderSpeed", {
+        min: 0,
+        max: 3,
+        step: 0.05,
+        label: "shader speed",
+      })
+      .on("change", refresh);
+    const bBackgroundShaderScale = bgF
+      .addBinding(cfg, "backgroundShaderScale", {
+        min: 0.2,
+        max: 4,
+        step: 0.05,
+        label: "shader scale",
+      })
       .on("change", refresh);
     const bBackgroundGradientType = bgF
       .addBinding(cfg, "backgroundGradientType", {
@@ -1060,7 +1093,11 @@ export class ControlPanel {
       const gradient = cfg.backgroundMode === "gradient";
       const image = cfg.backgroundMode === "image";
       const mesh = gradient && cfg.backgroundGradientType === "mesh";
-      bBackgroundColor.hidden = gradient;
+      const shader = cfg.backgroundMode === "shader";
+      bBackgroundColor.hidden = gradient || shader;
+      bBackgroundShader.hidden = !shader;
+      bBackgroundShaderSpeed.hidden = !shader;
+      bBackgroundShaderScale.hidden = !shader;
       bBackgroundGradientType.hidden = !gradient;
       bBackgroundGradientAngle.hidden =
         !gradient || mesh || cfg.backgroundGradientType === "radial";
@@ -1074,8 +1111,8 @@ export class ControlPanel {
       // Stops dropdown + editor drive linear/radial/conic; the mesh editor drives "mesh".
       if (this.backgroundGradientDropdown)
         this.backgroundGradientDropdown.element.hidden = !gradient || mesh;
-      this.backgroundGradientEditor?.setVisible(gradient && !mesh);
-      this.backgroundGradientEditor?.setEnabled(cfg.backgroundGradientSource === "stops");
+      this.backgroundGradientEditor?.setVisible((gradient && !mesh) || shader);
+      this.backgroundGradientEditor?.setEnabled(shader || cfg.backgroundGradientSource === "stops");
       this.backgroundMeshEditor?.setVisible(mesh);
       if (this.backgroundImageDropdown) this.backgroundImageDropdown.element.hidden = !image;
       this.backgroundGradientDropdown?.refresh();
