@@ -24,10 +24,14 @@ aspect UV plumbing is removed or simplified.
 Derived shaders (see per-shader header comments in that file for the exact
 upstream source):
 
-| Our shader               | Upstream `@paper-design/shaders` |
-| ------------------------ | -------------------------------- |
-| `ditherFragmentShader`   | `image-dithering`                |
-| `halftoneFragmentShader` | `halftone-dots`                  |
+| Our shader                  | Upstream `@paper-design/shaders` |
+| --------------------------- | -------------------------------- |
+| `ditherFragmentShader`      | `image-dithering`                |
+| `halftoneFragmentShader`    | `halftone-dots`                  |
+| `flutedGlassFragmentShader` | `fluted-glass`                   |
 
-The remaining post effects (`godraysFragmentShader`, `heatmapFragmentShader`,
-`halftoneCmykFragmentShader`) are original to this project.
+The remaining post effects are original to this project: `godraysFragmentShader`,
+`heatmapFragmentShader`, `halftoneCmykFragmentShader`, and `paperTextureFragmentShader`.
+(Paper's `paper-texture` depends on a bundled noise-texture asset for its fibre / crumple /
+fold / roughness noise, so it is not ported as lean GLSL — the version here is original,
+in the spirit of it.)

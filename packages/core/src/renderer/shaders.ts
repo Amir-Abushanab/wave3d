@@ -830,19 +830,34 @@ void main(){
 }
 `;
 
-// ---- Post pass: fluted glass (vertical ribs that refract) — a finish-zone filter ----
+// ---- Post pass: fluted glass (vertical ribs that refract) ----
+//
+// DERIVED FROM @paper-design/shaders `fluted-glass` (https://github.com/paper-design/shaders,
+// Apache-2.0 — see THIRD-PARTY-NOTICES.md). Ports the primary "lines" rib shape + distortion
+// profile 1 (a cubic per-rib lens faded at the seams), plus paper's rib edge highlights and
+// shadows. Adapted to a post pass — samples tDiffuse; drops the other rib shapes / distortion
+// profiles, the margins, blur, grain and the 3-colour highlight/shadow system (primary mode,
+// params at paper's defaults: shift 0, distortion/highlights/shadows 1).
 export const flutedGlassFragmentShader = /* glsl */ `
 uniform sampler2D tDiffuse;
-uniform float uFluted;      // 0..1 strength
-uniform float uFlutedCount; // number of ribs across the frame
+uniform float uFluted;      // 0..1 mix
+uniform float uFlutedCount; // ribs across the frame (paper: patternSize from u_size)
 varying vec2 vUv;
 void main(){
-  float ribs = max(uFlutedCount, 1.0);
-  float local = fract(vUv.x * ribs) - 0.5;         // position within a rib (-0.5..0.5)
-  float shift = local * (0.6 / ribs) * uFluted;    // lens-like horizontal refraction
-  vec4 g = texture2D(tDiffuse, vec2(vUv.x + shift, vUv.y));
-  float ribShade = 0.85 + 0.15 * cos(local * 3.14159);  // bright at each rib's centre
-  gl_FragColor = vec4(g.rgb * mix(1.0, ribShade, clamp(uFluted, 0.0, 1.0)), g.a);
+  float ribs = max(uFlutedCount, 2.0);
+  float ux = vUv.x * ribs;                          // rib-space x
+  float xNonSmooth = fract(ux) + 0.0001;            // position within a rib (0..1)
+  float aa = max(0.2, fwidth(ux));
+  float fadeX = smoothstep(0.0, aa, xNonSmooth) * smoothstep(1.0, 1.0 - aa, xNonSmooth);
+  float distortion = mix(0.5, -pow(1.5 * xNonSmooth, 3.0) + 0.5, fadeX) * 3.0; // cubic per-rib lens
+  vec4 image = texture2D(tDiffuse, vec2(vUv.x + distortion / ribs, vUv.y));    // refract horizontally
+  float hw = 2.0 * max(0.001, fwidth(ux));
+  float highlights = 1.0 - smoothstep(0.0, hw, xNonSmooth) * smoothstep(1.0, 1.0 - hw, xNonSmooth);
+  float shadows = pow(xNonSmooth, 1.3);
+  vec3 color = image.rgb + highlights * 0.6;        // white glass edge highlights
+  color = mix(color, color * 0.55, shadows * 0.5);  // rib shadows toward the far seam
+  vec4 outc = vec4(clamp(color, 0.0, 1.0), image.a);
+  gl_FragColor = mix(texture2D(tDiffuse, vUv), outc, clamp(uFluted, 0.0, 1.0));
 }
 `;
 
