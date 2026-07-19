@@ -130,4 +130,112 @@ export const BACKGROUND_SHADERS: Record<string, BgShaderDef> = {
       gl_FragColor = vec4(palette(v) * (0.4 + 0.6 * smoothstep(0.0, 0.1, md)), 1.0);
     `),
   },
+  spiral: {
+    label: "Spiral",
+    fragmentShader: bg(`
+      vec2 p = bgCoord() * uScale;
+      float t = uTime * uSpeed;
+      float a = atan(p.y, p.x);
+      float r = length(p);
+      float v = fract((a / 6.2831853) * 6.0 + r * 4.0 - t * 0.5);
+      gl_FragColor = vec4(palette(v), 1.0);
+    `),
+  },
+  dotOrbit: {
+    label: "Dot orbit",
+    fragmentShader: bg(`
+      vec2 p = bgCoord() * uScale * 6.0;
+      float t = uTime * uSpeed;
+      vec2 cell = floor(p);
+      vec2 f = fract(p) - 0.5;
+      float h = hash21(cell);
+      vec2 orbit = 0.32 * vec2(cos(t + 6.2831 * h), sin(t + 6.2831 * h));
+      float dot = smoothstep(0.28, 0.2, length(f - orbit));
+      gl_FragColor = vec4(mix(palette(0.1) * 0.35, palette(h), dot), 1.0);
+    `),
+  },
+  dotGrid: {
+    label: "Dot grid",
+    fragmentShader: bg(`
+      vec2 p = bgCoord() * uScale * 8.0;
+      float t = uTime * uSpeed;
+      vec2 f = fract(p) - 0.5;
+      float pulse = 0.6 + 0.4 * sin(t + length(floor(p)) * 0.6);
+      float dot = smoothstep(0.36 * pulse, 0.3 * pulse, length(f));
+      gl_FragColor = vec4(mix(palette(0.05) * 0.25, palette(0.75), dot), 1.0);
+    `),
+  },
+  colorPanels: {
+    label: "Color panels",
+    fragmentShader: bg(`
+      vec2 p = bgCoord() * uScale;
+      float t = uTime * uSpeed;
+      float v = 0.0;
+      for (int i = 0; i < 4; i++){
+        float fi = float(i);
+        v += 0.25 * (0.5 + 0.5 * sin(p.x * 1.5 + p.y * (0.6 + fi * 0.3) + t * (0.4 + fi * 0.2) + fi));
+      }
+      gl_FragColor = vec4(palette(v), 1.0);
+    `),
+  },
+  neuroNoise: {
+    label: "Neuro noise",
+    fragmentShader: bg(`
+      vec2 p = bgCoord() * uScale * 2.0;
+      float t = uTime * uSpeed;
+      vec2 q = vec2(fbm(p + t * 0.1), fbm(p + vec2(5.2, 1.3) - t * 0.1));
+      float n = fbm(p + 2.0 * q);
+      float ridge = abs(2.0 * fract(n * 3.0) - 1.0);
+      gl_FragColor = vec4(palette(pow(1.0 - ridge, 2.0)), 1.0);
+    `),
+  },
+  smokeRing: {
+    label: "Smoke ring",
+    fragmentShader: bg(`
+      vec2 p = bgCoord() * uScale;
+      float t = uTime * uSpeed;
+      float ring = exp(-pow((length(p) - 0.32) * 4.5, 2.0));
+      float smoke = fbm(p * 3.0 + vec2(t * 0.3, -t * 0.2));
+      gl_FragColor = vec4(palette(clamp(ring * (0.6 + 0.8 * smoke), 0.0, 1.0)), 1.0);
+    `),
+  },
+  gemSmoke: {
+    label: "Gem smoke",
+    fragmentShader: bg(`
+      vec2 p = bgCoord() * uScale;
+      float t = uTime * uSpeed;
+      float n = fbm(p * 2.5 + vec2(t * 0.2, t * 0.15));
+      float facet = floor(n * 6.0) / 6.0;
+      gl_FragColor = vec4(palette(fract(facet + 0.15 * fbm(p * 8.0))), 1.0);
+    `),
+  },
+  grainGradient: {
+    label: "Grain gradient",
+    fragmentShader: bg(`
+      float t = uTime * uSpeed;
+      float g = (vUv.x + vUv.y) * 0.5 * uScale + 0.1 * sin(t);
+      float grain = hash21(gl_FragCoord.xy + fract(t)) - 0.5;
+      gl_FragColor = vec4(palette(clamp(g + grain * 0.15, 0.0, 1.0)), 1.0);
+    `),
+  },
+  liquidMetal: {
+    label: "Liquid metal",
+    fragmentShader: bg(`
+      vec2 p = bgCoord() * uScale * 2.0;
+      float t = uTime * uSpeed;
+      float n = fbm(p + vec2(sin(t * 0.5), cos(t * 0.4)));
+      float m = 0.5 + 0.5 * sin(n * 10.0 + t);
+      gl_FragColor = vec4(palette(n) * (0.5 + 0.5 * m) + pow(m, 3.0) * 0.4, 1.0);
+    `),
+  },
+  pulsingBorder: {
+    label: "Pulsing border",
+    fragmentShader: bg(`
+      float t = uTime * uSpeed;
+      vec2 d = min(vUv, 1.0 - vUv);
+      float border = smoothstep(0.0, 0.15 * uScale, min(d.x, d.y));
+      float pulse = 0.6 + 0.4 * sin(t * 2.0);
+      gl_FragColor = vec4(mix(palette(0.85) * pulse, palette(0.1) * 0.3, border), 1.0);
+    `),
+  },
 };
