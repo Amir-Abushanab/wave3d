@@ -674,9 +674,10 @@ void main(){
 //
 // In the spirit of paper-design/shaders (Apache-2.0): a screen-space effect that reads the
 // composited frame (tDiffuse) and re-composites it. Here it quantizes each channel to a few
-// levels and hides the banding with a recursive Bayer ordered-dither pattern. Kept GLSL ES 1.00
-// safe (no bit ops / no dynamic array indexing) to match the rest of the pipeline, and keyed off
-// gl_FragCoord only (no uTime) so a still frame is deterministic — friendly to pixel-digest checks.
+// levels and hides the banding with a recursive Bayer ordered-dither pattern. Written in the plain
+// gl_FragColor / texture2D style three's ShaderMaterial accepts (it transpiles to "#version 300
+// es"), and keyed off gl_FragCoord only (no uTime), so a still frame is deterministic — friendly to
+// pixel-digest checks.
 // The pass runs AFTER OutputPass (tone-map + sRGB), so it dithers display-space colour.
 export const ditherFragmentShader = /* glsl */ `
 uniform sampler2D tDiffuse;
@@ -703,9 +704,9 @@ void main(){
 // ---- Post pass: domain warp (liquid distortion) — another "layered" post shader ----
 //
 // In the spirit of paper-design/shaders' warp/liquid effects: displace the sample coord by an
-// animated fbm field so the whole composite ripples. Self-contained (its own value-noise, no
-// dependency on the wave's simplex) and GLSL ES 1.00 safe. It samples the full RGBA at the warped
-// coord, so the silhouette (alpha) ripples coherently — the transparent edge wobbles cleanly.
+// animated fbm field so the whole composite ripples. Self-contained — its own value-noise, no
+// dependency on the wave's simplex. It samples the full RGBA at the warped coord, so the
+// silhouette (alpha) ripples coherently — the transparent edge wobbles cleanly.
 // Runs in the scene zone (before the film grain), so grain stays screen-locked. Time-driven, so
 // unlike the dither this pass makes a still frame non-deterministic (same as the wave's own noise).
 export const warpFragmentShader = /* glsl */ `
@@ -717,7 +718,7 @@ uniform float uWarpScale;   // warp field spatial frequency (higher = finer ripp
 uniform float uWarpSpeed;   // animation speed (0 = frozen distortion)
 varying vec2 vUv;
 
-// Compact value-noise fbm — no dynamic indexing / bit ops, so it stays GLSL ES 1.00 safe.
+// Compact value-noise fbm — self-contained, so warp never reaches into the wave's simplex.
 float hash21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
 float vnoise(vec2 p){
   vec2 i = floor(p);
