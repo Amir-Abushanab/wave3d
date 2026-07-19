@@ -670,34 +670,61 @@ void main(){
 }
 `;
 
-// ---- Post pass: ordered (Bayer) dithering — a self-contained "layered" post shader ----
+// ---- Post pass: ordered (Bayer) dithering ----
 //
-// In the spirit of paper-design/shaders (Apache-2.0): a screen-space effect that reads the
-// composited frame (tDiffuse) and re-composites it. Here it quantizes each channel to a few
-// levels and hides the banding with a recursive Bayer ordered-dither pattern. Written in the plain
-// gl_FragColor / texture2D style three's ShaderMaterial accepts (it transpiles to "#version 300
-// es"), and keyed off gl_FragCoord only (no uTime), so a still frame is deterministic — friendly to
-// pixel-digest checks.
-// The pass runs AFTER OutputPass (tone-map + sRGB), so it dithers display-space colour.
+// DERIVED FROM @paper-design/shaders `image-dithering` (https://github.com/paper-design/shaders,
+// Apache-2.0 — see THIRD-PARTY-NOTICES.md). The Bayer matrices, getBayerValue, and the brightness /
+// luminance-quantization / hue-preserving "original colours" recolour are paper's. Adapted to a
+// post pass: samples the composited scene (tDiffuse) at full-frame vUv instead of paper's sized/fit
+// u_image UV, drops the frame/aspect machinery, fixes the 8x8 matrix (paper's default), and gates
+// via uDitherStrength. The int[] arrays + dynamic indexing compile because three builds
+// ShaderMaterials as "#version 300 es". Runs AFTER OutputPass, so it dithers display-space colour;
+// keyed off gl_FragCoord/tDiffuse only (no uTime) → deterministic, friendly to pixel-digest checks.
 export const ditherFragmentShader = /* glsl */ `
 uniform sampler2D tDiffuse;
+uniform vec2 uResolution;
 uniform float uDitherStrength;  // 0..1 mix back toward the original
-uniform float uDitherScale;     // dither cell size in device px (>=1)
-uniform float uDitherSteps;     // quantization levels per channel (>=2)
+uniform float uDitherScale;     // pixel-block size in device px (paper: u_pxSize)
+uniform float uDitherSteps;     // quantization levels (paper: u_colorSteps)
 varying vec2 vUv;
 
-// Recursive Bayer threshold in [0,1): bayer2 is a 2x2 cell; bayer4 nests it into a 4x4 (16 levels).
-float bayer2(vec2 a){ a = floor(a); return fract(a.x * 0.5 + a.y * a.y * 0.75); }
-float bayer4(vec2 a){ return bayer2(a * 0.5) * 0.25 + bayer2(a); }
+const int bayer2x2[4] = int[4](0, 2, 3, 1);
+const int bayer4x4[16] = int[16](0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5);
+const int bayer8x8[64] = int[64](
+  0, 32, 8, 40, 2, 34, 10, 42, 48, 16, 56, 24, 50, 18, 58, 26,
+  12, 44, 4, 36, 14, 46, 6, 38, 60, 28, 52, 20, 62, 30, 54, 22,
+  3, 35, 11, 43, 1, 33, 9, 41, 51, 19, 59, 27, 49, 17, 57, 25,
+  15, 47, 7, 39, 13, 45, 5, 37, 63, 31, 55, 23, 61, 29, 53, 21
+);
+float getBayerValue(vec2 uv, int size){
+  ivec2 pos = ivec2(fract(uv / float(size)) * float(size));
+  int index = pos.y * size + pos.x;
+  if (size == 2) return float(bayer2x2[index]) / 4.0;
+  else if (size == 4) return float(bayer4x4[index]) / 16.0;
+  else if (size == 8) return float(bayer8x8[index]) / 64.0;
+  return 0.0;
+}
 
 void main(){
-  vec4 src = texture2D(tDiffuse, vUv);
-  float steps = max(uDitherSteps, 2.0);
-  float t = bayer4(gl_FragCoord.xy / max(uDitherScale, 1.0)); // ordered threshold, [0,1)
-  // Spread the rounding spatially: add the threshold before flooring to the quantized levels.
-  vec3 q = clamp(floor(src.rgb * (steps - 1.0) + t) / (steps - 1.0), 0.0, 1.0);
-  vec3 outc = mix(src.rgb, q, clamp(uDitherStrength, 0.0, 1.0));
-  gl_FragColor = vec4(outc, src.a); // preserve alpha → transparent background still works
+  float pxSize = max(uDitherScale, 1.0);
+  vec2 pxSizeUV = gl_FragCoord.xy / pxSize;
+  vec2 sampleUV = (floor(gl_FragCoord.xy / pxSize) + 0.5) * pxSize / max(uResolution, vec2(1.0));
+  vec4 image = texture2D(tDiffuse, sampleUV);
+
+  float lum = dot(vec3(0.2126, 0.7152, 0.0722), image.rgb);
+  float colorSteps = max(floor(uDitherSteps), 1.0);
+
+  float dithering = getBayerValue(pxSizeUV, 8) - 0.5;   // paper's default 8x8 ordered screen
+  float brightness = clamp(lum + dithering / colorSteps, 0.0, 1.0);
+  brightness = mix(0.0, brightness, image.a);
+  float quantLum = floor(brightness * colorSteps + 0.5) / colorSteps;
+
+  // paper's "original colours" path: keep the source hue, quantize luminance.
+  vec3 color = image.rgb / max(lum, 0.001) * quantLum;
+  float quantAlpha = floor(image.a * colorSteps + 0.5) / colorSteps;
+  float opacity = mix(quantLum, 1.0, quantAlpha);
+
+  gl_FragColor = mix(image, vec4(color, opacity), clamp(uDitherStrength, 0.0, 1.0));
 }
 `;
 

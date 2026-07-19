@@ -1227,6 +1227,7 @@ export class WaveRenderer {
         this.ditherPass = new ShaderPass({
           uniforms: {
             tDiffuse: { value: null },
+            uResolution: { value: this.renderer.getDrawingBufferSize(new THREE.Vector2()) },
             uDitherStrength: { value: strength },
             uDitherScale: { value: this.config.ditherScale ?? 2 },
             uDitherSteps: { value: this.config.ditherSteps ?? 4 },
@@ -1507,6 +1508,7 @@ export class WaveRenderer {
     const dw = w * dpr;
     const dh = h * dpr;
     (this.postPass.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
+    if (this.ditherPass) (this.ditherPass.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
     if (this.warpPass) {
       (this.warpPass.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
     }
