@@ -817,6 +817,57 @@ export class ControlPanel {
       "change",
       refresh,
     );
+    // Godrays (volumetric light streaks) — scene-zone light scatter from the bright wave.
+    g.addBinding(cfg, "godrays", { min: 0, max: 1, step: 0.01, label: "godrays" }).on(
+      "change",
+      refresh,
+    );
+    g.addBinding(cfg, "godraysDensity", {
+      min: 0.1,
+      max: 1,
+      step: 0.01,
+      label: "godray spread",
+    }).on("change", refresh);
+    g.addBinding(cfg, "godraysDecay", {
+      min: 0.8,
+      max: 0.99,
+      step: 0.005,
+      label: "godray decay",
+    }).on("change", refresh);
+    g.addBinding(cfg, "godraysX", { min: 0, max: 1, step: 0.01, label: "godray x" }).on(
+      "change",
+      refresh,
+    );
+    g.addBinding(cfg, "godraysY", { min: 0, max: 1, step: 0.01, label: "godray y" }).on(
+      "change",
+      refresh,
+    );
+    // Halftone (rotated dot screen sized by brightness) — finish-zone stylization.
+    g.addBinding(cfg, "halftone", { min: 0, max: 1, step: 0.01, label: "halftone" }).on(
+      "change",
+      refresh,
+    );
+    g.addBinding(cfg, "halftoneCell", { min: 2, max: 16, step: 0.5, label: "halftone cell" }).on(
+      "change",
+      refresh,
+    );
+    g.addBinding(cfg, "halftoneAngle", {
+      min: 0,
+      max: 1.57,
+      step: 0.01,
+      label: "halftone angle",
+    }).on("change", refresh);
+    // Chromatic aberration (radial RGB split) — finish-zone lens fringing.
+    g.addBinding(cfg, "chroma", { min: 0, max: 1, step: 0.01, label: "chroma" }).on(
+      "change",
+      refresh,
+    );
+    g.addBinding(cfg, "chromaAmount", {
+      min: 0,
+      max: 0.05,
+      step: 0.001,
+      label: "chroma amount",
+    }).on("change", refresh);
     // Whole-composition mirror (scene-level world-space flip).
     g.addButton({ title: "↔ mirror horizontal" }).on("click", () => {
       cfg.mirrorH = !cfg.mirrorH;

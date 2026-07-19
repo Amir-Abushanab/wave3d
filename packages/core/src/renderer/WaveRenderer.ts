@@ -12,6 +12,9 @@ import {
   postFragmentShader,
   ditherFragmentShader,
   warpFragmentShader,
+  godraysFragmentShader,
+  halftoneFragmentShader,
+  chromaFragmentShader,
 } from "./shaders";
 import { WaveGeometry } from "./WaveGeometry";
 import {
@@ -236,6 +239,9 @@ export class WaveRenderer {
   private bloomPass?: UnrealBloomPass;
   private ditherPass?: ShaderPass;
   private warpPass?: ShaderPass;
+  private godraysPass?: ShaderPass;
+  private halftonePass?: ShaderPass;
+  private chromaPass?: ShaderPass;
   protected readonly container: HTMLElement;
   private readonly respectReducedMotion: boolean;
   private readonly skipIntroRamp: boolean;
@@ -1164,6 +1170,9 @@ export class WaveRenderer {
     u.uBlurSamples.value = Math.round(this.config.blurSamples ?? 6);
     this.applyBloom();
     this.applyWarp();
+    this.applyGodrays();
+    this.applyHalftone();
+    this.applyChroma();
     this.applyDither();
   }
 
@@ -1258,6 +1267,96 @@ export class WaveRenderer {
       this.composer.removePass(this.warpPass);
       this.warpPass.dispose();
       this.warpPass = undefined;
+    }
+  }
+
+  /** Insert / tune / remove the godrays pass — volumetric light streaks scattered from the bright
+   *  wave toward a light point (godraysX/Y in UV). Scene zone (index 1) so it scatters the raw wave
+   *  like bloom. godrays 0 removes the pass entirely; created lazily on first enable. */
+  private applyGodrays(): void {
+    const strength = this.config.godrays ?? 0;
+    if (strength > 0) {
+      const cx = this.config.godraysX ?? 0.5;
+      const cy = this.config.godraysY ?? 0.15;
+      if (!this.godraysPass) {
+        this.godraysPass = new ShaderPass({
+          uniforms: {
+            tDiffuse: { value: null },
+            uGodrays: { value: strength },
+            uGodraysDensity: { value: this.config.godraysDensity ?? 0.5 },
+            uGodraysDecay: { value: this.config.godraysDecay ?? 0.95 },
+            uGodraysCenter: { value: new THREE.Vector2(cx, cy) },
+          },
+          vertexShader: postVertexShader,
+          fragmentShader: godraysFragmentShader,
+        });
+        this.composer.insertPass(this.godraysPass, 1); // scene zone: scatter the raw wave
+      }
+      const u = this.godraysPass.uniforms;
+      u.uGodrays.value = strength;
+      u.uGodraysDensity.value = this.config.godraysDensity ?? 0.5;
+      u.uGodraysDecay.value = this.config.godraysDecay ?? 0.95;
+      (u.uGodraysCenter.value as THREE.Vector2).set(cx, cy);
+    } else if (this.godraysPass) {
+      this.composer.removePass(this.godraysPass);
+      this.godraysPass.dispose();
+      this.godraysPass = undefined;
+    }
+  }
+
+  /** Insert / tune / remove the halftone pass — a rotated dot screen (dot size scales with local
+   *  brightness) over the finished image. halftone 0 removes the pass; created lazily on enable. */
+  private applyHalftone(): void {
+    const strength = this.config.halftone ?? 0;
+    if (strength > 0) {
+      if (!this.halftonePass) {
+        this.halftonePass = new ShaderPass({
+          uniforms: {
+            tDiffuse: { value: null },
+            uHalftone: { value: strength },
+            uHalftoneCell: { value: this.config.halftoneCell ?? 6 },
+            uHalftoneAngle: { value: this.config.halftoneAngle ?? 0.4 },
+          },
+          vertexShader: postVertexShader,
+          fragmentShader: halftoneFragmentShader,
+        });
+        this.composer.addPass(this.halftonePass); // finish zone: display-space stylization
+      }
+      const u = this.halftonePass.uniforms;
+      u.uHalftone.value = strength;
+      u.uHalftoneCell.value = Math.max(2, this.config.halftoneCell ?? 6);
+      u.uHalftoneAngle.value = this.config.halftoneAngle ?? 0.4;
+    } else if (this.halftonePass) {
+      this.composer.removePass(this.halftonePass);
+      this.halftonePass.dispose();
+      this.halftonePass = undefined;
+    }
+  }
+
+  /** Insert / tune / remove the chromatic-aberration pass — a radial RGB split (lens fringing) on
+   *  the final image. chroma 0 removes the pass entirely; created lazily on first enable. */
+  private applyChroma(): void {
+    const strength = this.config.chroma ?? 0;
+    if (strength > 0) {
+      if (!this.chromaPass) {
+        this.chromaPass = new ShaderPass({
+          uniforms: {
+            tDiffuse: { value: null },
+            uChroma: { value: strength },
+            uChromaAmount: { value: this.config.chromaAmount ?? 0.01 },
+          },
+          vertexShader: postVertexShader,
+          fragmentShader: chromaFragmentShader,
+        });
+        this.composer.addPass(this.chromaPass); // finish zone: lens fringing, runs last
+      }
+      const u = this.chromaPass.uniforms;
+      u.uChroma.value = strength;
+      u.uChromaAmount.value = this.config.chromaAmount ?? 0.01;
+    } else if (this.chromaPass) {
+      this.composer.removePass(this.chromaPass);
+      this.chromaPass.dispose();
+      this.chromaPass = undefined;
     }
   }
 
@@ -1808,6 +1907,11 @@ export class WaveRenderer {
       s.palette.dispose();
     }
     this.bloomPass?.dispose();
+    this.warpPass?.dispose();
+    this.ditherPass?.dispose();
+    this.godraysPass?.dispose();
+    this.halftonePass?.dispose();
+    this.chromaPass?.dispose();
     this.composer.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();

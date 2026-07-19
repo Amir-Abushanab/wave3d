@@ -755,3 +755,91 @@ void main(){
   gl_FragColor = texture2D(tDiffuse, uv); // rgba → the silhouette (alpha) ripples too
 }
 `;
+
+// ---- Post pass: godrays (volumetric light streaks) — another "layered" post shader ----
+//
+// Radial light-scattering (à la GPU Gems 3): from each pixel, march toward a light point and
+// accumulate the wave's own brightness (weighted by alpha, so only opaque pixels emit), then add
+// the streaks back. Runs in the scene zone so it scatters the raw, pre-tone-map wave like bloom.
+export const godraysFragmentShader = /* glsl */ `
+uniform sampler2D tDiffuse;
+uniform float uGodrays;        // 0..1 strength of the added light
+uniform float uGodraysDensity; // ray length / spread
+uniform float uGodraysDecay;   // per-sample falloff (<1)
+uniform vec2  uGodraysCenter;  // light source, UV (0..1)
+varying vec2 vUv;
+
+const int GODRAY_SAMPLES = 24;
+
+float luma(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+
+void main(){
+  vec4 src = texture2D(tDiffuse, vUv);
+  vec2 delta = (vUv - uGodraysCenter) * (uGodraysDensity / float(GODRAY_SAMPLES));
+  vec2 coord = vUv;
+  float decay = 1.0;
+  vec3 rays = vec3(0.0);
+  for (int i = 0; i < GODRAY_SAMPLES; i++){
+    coord -= delta;
+    vec4 s = texture2D(tDiffuse, coord);
+    rays += s.rgb * s.a * decay;   // only opaque (wave) pixels emit light
+    decay *= uGodraysDecay;
+  }
+  rays /= float(GODRAY_SAMPLES);
+  vec3 outc = src.rgb + rays * uGodrays;
+  float outA = max(src.a, luma(rays) * uGodrays); // shafts stay visible over the transparent bg
+  gl_FragColor = vec4(outc, clamp(outA, 0.0, 1.0));
+}
+`;
+
+// ---- Post pass: halftone (rotated dot screen) — a finish-zone "layered" post shader ----
+//
+// Print-style dots: a rotated grid where each cell's dot grows with local brightness, filled with
+// the wave's own colour and transparent between dots — the wave rendered as a dot screen. Runs in
+// the finish zone (over the tone-mapped image), keyed off gl_FragCoord so a still frame is stable.
+export const halftoneFragmentShader = /* glsl */ `
+uniform sampler2D tDiffuse;
+uniform float uHalftone;      // 0..1 mix
+uniform float uHalftoneCell;  // cell size in device px
+uniform float uHalftoneAngle; // screen rotation (radians)
+varying vec2 vUv;
+
+float luma(vec3 c){ return dot(c, vec3(0.299, 0.587, 0.114)); }
+
+void main(){
+  vec4 src = texture2D(tDiffuse, vUv);
+  float ca = cos(uHalftoneAngle);
+  float sa = sin(uHalftoneAngle);
+  vec2 rot = mat2(ca, sa, -sa, ca) * gl_FragCoord.xy;   // rotate the screen grid
+  vec2 cell = fract(rot / max(uHalftoneCell, 2.0)) - 0.5;
+  float d = length(cell);
+  float radius = clamp(luma(src.rgb), 0.0, 1.0) * 0.5;  // brighter → bigger dot
+  float mask = smoothstep(radius, radius - 0.07, d);    // 1 inside the dot, 0 outside
+  vec4 dots = vec4(src.rgb, src.a * mask);              // wave-coloured dots on transparency
+  gl_FragColor = mix(src, dots, clamp(uHalftone, 0.0, 1.0));
+}
+`;
+
+// ---- Post pass: chromatic aberration (radial RGB split) — a finish-zone "layered" post shader ----
+//
+// Lens fringing: sample R/G/B at a radial offset that grows toward the frame edges, so colour
+// separates at the periphery and stays crisp in the centre. The union of the three alphas keeps
+// the silhouette from tearing open. Runs last, over the final image.
+export const chromaFragmentShader = /* glsl */ `
+uniform sampler2D tDiffuse;
+uniform float uChroma;        // 0..1 mix
+uniform float uChromaAmount;  // radial offset scale
+varying vec2 vUv;
+
+void main(){
+  vec2 center = vUv - 0.5;
+  vec2 offset = center * dot(center, center) * uChromaAmount * 4.0; // radial, stronger at edges
+  vec4 cr = texture2D(tDiffuse, vUv - offset);
+  vec4 cg = texture2D(tDiffuse, vUv);
+  vec4 cb = texture2D(tDiffuse, vUv + offset);
+  vec3 split = vec3(cr.r, cg.g, cb.b);
+  float a = max(max(cr.a, cg.a), cb.a); // union → the silhouette doesn't split open
+  vec3 outc = mix(cg.rgb, split, clamp(uChroma, 0.0, 1.0));
+  gl_FragColor = vec4(outc, mix(cg.a, a, clamp(uChroma, 0.0, 1.0)));
+}
+`;
