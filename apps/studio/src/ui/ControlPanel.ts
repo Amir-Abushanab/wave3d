@@ -1107,7 +1107,7 @@ export class ControlPanel {
     const it = cfg.interaction;
     const uiInputs = {
       radius: it?.radius ?? 0.3,
-      ribbonFlow: it?.ribbonFlow ?? 0,
+      ribbonFlow: it?.ribbonFlow ?? 0.8,
       touch: it?.touch ?? false,
     };
     // `enabled` is a developer API (the layer's master switch — not authorable here); like custom:*
@@ -1126,13 +1126,13 @@ export class ControlPanel {
       const nonDefault =
         uiInputs.touch ||
         uiInputs.radius !== 0.3 ||
-        uiInputs.ribbonFlow !== 0 ||
+        uiInputs.ribbonFlow !== 0.8 ||
         enabled !== undefined;
       if (bindings.length || nonDefault) {
         const next: NonNullable<StudioConfig["interaction"]> = {};
         if (enabled !== undefined) next.enabled = enabled;
         if (uiInputs.radius !== 0.3) next.radius = uiInputs.radius;
-        if (uiInputs.ribbonFlow !== 0) next.ribbonFlow = uiInputs.ribbonFlow;
+        if (uiInputs.ribbonFlow !== 0.8) next.ribbonFlow = uiInputs.ribbonFlow;
         if (uiInputs.touch) next.touch = true;
         if (bindings.length) next.bindings = bindings;
         cfg.interaction = next;

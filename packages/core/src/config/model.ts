@@ -351,9 +351,10 @@ export interface SceneInteractionConfig {
   enabled?: boolean;
   /** Pointer falloff radius, as a fraction of viewport height. Default 0.3. */
   radius?: number;
-  /** Ribbon flow (0..1, default 0): stretch the pointer footprint along each wave's own length axis
-   *  so the influence reaches ALONG the ribbon instead of as a circular screen disc. 0 = plain
-   *  circle. Scene-level (shared like `radius`); each wave uses its own length tangent. */
+  /** Ribbon flow (0..1, default 0.8): stretch the pointer footprint along each wave's own length axis
+   *  so the influence reaches ALONG the ribbon instead of as a circular screen disc. On by default;
+   *  set 0 for the plain circle. Scene-level (shared like `radius`); each wave uses its own length
+   *  tangent. Only affects waves that already react to the cursor (non-interactive waves are inert). */
   ribbonFlow?: number;
   /** Follow coarse (touch) pointers. Default false — touch is ignored unless this is true. */
   touch?: boolean;
@@ -838,7 +839,7 @@ export function normalizeSceneInteraction(config: StudioConfig): void {
   const it = config.interaction;
   if (!it) return;
   if (it.radius !== undefined) it.radius = clampNumber(it.radius, 0.02, 2, 0.3);
-  if (it.ribbonFlow !== undefined) it.ribbonFlow = clampNumber(it.ribbonFlow, 0, 1, 0);
+  if (it.ribbonFlow !== undefined) it.ribbonFlow = clampNumber(it.ribbonFlow, 0, 1, 0.8);
   if (it.bindings !== undefined) {
     it.bindings = cleanBindings<SceneInteractionTarget>(it.bindings, SCENE_TARGET_NAMES);
   }

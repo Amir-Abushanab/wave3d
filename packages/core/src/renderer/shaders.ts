@@ -294,9 +294,9 @@ void main(){
 
 #ifdef POINTER_FX
   // Pointer field: displace along the wave's own (post-twist) up-axis, weighted by a screen-space
-  // falloff around the smoothed cursor — circular by default, stretched along the ribbon when
-  // uShapeFlow > 0. Everything here is ADDITIVE and fenced, so the shared path above/below is
-  // untouched and byte-identical when POINTER_FX is off.
+  // falloff around the smoothed cursor — a circle at uShapeFlow 0, stretched along the ribbon as it
+  // rises. Everything here is ADDITIVE and fenced, so the shared path above/below is untouched and
+  // byte-identical when POINTER_FX is off.
   // Shared clip-space transform, computed once and reused for the cursor metric and the ribbon
   // tangent (the compiler is not guaranteed to CSE the triple product otherwise). Associativity is
   // unchanged, so preClip is bit-for-bit what the plain P*V*M*v product produced.

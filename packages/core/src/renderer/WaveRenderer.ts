@@ -804,7 +804,7 @@ export class WaveRenderer {
     // (scene-level); the hover amplitudes and ripple amplitude are PER WAVE. The dynamic pointer state
     // (position/velocity/presence/ripple envelopes) is pushed each frame in applyPointerField().
     const sharedRadius = (this.config.interaction?.radius ?? 0.3) * 2; // radius = fraction of viewport H
-    const sharedFlow = this.config.interaction?.ribbonFlow ?? 0;
+    const sharedFlow = this.config.interaction?.ribbonFlow ?? 0.8; // on by default; 0 = plain circle
     this.waves.forEach((wave, i) => {
       const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
       if (!wavePointerFxActive(this.config, sc)) return;
