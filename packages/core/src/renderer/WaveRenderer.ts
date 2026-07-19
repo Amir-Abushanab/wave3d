@@ -4,7 +4,6 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
-import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 import {
   vertexShader,
   fragmentShader,
@@ -21,7 +20,6 @@ import {
   paperTextureFragmentShader,
   halftoneCmykFragmentShader,
 } from "./shaders";
-import { BACKGROUND_SHADERS, bgVertexShader, MAX_BG_COLORS } from "./backgroundShaders";
 import { WaveGeometry } from "./WaveGeometry";
 import {
   InteractionController,
@@ -252,10 +250,6 @@ export class WaveRenderer {
   private flutedGlassPass?: ShaderPass;
   private paperTexturePass?: ShaderPass;
   private halftoneCmykPass?: ShaderPass;
-  private bgRenderTarget?: THREE.WebGLRenderTarget;
-  private bgQuad?: FullScreenQuad;
-  private bgMaterial?: THREE.ShaderMaterial;
-  private bgShaderName = "";
   protected readonly container: HTMLElement;
   private readonly respectReducedMotion: boolean;
   private readonly skipIntroRamp: boolean;
@@ -873,11 +867,6 @@ export class WaveRenderer {
   }
 
   private applyBackground(): void {
-    if (this.config.backgroundMode === "shader" && !this.config.transparentBackground) {
-      this.applyShaderBackground();
-      return;
-    }
-    this.teardownShaderBackground();
     if (this.config.transparentBackground) {
       this.scene.background = null;
       this.renderer.setClearColor(0x000000, 0);
@@ -897,89 +886,6 @@ export class WaveRenderer {
     );
     if (this.config.backgroundMode === "gradient") this.applyGradientBackground(width, height);
     else this.applyImageBackground(matte, width, height);
-  }
-
-  /** Set up (or retune) the generative shader backdrop: an offscreen ShaderMaterial rendered via a
-   *  FullScreenQuad, whose target is assigned to scene.background. Colours come from
-   *  backgroundPalette (linear); the material is rebuilt only when the selected shader changes. */
-  private applyShaderBackground(): void {
-    const name = this.config.backgroundShader ?? "swirl";
-    const def = BACKGROUND_SHADERS[name] ?? BACKGROUND_SHADERS.swirl;
-    this.clearBackgroundVideo();
-    this.backgroundTexture?.dispose();
-    this.backgroundTexture = undefined;
-    this.backgroundSig = "";
-    this.renderer.setClearColor(0x000000, 0);
-
-    if (!this.bgRenderTarget) {
-      const s = this.renderer.getDrawingBufferSize(new THREE.Vector2());
-      this.bgRenderTarget = new THREE.WebGLRenderTarget(Math.max(1, s.x), Math.max(1, s.y), {
-        type: THREE.HalfFloatType,
-      });
-    }
-    if (!this.bgMaterial || this.bgShaderName !== name) {
-      this.bgMaterial?.dispose();
-      this.bgMaterial = new THREE.ShaderMaterial({
-        uniforms: {
-          uResolution: { value: new THREE.Vector2(1, 1) },
-          uTime: { value: 0 },
-          uColors: {
-            value: Array.from({ length: MAX_BG_COLORS }, () => new THREE.Vector3(1, 1, 1)),
-          },
-          uColorCount: { value: 1 },
-          uSpeed: { value: this.config.backgroundShaderSpeed ?? 1 },
-          uScale: { value: this.config.backgroundShaderScale ?? 1 },
-        },
-        vertexShader: bgVertexShader,
-        fragmentShader: def.fragmentShader,
-        depthTest: false,
-        depthWrite: false,
-      });
-      this.bgShaderName = name;
-      if (!this.bgQuad) this.bgQuad = new FullScreenQuad(this.bgMaterial);
-      else this.bgQuad.material = this.bgMaterial;
-    }
-
-    const u = this.bgMaterial.uniforms;
-    const stops = this.config.backgroundPalette ?? [];
-    const cols = u.uColors.value as THREE.Vector3[];
-    const n = Math.min(stops.length, MAX_BG_COLORS);
-    for (let i = 0; i < n; i++) hexToLinearVec3(stops[i].color, cols[i]);
-    u.uColorCount.value = Math.max(1, n);
-    u.uSpeed.value = this.config.backgroundShaderSpeed ?? 1;
-    u.uScale.value = this.config.backgroundShaderScale ?? 1;
-    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
-    (u.uResolution.value as THREE.Vector2).copy(size);
-    this.bgRenderTarget.setSize(Math.max(1, size.x), Math.max(1, size.y));
-    this.scene.background = this.bgRenderTarget.texture;
-  }
-
-  /** Render the generative backdrop into its offscreen target so scene.background is fresh each
-   *  frame (called from renderOnce before composer.render). No-op unless shader-bg is active. */
-  private renderShaderBackground(): void {
-    if (
-      !this.bgQuad ||
-      !this.bgRenderTarget ||
-      this.config.backgroundMode !== "shader" ||
-      this.config.transparentBackground
-    ) {
-      return;
-    }
-    const prev = this.renderer.getRenderTarget();
-    this.renderer.setRenderTarget(this.bgRenderTarget);
-    this.bgQuad.render(this.renderer);
-    this.renderer.setRenderTarget(prev);
-  }
-
-  private teardownShaderBackground(): void {
-    if (!this.bgRenderTarget && !this.bgQuad && !this.bgMaterial) return;
-    this.bgQuad?.dispose();
-    this.bgMaterial?.dispose();
-    this.bgRenderTarget?.dispose();
-    this.bgQuad = undefined;
-    this.bgMaterial = undefined;
-    this.bgRenderTarget = undefined;
-    this.bgShaderName = "";
   }
 
   private applyColorBackground(matte: THREE.Color): void {
@@ -1604,11 +1510,6 @@ export class WaveRenderer {
     if (this.warpPass) {
       (this.warpPass.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
     }
-    if (this.bgRenderTarget) {
-      this.bgRenderTarget.setSize(dw, dh);
-      if (this.bgMaterial)
-        (this.bgMaterial.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
-    }
     for (const s of this.waves) {
       (s.material.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
     }
@@ -1717,7 +1618,6 @@ export class WaveRenderer {
     }
     this.postPass.uniforms.uTime.value = t;
     if (this.warpPass) this.warpPass.uniforms.uTime.value = t;
-    if (this.bgMaterial) this.bgMaterial.uniforms.uTime.value = t;
   }
 
   /** Render exactly one frame at the current time. */
@@ -1726,7 +1626,6 @@ export class WaveRenderer {
     this.updateTime();
     this.applyInteraction(); // write pointer + binding uniforms (no-op when off / capturing)
     this.updateClipPlanes(); // keep near/far bracketing the scene so no camera angle clips the wave
-    this.renderShaderBackground();
     this.composer.render();
     // Editor overlays (gizmo/helpers + camera-rig minimap) draw on top of the composed frame —
     // the studio subclass plugs them in here; the base renders nothing extra.
@@ -2127,7 +2026,6 @@ export class WaveRenderer {
     this.flutedGlassPass?.dispose();
     this.paperTexturePass?.dispose();
     this.halftoneCmykPass?.dispose();
-    this.teardownShaderBackground();
     this.composer.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();

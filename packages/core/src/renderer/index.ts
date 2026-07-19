@@ -4,4 +4,3 @@
 export * from "./WaveRenderer";
 export * from "./palette";
 export * from "./heroPalette";
-export * from "./backgroundShaders";
