@@ -505,6 +505,7 @@ export class WaveRenderer {
       uPointerPush: { value: 0 }, // signed membrane dome at the cursor (+ repel / − attract)
       uPointerWake: { value: 0 }, // drag-wake trough amplitude
       uPointerVel: { value: new THREE.Vector2(0, 0) }, // smoothed pointer velocity, NDC/s (wake dir)
+      uShapeFlow: { value: 0 }, // ribbon-flow footprint stretch (0 = plain circle)
       uPointerThin: { value: 0 },
       uPointerHue: { value: 0 },
       uPointerLighten: { value: 0 },
@@ -799,10 +800,11 @@ export class WaveRenderer {
       u.uOpacity.value = sc.opacity;
     });
 
-    // Static pointer-field params. The falloff radius is SHARED (scene-level); the hover amplitudes
-    // and ripple amplitude are PER WAVE. The dynamic pointer state (position/velocity/presence/ripple
-    // envelopes) is pushed each frame in applyPointerField().
+    // Static pointer-field params. The falloff radius and ribbon-flow footprint stretch are SHARED
+    // (scene-level); the hover amplitudes and ripple amplitude are PER WAVE. The dynamic pointer state
+    // (position/velocity/presence/ripple envelopes) is pushed each frame in applyPointerField().
     const sharedRadius = (this.config.interaction?.radius ?? 0.3) * 2; // radius = fraction of viewport H
+    const sharedFlow = this.config.interaction?.ribbonFlow ?? 0;
     this.waves.forEach((wave, i) => {
       const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
       if (!wavePointerFxActive(this.config, sc)) return;
@@ -816,6 +818,7 @@ export class WaveRenderer {
       u.uPointerHue.value = h?.hueShift ?? 0;
       u.uPointerLighten.value = h?.lighten ?? 0;
       u.uPointerRipple.value = sc.interaction?.press?.ripple ?? 0;
+      u.uShapeFlow.value = sharedFlow;
     });
 
     this.updatePaletteTextures();

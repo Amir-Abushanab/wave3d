@@ -1107,6 +1107,7 @@ export class ControlPanel {
     const it = cfg.interaction;
     const uiInputs = {
       radius: it?.radius ?? 0.3,
+      ribbonFlow: it?.ribbonFlow ?? 0,
       touch: it?.touch ?? false,
     };
     // `enabled` is a developer API (the layer's master switch — not authorable here); like custom:*
@@ -1122,11 +1123,16 @@ export class ControlPanel {
 
     const sync = (): void => {
       const bindings = compactSlots(slots).concat(preserved) as SceneInteractionBinding[];
-      const nonDefault = uiInputs.touch || uiInputs.radius !== 0.3 || enabled !== undefined;
+      const nonDefault =
+        uiInputs.touch ||
+        uiInputs.radius !== 0.3 ||
+        uiInputs.ribbonFlow !== 0 ||
+        enabled !== undefined;
       if (bindings.length || nonDefault) {
         const next: NonNullable<StudioConfig["interaction"]> = {};
         if (enabled !== undefined) next.enabled = enabled;
         if (uiInputs.radius !== 0.3) next.radius = uiInputs.radius;
+        if (uiInputs.ribbonFlow !== 0) next.ribbonFlow = uiInputs.ribbonFlow;
         if (uiInputs.touch) next.touch = true;
         if (bindings.length) next.bindings = bindings;
         cfg.interaction = next;
@@ -1138,6 +1144,9 @@ export class ControlPanel {
 
     folder
       .addBinding(uiInputs, "radius", { label: "pointer radius", min: 0.05, max: 1, step: 0.01 })
+      .on("change", sync);
+    folder
+      .addBinding(uiInputs, "ribbonFlow", { label: "ribbon flow", min: 0, max: 1, step: 0.01 })
       .on("change", sync);
     folder.addBinding(uiInputs, "touch").on("change", sync);
 
