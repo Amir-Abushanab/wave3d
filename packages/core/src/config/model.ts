@@ -405,6 +405,14 @@ export interface SceneConfig {
   bloomStrength?: number;
   bloomRadius?: number;
   bloomThreshold?: number;
+  /** Ordered (Bayer) dithering over the finished composite — a self-contained "layered" post
+   *  shader in the spirit of paper-design/shaders. 0 removes the pass entirely (cost/pixels match
+   *  dither-off); scale & steps only bite once dither > 0. Runs last, after tone-map + sRGB. */
+  dither?: number;
+  /** Dither cell size in device pixels (>=1) — larger = chunkier pattern. */
+  ditherScale?: number;
+  /** Quantization levels per channel (>=2) — lower = heavier posterization. */
+  ditherSteps?: number;
   /** Base ambient light level (0–1). */
   ambient: number;
   lights: LightConfig[];
@@ -574,6 +582,9 @@ export function createDefaultConfig(): StudioConfig {
     grain: 1.1,
     blur: 0.02,
     blurSamples: 6,
+    dither: 0, // off by default — the hero look is unchanged (the pass isn't inserted)
+    ditherScale: 2,
+    ditherSteps: 4,
     ambient: 0.45,
     lights: [], // hero has no lights — colour is the palette + the SrcColor² blend
     mirrorH: false,
@@ -746,6 +757,9 @@ export function ensureSceneDefaults(config: StudioConfig): void {
   if (typeof config.bloomStrength !== "number") config.bloomStrength = 0;
   if (typeof config.bloomRadius !== "number") config.bloomRadius = 0.4;
   if (typeof config.bloomThreshold !== "number") config.bloomThreshold = 0.85;
+  if (typeof config.dither !== "number") config.dither = 0;
+  if (typeof config.ditherScale !== "number") config.ditherScale = 2;
+  if (typeof config.ditherSteps !== "number") config.ditherSteps = 4;
   if (typeof config.showCameraRig !== "boolean") config.showCameraRig = false;
   if (typeof config.paused !== "boolean") config.paused = false;
   if (typeof config.loopSeconds !== "number") config.loopSeconds = 0;

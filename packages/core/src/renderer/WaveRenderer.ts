@@ -10,6 +10,7 @@ import {
   lineFragmentShader,
   postVertexShader,
   postFragmentShader,
+  ditherFragmentShader,
 } from "./shaders";
 import { WaveGeometry } from "./WaveGeometry";
 import {
@@ -232,6 +233,7 @@ export class WaveRenderer {
   private readonly postPass: ShaderPass;
   /** Optional bloom pass — created lazily when bloomStrength first goes >0, removed at 0. */
   private bloomPass?: UnrealBloomPass;
+  private ditherPass?: ShaderPass;
   protected readonly container: HTMLElement;
   private readonly respectReducedMotion: boolean;
   private readonly skipIntroRamp: boolean;
@@ -1159,6 +1161,7 @@ export class WaveRenderer {
     u.uGrainAmount.value = this.config.grain;
     u.uBlurSamples.value = Math.round(this.config.blurSamples ?? 6);
     this.applyBloom();
+    this.applyDither();
   }
 
   /** Insert / tune / remove the bloom pass. strength 0 removes it from the composer entirely, so
@@ -1185,6 +1188,38 @@ export class WaveRenderer {
       this.composer.removePass(this.bloomPass);
       this.bloomPass.dispose();
       this.bloomPass = undefined;
+    }
+  }
+
+  /** Insert / tune / remove the dithering pass — a self-contained "layered" post shader (an ordered
+   *  Bayer dither, in the spirit of paper-design/shaders). Like bloom, dither 0 removes the pass
+   *  entirely so cost and pixels match dither-off, and it's created lazily on first enable. It is
+   *  appended AFTER OutputPass so it runs last and quantizes display-space colour (tone-mapped +
+   *  sRGB) — dithering the linear composer buffer would crush the steps in the shadows. */
+  private applyDither(): void {
+    const strength = this.config.dither ?? 0;
+    if (strength > 0) {
+      if (!this.ditherPass) {
+        this.ditherPass = new ShaderPass({
+          uniforms: {
+            tDiffuse: { value: null },
+            uDitherStrength: { value: strength },
+            uDitherScale: { value: this.config.ditherScale ?? 2 },
+            uDitherSteps: { value: this.config.ditherSteps ?? 4 },
+          },
+          vertexShader: postVertexShader,
+          fragmentShader: ditherFragmentShader,
+        });
+        this.composer.addPass(this.ditherPass); // last pass → renders the dithered image to screen
+      }
+      const u = this.ditherPass.uniforms;
+      u.uDitherStrength.value = strength;
+      u.uDitherScale.value = Math.max(1, this.config.ditherScale ?? 2);
+      u.uDitherSteps.value = Math.max(2, Math.round(this.config.ditherSteps ?? 4));
+    } else if (this.ditherPass) {
+      this.composer.removePass(this.ditherPass);
+      this.ditherPass.dispose();
+      this.ditherPass = undefined;
     }
   }
 

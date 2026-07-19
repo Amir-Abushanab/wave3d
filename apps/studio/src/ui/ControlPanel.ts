@@ -789,6 +789,20 @@ export class ControlPanel {
       step: 0.01,
       label: "bloom threshold",
     }).on("change", refresh);
+    // Dithering (ordered Bayer) — a self-contained "layered" post shader in the spirit of
+    // paper-design/shaders. 0 removes the pass entirely; scale & steps only bite once dither > 0.
+    g.addBinding(cfg, "dither", { min: 0, max: 1, step: 0.01, label: "dither" }).on(
+      "change",
+      refresh,
+    );
+    g.addBinding(cfg, "ditherScale", { min: 1, max: 8, step: 1, label: "dither px" }).on(
+      "change",
+      refresh,
+    );
+    g.addBinding(cfg, "ditherSteps", { min: 2, max: 8, step: 1, label: "dither steps" }).on(
+      "change",
+      refresh,
+    );
     // Whole-composition mirror (scene-level world-space flip).
     g.addButton({ title: "↔ mirror horizontal" }).on("click", () => {
       cfg.mirrorH = !cfg.mirrorH;

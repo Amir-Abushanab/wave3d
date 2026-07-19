@@ -669,3 +669,33 @@ void main(){
   gl_FragColor = color;   // preserve alpha → transparent background works
 }
 `;
+
+// ---- Post pass: ordered (Bayer) dithering — a self-contained "layered" post shader ----
+//
+// In the spirit of paper-design/shaders (Apache-2.0): a screen-space effect that reads the
+// composited frame (tDiffuse) and re-composites it. Here it quantizes each channel to a few
+// levels and hides the banding with a recursive Bayer ordered-dither pattern. Kept GLSL ES 1.00
+// safe (no bit ops / no dynamic array indexing) to match the rest of the pipeline, and keyed off
+// gl_FragCoord only (no uTime) so a still frame is deterministic — friendly to pixel-digest checks.
+// The pass runs AFTER OutputPass (tone-map + sRGB), so it dithers display-space colour.
+export const ditherFragmentShader = /* glsl */ `
+uniform sampler2D tDiffuse;
+uniform float uDitherStrength;  // 0..1 mix back toward the original
+uniform float uDitherScale;     // dither cell size in device px (>=1)
+uniform float uDitherSteps;     // quantization levels per channel (>=2)
+varying vec2 vUv;
+
+// Recursive Bayer threshold in [0,1): bayer2 is a 2x2 cell; bayer4 nests it into a 4x4 (16 levels).
+float bayer2(vec2 a){ a = floor(a); return fract(a.x * 0.5 + a.y * a.y * 0.75); }
+float bayer4(vec2 a){ return bayer2(a * 0.5) * 0.25 + bayer2(a); }
+
+void main(){
+  vec4 src = texture2D(tDiffuse, vUv);
+  float steps = max(uDitherSteps, 2.0);
+  float t = bayer4(gl_FragCoord.xy / max(uDitherScale, 1.0)); // ordered threshold, [0,1)
+  // Spread the rounding spatially: add the threshold before flooring to the quantized levels.
+  vec3 q = clamp(floor(src.rgb * (steps - 1.0) + t) / (steps - 1.0), 0.0, 1.0);
+  vec3 outc = mix(src.rgb, q, clamp(uDitherStrength, 0.0, 1.0));
+  gl_FragColor = vec4(outc, src.a); // preserve alpha → transparent background still works
+}
+`;
