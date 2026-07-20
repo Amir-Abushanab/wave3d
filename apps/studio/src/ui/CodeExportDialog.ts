@@ -7,6 +7,8 @@ import {
   type CodeTarget,
 } from "../export/exportCode";
 import { downloadBlob } from "../export/exporters";
+import { buildAgentBrief } from "../export/agentBrief";
+import { createAgentCopyButton } from "./agentCopyButton";
 import type { StudioConfig } from "@wave3d/core";
 import type { WaveRenderer } from "@wave3d/core/renderer";
 
@@ -58,7 +60,9 @@ const loadHighlighter = (): Promise<CodeToHtml> =>
 
 const STYLE = `
 dialog.code-export {
-  width: min(780px, 92vw); max-height: 86vh; padding: 0; border: 1px solid #333; border-radius: 10px;
+  /* 860 (not 780): the footer's five controls need ~800px to stay on one row once the agent-copy
+     button is in there, and the wider code block is a bonus. */
+  width: min(860px, 92vw); max-height: 86vh; padding: 0; border: 1px solid #333; border-radius: 10px;
   background: #16171b; color: #e6e6e6; font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 dialog.code-export::backdrop { background: rgba(0,0,0,0.55); }
@@ -85,7 +89,9 @@ dialog.code-export::backdrop { background: rgba(0,0,0,0.55); }
 .code-export .ft { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid #2a2b30; flex-wrap: wrap; }
 .code-export .ft label { display: flex; align-items: center; gap: 6px; color: #bbb; cursor: pointer; }
 .code-export .ft .spacer { flex: 1; }
-.code-export .ft button { font: 12px ui-sans-serif, system-ui, sans-serif; padding: 6px 14px; border: 1px solid #333; border-radius: 6px; background: #1e1f24; color: #e6e6e6; cursor: pointer; }
+/* :not(.agent-copy) — the agent button brings its own chrome (glyphs + hover fan-out) and this
+   rule would otherwise outspecify it. */
+.code-export .ft button:not(.agent-copy) { font: 12px ui-sans-serif, system-ui, sans-serif; padding: 6px 14px; border: 1px solid #333; border-radius: 6px; background: #1e1f24; color: #e6e6e6; cursor: pointer; }
 .code-export .ft button.primary { background: #2d5cff; border-color: #2d5cff; color: #fff; }
 `;
 
@@ -180,7 +186,12 @@ export class CodeExportDialog {
       else flashButtonError(btn, "Copy failed");
     });
     copyBtn.classList.add("primary");
-    ft.append(inlineLabel, ftSpacer, posterBtn, fileBtn, copyBtn);
+    // Hands the whole job to a coding agent: this wave's snippet + @wave3d's own skill doc. Uses
+    // the dialog's selected framework so the embedded snippet matches what's on screen.
+    const agentBtn = createAgentCopyButton(() =>
+      buildAgentBrief(this.getConfig(), this.framework.id),
+    );
+    ft.append(inlineLabel, ftSpacer, agentBtn, posterBtn, fileBtn, copyBtn);
 
     this.dialog.append(hd, this.codeBox, ft);
     this.dialog.addEventListener("click", (e) => {

@@ -14,6 +14,8 @@ import { publishToGallery } from "./publishToGallery";
 import { OutputResizeHandle } from "./ui/OutputResizeHandle";
 import { RecordingOverlay } from "./ui/RecordingOverlay";
 import { HistoryControls } from "./ui/HistoryControls";
+import { AgentHandoffCard } from "./ui/AgentHandoffCard";
+import { buildAgentBrief } from "./export/agentBrief";
 import { HistoryThumbnailer } from "./ui/historyThumbs";
 import { showToast, dismissToast } from "./ui/Toast";
 import { History } from "./history";
@@ -290,6 +292,9 @@ const historyControls = new HistoryControls(workspace, {
 // Park the camera-controls hint here (bottom-left, out of the way) as a "?" whose hover/focus
 // reveals it — rather than floating it over the export frame.
 historyControls.addHelpButton("drag to move · scroll to zoom · right-drag or arrow keys to rotate");
+// One-time nudge (bottom-right) that the designed wave can be handed to a coding agent. Copying or
+// dismissing retires it for good; the same button lives permanently in the Export-code dialog.
+const agentCard = new AgentHandoffCard(workspace, () => buildAgentBrief(config));
 // Seed the baseline now that the panel + controls exist (a shared link re-seeds it below).
 history.reset(config, hasSharedLink ? "—" : DEFAULT_PRESET);
 
@@ -356,6 +361,7 @@ if (import.meta.hot) {
     if (recorder.recording) recorder.stop();
     recordingOverlay.stop();
     outputResizer.dispose();
+    agentCard.dispose();
     historyControls.dispose();
     historyThumbnailer.dispose();
     history.dispose();
