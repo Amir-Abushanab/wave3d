@@ -778,34 +778,6 @@ export class ControlPanel {
           this.refreshRecordCapHint(); // keep the record-cap hint in sync with the loop length
         }),
     );
-    // Post-processing (one pass over the whole composite — scene-level, shared by all waves).
-    g.addBinding(cfg, "grain", { min: 0, max: 3, step: 0.01 }).on("change", refresh);
-    g.addBinding(cfg, "blur", { min: 0, max: 0.3, step: 0.005 }).on("change", refresh);
-    sepAfter(
-      g
-        .addBinding(cfg, "blurSamples", { min: 1, max: 16, step: 1, label: "blur samples" })
-        .on("change", refresh),
-    );
-    // Bloom (UnrealBloomPass) — 0 disables the pass entirely (no cost/pixel change). radius &
-    // threshold only bite once strength > 0. Great for the neon/wireframe/additive looks.
-    g.addBinding(cfg, "bloomStrength", { min: 0, max: 3, step: 0.01, label: "bloom" }).on(
-      "change",
-      refresh,
-    );
-    g.addBinding(cfg, "bloomRadius", { min: 0, max: 1, step: 0.01, label: "bloom radius" }).on(
-      "change",
-      refresh,
-    );
-    sepAfter(
-      g
-        .addBinding(cfg, "bloomThreshold", {
-          min: 0,
-          max: 1,
-          step: 0.01,
-          label: "bloom threshold",
-        })
-        .on("change", refresh),
-    );
     // Whole-composition mirror (scene-level world-space flip).
     g.addButton({ title: "↔ mirror horizontal" }).on("click", () => {
       cfg.mirrorH = !cfg.mirrorH;
@@ -835,6 +807,34 @@ export class ControlPanel {
     const fx = mkFolder("Post FX", true);
     randomBtn(fx, randomizePostFx);
     // A thin rule after a slider separates one effect's knobs from the next group's.
+    // Base finish — the always-on grain/blur pass over the whole composite (scene-level, shared
+    // by all waves), then bloom (UnrealBloomPass; 0 disables the pass entirely — no cost/pixel
+    // change; radius & threshold only bite once strength > 0).
+    fx.addBinding(cfg, "grain", { min: 0, max: 3, step: 0.01 }).on("change", refresh);
+    fx.addBinding(cfg, "blur", { min: 0, max: 0.3, step: 0.005 }).on("change", refresh);
+    sepAfter(
+      fx
+        .addBinding(cfg, "blurSamples", { min: 1, max: 16, step: 1, label: "blur samples" })
+        .on("change", refresh),
+    );
+    fx.addBinding(cfg, "bloomStrength", { min: 0, max: 3, step: 0.01, label: "bloom" }).on(
+      "change",
+      refresh,
+    );
+    fx.addBinding(cfg, "bloomRadius", { min: 0, max: 1, step: 0.01, label: "bloom radius" }).on(
+      "change",
+      refresh,
+    );
+    sepAfter(
+      fx
+        .addBinding(cfg, "bloomThreshold", {
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: "bloom threshold",
+        })
+        .on("change", refresh),
+    );
     // Dither (← paper's image-dithering)
     fx.addBinding(cfg, "dither", { min: 0, max: 1, step: 0.01, label: "dither" }).on(
       "change",
