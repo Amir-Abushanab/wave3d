@@ -1,6 +1,6 @@
 {
   "name": "@wave3d/core",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Framework-agnostic 3D gradient-wave renderer + config model (the engine behind Wave Studio)",
   "keywords": [
     "animation",
