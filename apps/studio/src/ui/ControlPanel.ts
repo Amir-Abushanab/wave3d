@@ -145,8 +145,8 @@ function seatRandomAtTop(folder: FolderApi, el: HTMLElement): void {
 /** Mark a binding's row so a thin rule renders below it, grouping adjacent Post FX knobs. Uses a
  *  CSS class (a border on the row), NOT an inserted node — Tweakpane's rack re-syncs its DOM and
  *  would orphan any foreign child to the bottom of the section. */
-function addFxSeparator(binding: { element: HTMLElement }): void {
-  binding.element.classList.add("wv-fx-sep");
+function sepAfter(binding: { element: HTMLElement }): void {
+  binding.element.classList.add("wv-sep");
 }
 
 /**
@@ -555,6 +555,7 @@ export class ControlPanel {
     const heightBinding = output
       .addBinding(outputSize, "height", { min: 64, max: 8192, step: 1, label: "height px" })
       .on("change", (ev) => setCustomSize("height", ev.last));
+    sepAfter(heightBinding);
     // Reveal the export-area readout while any size control is hovered or focused, so the size
     // shows live as you adjust it (a short leave-delay avoids flicker moving between the rows).
     let sizeHideTimer = 0;
@@ -752,10 +753,12 @@ export class ControlPanel {
       if (ev.last) this.renderer.rebuild();
       this.hooks.onEdit?.(); // structural handler skips `refresh`, so record here
     });
-    g.addBinding(cfg, "dprMax", { min: 0.5, max: 2, step: 0.5 }).on("change", (ev) => {
-      if (ev.last) this.renderer.resize();
-      this.hooks.onEdit?.();
-    });
+    sepAfter(
+      g.addBinding(cfg, "dprMax", { min: 0.5, max: 2, step: 0.5 }).on("change", (ev) => {
+        if (ev.last) this.renderer.resize();
+        this.hooks.onEdit?.();
+      }),
+    );
     g.addBinding(cfg, "paused").on("change", () => this.renderer.refreshPlayback());
     // Noise phase — scrub the animation to pick a still frame.
     g.addBinding(cfg, "timeOffset", { min: 0, max: 60, step: 0.5, label: "noise phase" }).on(
@@ -766,19 +769,21 @@ export class ControlPanel {
     // it repeats exactly every N seconds; recording auto-stops after one loop (see onToggleRecord).
     // Crossing 0 recompiles the vertex program (LOOP_MOTION); it orbits rather than drifts, so the
     // motion character differs — that's the trade-off for a clean loop.
-    g.addBinding(cfg, "loopSeconds", { min: 0, max: 30, step: 0.5, label: "loop (s, 0=off)" }).on(
-      "change",
-      () => {
-        refresh();
-        this.refreshRecordCapHint(); // keep the record-cap hint in sync with the loop length
-      },
+    sepAfter(
+      g
+        .addBinding(cfg, "loopSeconds", { min: 0, max: 30, step: 0.5, label: "loop (s, 0=off)" })
+        .on("change", () => {
+          refresh();
+          this.refreshRecordCapHint(); // keep the record-cap hint in sync with the loop length
+        }),
     );
     // Post-processing (one pass over the whole composite — scene-level, shared by all waves).
     g.addBinding(cfg, "grain", { min: 0, max: 3, step: 0.01 }).on("change", refresh);
     g.addBinding(cfg, "blur", { min: 0, max: 0.3, step: 0.005 }).on("change", refresh);
-    g.addBinding(cfg, "blurSamples", { min: 1, max: 16, step: 1, label: "blur samples" }).on(
-      "change",
-      refresh,
+    sepAfter(
+      g
+        .addBinding(cfg, "blurSamples", { min: 1, max: 16, step: 1, label: "blur samples" })
+        .on("change", refresh),
     );
     // Bloom (UnrealBloomPass) — 0 disables the pass entirely (no cost/pixel change). radius &
     // threshold only bite once strength > 0. Great for the neon/wireframe/additive looks.
@@ -790,12 +795,16 @@ export class ControlPanel {
       "change",
       refresh,
     );
-    g.addBinding(cfg, "bloomThreshold", {
-      min: 0,
-      max: 1,
-      step: 0.01,
-      label: "bloom threshold",
-    }).on("change", refresh);
+    sepAfter(
+      g
+        .addBinding(cfg, "bloomThreshold", {
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: "bloom threshold",
+        })
+        .on("change", refresh),
+    );
     // Whole-composition mirror (scene-level world-space flip).
     g.addButton({ title: "↔ mirror horizontal" }).on("click", () => {
       cfg.mirrorH = !cfg.mirrorH;
@@ -818,11 +827,6 @@ export class ControlPanel {
    *  per-wave. Each effect's first slider is its gate: 0 = off (removes the pass entirely). */
   private buildPostFxFolder(mkFolder: MkFolder, cfg: StudioConfig, refresh: () => void): void {
     const fx = mkFolder("Post FX", true);
-    injectStyleOnce(
-      "wv-fx-sep-style",
-      ".wv-fx-sep{padding-bottom:6px;margin-bottom:6px;" +
-        "border-bottom:1px solid color-mix(in srgb, currentColor 14%, transparent)}",
-    );
     // A thin rule after a slider separates one effect's knobs from the next group's.
     // Dither (← paper's image-dithering)
     fx.addBinding(cfg, "dither", { min: 0, max: 1, step: 0.01, label: "dither" }).on(
@@ -833,7 +837,7 @@ export class ControlPanel {
       "change",
       refresh,
     );
-    addFxSeparator(
+    sepAfter(
       fx
         .addBinding(cfg, "ditherSteps", { min: 2, max: 8, step: 1, label: "dither steps" })
         .on("change", refresh),
@@ -847,7 +851,7 @@ export class ControlPanel {
       "change",
       refresh,
     );
-    addFxSeparator(
+    sepAfter(
       fx
         .addBinding(cfg, "halftoneAngle", {
           min: 0,
@@ -862,13 +866,13 @@ export class ControlPanel {
       "change",
       refresh,
     );
-    addFxSeparator(
+    sepAfter(
       fx
         .addBinding(cfg, "halftoneCmykCell", { min: 2, max: 16, step: 0.5, label: "cmyk cell" })
         .on("change", refresh),
     );
     // Heatmap
-    addFxSeparator(
+    sepAfter(
       fx
         .addBinding(cfg, "heatmap", { min: 0, max: 1, step: 0.01, label: "heatmap" })
         .on("change", refresh),
@@ -878,7 +882,7 @@ export class ControlPanel {
       "change",
       refresh,
     );
-    addFxSeparator(
+    sepAfter(
       fx
         .addBinding(cfg, "paperTextureScale", { min: 0.5, max: 6, step: 0.5, label: "paper scale" })
         .on("change", refresh),
@@ -1117,9 +1121,11 @@ export class ControlPanel {
     const camP = this.camP;
     // Lead the section with the rig-minimap toggle (studio aid: a corner inset showing the
     // camera + lights).
-    camF.addBinding(cfg, "showCameraRig", { label: "rig minimap" }).on("change", () => {
-      this.renderer.setCameraRig(cfg.showCameraRig);
-    });
+    sepAfter(
+      camF.addBinding(cfg, "showCameraRig", { label: "rig minimap" }).on("change", () => {
+        this.renderer.setCameraRig(cfg.showCameraRig);
+      }),
+    );
     this.renderer.setCameraRig(cfg.showCameraRig);
     const onOrbit = (): void => {
       if (!this.camSyncing)
@@ -1135,17 +1141,21 @@ export class ControlPanel {
       .addBinding(camP, "elevation", { min: -89, max: 89, step: 1, label: "elevation°" })
       .on("change", onOrbit);
     // Orthographic framing: zoom (no fov/distance).
-    camF
-      .addBinding(camP, "zoom", { min: 0.1, max: 6, step: 0.05, label: "zoom" })
-      .on("change", () => {
-        if (!this.camSyncing) this.renderer.setZoom(camP.zoom);
-      });
+    sepAfter(
+      camF
+        .addBinding(camP, "zoom", { min: 0.1, max: 6, step: 0.05, label: "zoom" })
+        .on("change", () => {
+          if (!this.camSyncing) this.renderer.setZoom(camP.zoom);
+        }),
+    );
     camF
       .addBinding(camP, "panX", { min: -2000, max: 2000, step: 10, label: "pan X" })
       .on("change", onPan);
-    camF
-      .addBinding(camP, "panY", { min: -2000, max: 2000, step: 10, label: "pan Y" })
-      .on("change", onPan);
+    sepAfter(
+      camF
+        .addBinding(camP, "panY", { min: -2000, max: 2000, step: 10, label: "pan Y" })
+        .on("change", onPan),
+    );
     camF.addButton({ title: "Fit to screen" }).on("click", () => this.renderer.fitToView());
     camF.addButton({ title: "Reset camera" }).on("click", () => this.renderer.resetView());
     return camF;
@@ -1523,6 +1533,12 @@ export class ControlPanel {
       this.folders.push({ title, api });
       return api;
     };
+    // Thin rule under a control row (added via sepAfter) to group logically-related knobs in a folder.
+    injectStyleOnce(
+      "wv-sep-style",
+      ".wv-sep{padding-bottom:6px;margin-bottom:6px;" +
+        "border-bottom:1px solid color-mix(in srgb, currentColor 14%, transparent)}",
+    );
 
     // Tweakpane's combined point widgets (x/y/z in one row) are fiddly, so split
     // every Vec2/Vec3 into individual labelled 1-D sliders — one slider per axis.
