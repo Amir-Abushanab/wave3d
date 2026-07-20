@@ -142,6 +142,13 @@ function seatRandomAtTop(folder: FolderApi, el: HTMLElement): void {
   content.prepend(el);
 }
 
+/** Drop a thin separator rule after a binding's row — groups adjacent Post FX knobs visually. */
+function addFxSeparator(binding: { element: HTMLElement }): void {
+  const sep = document.createElement("div");
+  sep.className = "wv-fx-sep";
+  binding.element.after(sep);
+}
+
 /**
  * "Tasteful Randomize" wears an animated gradient border — rolling it is the fastest way for a
  * newcomer to grok what the whole tool does, so we make the button catch the eye. Implementation
@@ -811,6 +818,11 @@ export class ControlPanel {
    *  per-wave. Each effect's first slider is its gate: 0 = off (removes the pass entirely). */
   private buildPostFxFolder(mkFolder: MkFolder, cfg: StudioConfig, refresh: () => void): void {
     const fx = mkFolder("Post FX", true);
+    injectStyleOnce(
+      "wv-fx-sep-style",
+      ".wv-fx-sep{height:1px;margin:6px 8px;background:currentColor;opacity:0.13}",
+    );
+    // A thin rule after a slider separates one effect's knobs from the next group's.
     // Dither (← paper's image-dithering)
     fx.addBinding(cfg, "dither", { min: 0, max: 1, step: 0.01, label: "dither" }).on(
       "change",
@@ -820,9 +832,10 @@ export class ControlPanel {
       "change",
       refresh,
     );
-    fx.addBinding(cfg, "ditherSteps", { min: 2, max: 8, step: 1, label: "dither steps" }).on(
-      "change",
-      refresh,
+    addFxSeparator(
+      fx
+        .addBinding(cfg, "ditherSteps", { min: 2, max: 8, step: 1, label: "dither steps" })
+        .on("change", refresh),
     );
     // Halftone (← paper's halftone-dots)
     fx.addBinding(cfg, "halftone", { min: 0, max: 1, step: 0.01, label: "halftone" }).on(
@@ -833,38 +846,43 @@ export class ControlPanel {
       "change",
       refresh,
     );
-    fx.addBinding(cfg, "halftoneAngle", {
-      min: 0,
-      max: 1.57,
-      step: 0.01,
-      label: "halftone angle",
-    }).on("change", refresh);
+    addFxSeparator(
+      fx
+        .addBinding(cfg, "halftoneAngle", {
+          min: 0,
+          max: 1.57,
+          step: 0.01,
+          label: "halftone angle",
+        })
+        .on("change", refresh),
+    );
     // CMYK halftone
     fx.addBinding(cfg, "halftoneCmyk", { min: 0, max: 1, step: 0.01, label: "cmyk halftone" }).on(
       "change",
       refresh,
     );
-    fx.addBinding(cfg, "halftoneCmykCell", { min: 2, max: 16, step: 0.5, label: "cmyk cell" }).on(
-      "change",
-      refresh,
+    addFxSeparator(
+      fx
+        .addBinding(cfg, "halftoneCmykCell", { min: 2, max: 16, step: 0.5, label: "cmyk cell" })
+        .on("change", refresh),
     );
     // Heatmap
-    fx.addBinding(cfg, "heatmap", { min: 0, max: 1, step: 0.01, label: "heatmap" }).on(
-      "change",
-      refresh,
+    addFxSeparator(
+      fx
+        .addBinding(cfg, "heatmap", { min: 0, max: 1, step: 0.01, label: "heatmap" })
+        .on("change", refresh),
     );
     // Paper texture
     fx.addBinding(cfg, "paperTexture", { min: 0, max: 1, step: 0.01, label: "paper texture" }).on(
       "change",
       refresh,
     );
-    fx.addBinding(cfg, "paperTextureScale", {
-      min: 0.5,
-      max: 6,
-      step: 0.5,
-      label: "paper scale",
-    }).on("change", refresh);
-    // Inner light — volumetric light streaks scattered from the bright wave
+    addFxSeparator(
+      fx
+        .addBinding(cfg, "paperTextureScale", { min: 0.5, max: 6, step: 0.5, label: "paper scale" })
+        .on("change", refresh),
+    );
+    // Inner light — volumetric light streaks scattered from the bright wave (last group, no rule)
     fx.addBinding(cfg, "innerLight", { min: 0, max: 1, step: 0.01, label: "inner light" }).on(
       "change",
       refresh,
