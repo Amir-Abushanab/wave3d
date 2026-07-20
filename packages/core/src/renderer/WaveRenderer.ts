@@ -10,6 +10,12 @@ import {
   lineFragmentShader,
   postVertexShader,
   postFragmentShader,
+  ditherFragmentShader,
+  innerLightFragmentShader,
+  halftoneFragmentShader,
+  heatmapFragmentShader,
+  paperTextureFragmentShader,
+  halftoneCmykFragmentShader,
 } from "./shaders";
 import { WaveGeometry } from "./WaveGeometry";
 import {
@@ -232,6 +238,12 @@ export class WaveRenderer {
   private readonly postPass: ShaderPass;
   /** Optional bloom pass — created lazily when bloomStrength first goes >0, removed at 0. */
   private bloomPass?: UnrealBloomPass;
+  private ditherPass?: ShaderPass;
+  private innerLightPass?: ShaderPass;
+  private halftonePass?: ShaderPass;
+  private heatmapPass?: ShaderPass;
+  private paperTexturePass?: ShaderPass;
+  private halftoneCmykPass?: ShaderPass;
   protected readonly container: HTMLElement;
   private readonly respectReducedMotion: boolean;
   private readonly skipIntroRamp: boolean;
@@ -1162,6 +1174,12 @@ export class WaveRenderer {
     u.uGrainAmount.value = this.config.grain;
     u.uBlurSamples.value = Math.round(this.config.blurSamples ?? 6);
     this.applyBloom();
+    this.applyInnerLight();
+    this.applyHalftone();
+    this.applyHeatmap();
+    this.applyHalftoneCmyk();
+    this.applyPaperTexture();
+    this.applyDither();
   }
 
   /** Insert / tune / remove the bloom pass. strength 0 removes it from the composer entirely, so
@@ -1188,6 +1206,175 @@ export class WaveRenderer {
       this.composer.removePass(this.bloomPass);
       this.bloomPass.dispose();
       this.bloomPass = undefined;
+    }
+  }
+
+  /** Insert / tune / remove the dithering pass — a self-contained "layered" post shader (an ordered
+   *  Bayer dither, in the spirit of paper-design/shaders). Like bloom, dither 0 removes the pass
+   *  entirely so cost and pixels match dither-off, and it's created lazily on first enable. It is
+   *  appended AFTER OutputPass so it runs last and quantizes display-space colour (tone-mapped +
+   *  sRGB) — dithering the linear composer buffer would crush the steps in the shadows. */
+  private applyDither(): void {
+    const strength = this.config.dither ?? 0;
+    if (strength > 0) {
+      if (!this.ditherPass) {
+        this.ditherPass = new ShaderPass({
+          uniforms: {
+            tDiffuse: { value: null },
+            uResolution: { value: this.renderer.getDrawingBufferSize(new THREE.Vector2()) },
+            uDitherStrength: { value: strength },
+            uDitherScale: { value: this.config.ditherScale ?? 2 },
+            uDitherSteps: { value: this.config.ditherSteps ?? 4 },
+          },
+          vertexShader: postVertexShader,
+          fragmentShader: ditherFragmentShader,
+        });
+        this.composer.addPass(this.ditherPass); // last pass → renders the dithered image to screen
+      }
+      const u = this.ditherPass.uniforms;
+      u.uDitherStrength.value = strength;
+      u.uDitherScale.value = Math.max(1, this.config.ditherScale ?? 2);
+      u.uDitherSteps.value = Math.max(2, Math.round(this.config.ditherSteps ?? 4));
+    } else if (this.ditherPass) {
+      this.composer.removePass(this.ditherPass);
+      this.ditherPass.dispose();
+      this.ditherPass = undefined;
+    }
+  }
+
+  /** Insert / tune / remove the innerLight pass — volumetric light streaks scattered from the bright
+   *  wave toward a light point (innerLightX/Y in UV). Scene zone (index 1) so it scatters the raw wave
+   *  like bloom. innerLight 0 removes the pass entirely; created lazily on first enable. */
+  private applyInnerLight(): void {
+    const strength = this.config.innerLight ?? 0;
+    if (strength > 0) {
+      const cx = this.config.innerLightX ?? 0.5;
+      const cy = this.config.innerLightY ?? 0.15;
+      if (!this.innerLightPass) {
+        this.innerLightPass = new ShaderPass({
+          uniforms: {
+            tDiffuse: { value: null },
+            uInnerLight: { value: strength },
+            uInnerLightDensity: { value: this.config.innerLightDensity ?? 0.5 },
+            uInnerLightDecay: { value: this.config.innerLightDecay ?? 0.95 },
+            uInnerLightCenter: { value: new THREE.Vector2(cx, cy) },
+          },
+          vertexShader: postVertexShader,
+          fragmentShader: innerLightFragmentShader,
+        });
+        this.composer.insertPass(this.innerLightPass, 1); // scene zone: scatter the raw wave
+      }
+      const u = this.innerLightPass.uniforms;
+      u.uInnerLight.value = strength;
+      u.uInnerLightDensity.value = this.config.innerLightDensity ?? 0.5;
+      u.uInnerLightDecay.value = this.config.innerLightDecay ?? 0.95;
+      (u.uInnerLightCenter.value as THREE.Vector2).set(cx, cy);
+    } else if (this.innerLightPass) {
+      this.composer.removePass(this.innerLightPass);
+      this.innerLightPass.dispose();
+      this.innerLightPass = undefined;
+    }
+  }
+
+  /** Insert / tune / remove the halftone pass — a rotated dot screen (dot size scales with local
+   *  brightness) over the finished image. halftone 0 removes the pass; created lazily on enable. */
+  private applyHalftone(): void {
+    const strength = this.config.halftone ?? 0;
+    if (strength > 0) {
+      if (!this.halftonePass) {
+        this.halftonePass = new ShaderPass({
+          uniforms: {
+            tDiffuse: { value: null },
+            uResolution: { value: this.renderer.getDrawingBufferSize(new THREE.Vector2()) },
+            uHalftone: { value: strength },
+            uHalftoneCell: { value: this.config.halftoneCell ?? 6 },
+            uHalftoneAngle: { value: this.config.halftoneAngle ?? 0.4 },
+          },
+          vertexShader: postVertexShader,
+          fragmentShader: halftoneFragmentShader,
+        });
+        this.composer.addPass(this.halftonePass); // finish zone: display-space stylization
+      }
+      const u = this.halftonePass.uniforms;
+      u.uHalftone.value = strength;
+      u.uHalftoneCell.value = Math.max(2, this.config.halftoneCell ?? 6);
+      u.uHalftoneAngle.value = this.config.halftoneAngle ?? 0.4;
+    } else if (this.halftonePass) {
+      this.composer.removePass(this.halftonePass);
+      this.halftonePass.dispose();
+      this.halftonePass = undefined;
+    }
+  }
+
+  /** Heatmap: recolour the final image by luminance → thermal palette. Finish zone. */
+  private applyHeatmap(): void {
+    const strength = this.config.heatmap ?? 0;
+    if (strength > 0) {
+      if (!this.heatmapPass) {
+        this.heatmapPass = new ShaderPass({
+          uniforms: { tDiffuse: { value: null }, uHeatmap: { value: strength } },
+          vertexShader: postVertexShader,
+          fragmentShader: heatmapFragmentShader,
+        });
+        this.composer.addPass(this.heatmapPass);
+      }
+      this.heatmapPass.uniforms.uHeatmap.value = strength;
+    } else if (this.heatmapPass) {
+      this.composer.removePass(this.heatmapPass);
+      this.heatmapPass.dispose();
+      this.heatmapPass = undefined;
+    }
+  }
+
+  /** Paper texture: fibrous substrate shading multiplied over the image. Finish zone. */
+  private applyPaperTexture(): void {
+    const strength = this.config.paperTexture ?? 0;
+    if (strength > 0) {
+      if (!this.paperTexturePass) {
+        this.paperTexturePass = new ShaderPass({
+          uniforms: {
+            tDiffuse: { value: null },
+            uPaper: { value: strength },
+            uPaperScale: { value: this.config.paperTextureScale ?? 2 },
+          },
+          vertexShader: postVertexShader,
+          fragmentShader: paperTextureFragmentShader,
+        });
+        this.composer.addPass(this.paperTexturePass);
+      }
+      const u = this.paperTexturePass.uniforms;
+      u.uPaper.value = strength;
+      u.uPaperScale.value = Math.max(0.5, this.config.paperTextureScale ?? 2);
+    } else if (this.paperTexturePass) {
+      this.composer.removePass(this.paperTexturePass);
+      this.paperTexturePass.dispose();
+      this.paperTexturePass = undefined;
+    }
+  }
+
+  /** CMYK halftone: four rotated dot screens (cyan/magenta/yellow/black). Finish zone. */
+  private applyHalftoneCmyk(): void {
+    const strength = this.config.halftoneCmyk ?? 0;
+    if (strength > 0) {
+      if (!this.halftoneCmykPass) {
+        this.halftoneCmykPass = new ShaderPass({
+          uniforms: {
+            tDiffuse: { value: null },
+            uHalftoneCmyk: { value: strength },
+            uHalftoneCmykCell: { value: this.config.halftoneCmykCell ?? 6 },
+          },
+          vertexShader: postVertexShader,
+          fragmentShader: halftoneCmykFragmentShader,
+        });
+        this.composer.addPass(this.halftoneCmykPass);
+      }
+      const u = this.halftoneCmykPass.uniforms;
+      u.uHalftoneCmyk.value = strength;
+      u.uHalftoneCmykCell.value = Math.max(2, this.config.halftoneCmykCell ?? 6);
+    } else if (this.halftoneCmykPass) {
+      this.composer.removePass(this.halftoneCmykPass);
+      this.halftoneCmykPass.dispose();
+      this.halftoneCmykPass = undefined;
     }
   }
 
@@ -1228,6 +1415,9 @@ export class WaveRenderer {
     const dw = w * dpr;
     const dh = h * dpr;
     (this.postPass.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
+    if (this.ditherPass) (this.ditherPass.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
+    if (this.halftonePass)
+      (this.halftonePass.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
     for (const s of this.waves) {
       (s.material.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
     }
@@ -1734,6 +1924,12 @@ export class WaveRenderer {
       s.palette.dispose();
     }
     this.bloomPass?.dispose();
+    this.ditherPass?.dispose();
+    this.innerLightPass?.dispose();
+    this.halftonePass?.dispose();
+    this.heatmapPass?.dispose();
+    this.paperTexturePass?.dispose();
+    this.halftoneCmykPass?.dispose();
     this.composer.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();

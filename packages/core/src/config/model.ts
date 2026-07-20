@@ -410,6 +410,35 @@ export interface SceneConfig {
   bloomStrength?: number;
   bloomRadius?: number;
   bloomThreshold?: number;
+  /** Ordered (Bayer) dithering over the finished composite — a self-contained "layered" post
+   *  shader in the spirit of paper-design/shaders. 0 removes the pass entirely (cost/pixels match
+   *  dither-off); scale & steps only bite once dither > 0. Runs last, after tone-map + sRGB. */
+  dither?: number;
+  /** Dither cell size in device pixels (>=1) — larger = chunkier pattern. */
+  ditherScale?: number;
+  /** Quantization levels per channel (>=2) — lower = heavier posterization. */
+  ditherSteps?: number;
+  /** Volumetric light streaks (innerLight) scattered from the bright wave toward a light point
+   *  (innerLightX/Y in UV). 0 removes the pass; density/decay/centre only bite once innerLight > 0.
+   *  Scene-zone (scatters the raw wave, like bloom). */
+  innerLight?: number;
+  innerLightDensity?: number;
+  innerLightDecay?: number;
+  innerLightX?: number;
+  innerLightY?: number;
+  /** Halftone: a rotated dot screen (dot size scales with local brightness) over the final image.
+   *  0 removes the pass; cell/angle only bite once halftone > 0. Finish-zone stylization. */
+  halftone?: number;
+  halftoneCell?: number;
+  halftoneAngle?: number;
+  /** Heatmap recolour (luminance → thermal palette). 0 removes the pass. Finish-zone. */
+  heatmap?: number;
+  /** Paper-texture overlay (fibrous substrate shading). 0 removes the pass; scale = grain size. */
+  paperTexture?: number;
+  paperTextureScale?: number;
+  /** CMYK halftone (four rotated dot screens). 0 removes the pass; cell = dot size px. */
+  halftoneCmyk?: number;
+  halftoneCmykCell?: number;
   /** Base ambient light level (0–1). */
   ambient: number;
   lights: LightConfig[];
@@ -579,6 +608,22 @@ export function createDefaultConfig(): StudioConfig {
     grain: 1.1,
     blur: 0.02,
     blurSamples: 6,
+    dither: 0, // off by default — the hero look is unchanged (the pass isn't inserted)
+    ditherScale: 2,
+    ditherSteps: 4,
+    innerLight: 0,
+    innerLightDensity: 0.5,
+    innerLightDecay: 0.95,
+    innerLightX: 0.5,
+    innerLightY: 0.15,
+    halftone: 0,
+    halftoneCell: 6,
+    halftoneAngle: 0.4,
+    heatmap: 0,
+    paperTexture: 0,
+    paperTextureScale: 2,
+    halftoneCmyk: 0,
+    halftoneCmykCell: 6,
     ambient: 0.45,
     lights: [], // hero has no lights — colour is the palette + the SrcColor² blend
     mirrorH: false,
@@ -751,6 +796,22 @@ export function ensureSceneDefaults(config: StudioConfig): void {
   if (typeof config.bloomStrength !== "number") config.bloomStrength = 0;
   if (typeof config.bloomRadius !== "number") config.bloomRadius = 0.4;
   if (typeof config.bloomThreshold !== "number") config.bloomThreshold = 0.85;
+  if (typeof config.dither !== "number") config.dither = 0;
+  if (typeof config.ditherScale !== "number") config.ditherScale = 2;
+  if (typeof config.ditherSteps !== "number") config.ditherSteps = 4;
+  if (typeof config.innerLight !== "number") config.innerLight = 0;
+  if (typeof config.innerLightDensity !== "number") config.innerLightDensity = 0.5;
+  if (typeof config.innerLightDecay !== "number") config.innerLightDecay = 0.95;
+  if (typeof config.innerLightX !== "number") config.innerLightX = 0.5;
+  if (typeof config.innerLightY !== "number") config.innerLightY = 0.15;
+  if (typeof config.halftone !== "number") config.halftone = 0;
+  if (typeof config.halftoneCell !== "number") config.halftoneCell = 6;
+  if (typeof config.halftoneAngle !== "number") config.halftoneAngle = 0.4;
+  if (typeof config.heatmap !== "number") config.heatmap = 0;
+  if (typeof config.paperTexture !== "number") config.paperTexture = 0;
+  if (typeof config.paperTextureScale !== "number") config.paperTextureScale = 2;
+  if (typeof config.halftoneCmyk !== "number") config.halftoneCmyk = 0;
+  if (typeof config.halftoneCmykCell !== "number") config.halftoneCmykCell = 6;
   if (typeof config.showCameraRig !== "boolean") config.showCameraRig = false;
   if (typeof config.paused !== "boolean") config.paused = false;
   if (typeof config.loopSeconds !== "number") config.loopSeconds = 0;

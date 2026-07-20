@@ -141,6 +141,47 @@ export function randomizeBackground(c: StudioConfig): void {
   }
 }
 
+/** "Post FX" folder: enable a single random effect (the rest off) with random shape params — one
+ *  post effect reads cleaner than a stack, so this stays tasteful. */
+export function randomizePostFx(c: StudioConfig): void {
+  c.dither = 0;
+  c.halftone = 0;
+  c.halftoneCmyk = 0;
+  c.heatmap = 0;
+  c.paperTexture = 0;
+  c.innerLight = 0;
+  switch (pick(["dither", "halftone", "cmyk", "heatmap", "paper", "light"])) {
+    case "dither":
+      c.dither = r2(rand(0.6, 1));
+      c.ditherScale = Math.round(rand(1, 5));
+      c.ditherSteps = Math.round(rand(2, 6));
+      break;
+    case "halftone":
+      c.halftone = r2(rand(0.7, 1));
+      c.halftoneCell = r2(rand(4, 12));
+      c.halftoneAngle = r2(rand(0, 1.2));
+      break;
+    case "cmyk":
+      c.halftoneCmyk = r2(rand(0.7, 1));
+      c.halftoneCmykCell = r2(rand(4, 10));
+      break;
+    case "heatmap":
+      c.heatmap = r2(rand(0.6, 1));
+      break;
+    case "paper":
+      c.paperTexture = r2(rand(0.4, 0.9));
+      c.paperTextureScale = r2(rand(1, 4));
+      break;
+    case "light":
+      c.innerLight = r2(rand(0.4, 0.9));
+      c.innerLightDensity = r2(rand(0.3, 0.8));
+      c.innerLightDecay = r3(rand(0.9, 0.98));
+      c.innerLightX = r2(rand(0.2, 0.8));
+      c.innerLightY = r2(rand(0, 0.4));
+      break;
+  }
+}
+
 /** "Color" folder: hue / contrast / saturation grading. */
 export function randomizeColor(c: WaveConfig): void {
   c.hueShift = Math.round(rand(0, 360));

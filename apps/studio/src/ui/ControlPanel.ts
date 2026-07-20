@@ -35,6 +35,7 @@ import {
   randomizeFinish,
   randomizeLights,
   randomizeGlobal,
+  randomizePostFx,
   randomizeWave,
 } from "@wave3d/core/studio";
 import type { StudioWaveRenderer } from "@wave3d/core/studio";
@@ -140,6 +141,13 @@ function seatRandomAtTop(folder: FolderApi, el: HTMLElement): void {
   const root = folder.element;
   const content = (root.querySelector(".tp-fldv_c") as HTMLElement | null) ?? root;
   content.prepend(el);
+}
+
+/** Mark a binding's row so a thin rule renders below it, grouping adjacent Post FX knobs. Uses a
+ *  CSS class (a border on the row), NOT an inserted node — Tweakpane's rack re-syncs its DOM and
+ *  would orphan any foreign child to the bottom of the section. */
+function sepAfter(binding: { element: HTMLElement }): void {
+  binding.element.classList.add("wv-sep");
 }
 
 /**
@@ -548,6 +556,7 @@ export class ControlPanel {
     const heightBinding = output
       .addBinding(outputSize, "height", { min: 64, max: 8192, step: 1, label: "height px" })
       .on("change", (ev) => setCustomSize("height", ev.last));
+    sepAfter(heightBinding);
     // Reveal the export-area readout while any size control is hovered or focused, so the size
     // shows live as you adjust it (a short leave-delay avoids flicker moving between the rows).
     let sizeHideTimer = 0;
@@ -745,10 +754,12 @@ export class ControlPanel {
       if (ev.last) this.renderer.rebuild();
       this.hooks.onEdit?.(); // structural handler skips `refresh`, so record here
     });
-    g.addBinding(cfg, "dprMax", { min: 0.5, max: 2, step: 0.5 }).on("change", (ev) => {
-      if (ev.last) this.renderer.resize();
-      this.hooks.onEdit?.();
-    });
+    sepAfter(
+      g.addBinding(cfg, "dprMax", { min: 0.5, max: 2, step: 0.5 }).on("change", (ev) => {
+        if (ev.last) this.renderer.resize();
+        this.hooks.onEdit?.();
+      }),
+    );
     g.addBinding(cfg, "paused").on("change", () => this.renderer.refreshPlayback());
     // Noise phase — scrub the animation to pick a still frame.
     g.addBinding(cfg, "timeOffset", { min: 0, max: 60, step: 0.5, label: "noise phase" }).on(
@@ -759,36 +770,14 @@ export class ControlPanel {
     // it repeats exactly every N seconds; recording auto-stops after one loop (see onToggleRecord).
     // Crossing 0 recompiles the vertex program (LOOP_MOTION); it orbits rather than drifts, so the
     // motion character differs — that's the trade-off for a clean loop.
-    g.addBinding(cfg, "loopSeconds", { min: 0, max: 30, step: 0.5, label: "loop (s, 0=off)" }).on(
-      "change",
-      () => {
-        refresh();
-        this.refreshRecordCapHint(); // keep the record-cap hint in sync with the loop length
-      },
+    sepAfter(
+      g
+        .addBinding(cfg, "loopSeconds", { min: 0, max: 30, step: 0.5, label: "loop (s, 0=off)" })
+        .on("change", () => {
+          refresh();
+          this.refreshRecordCapHint(); // keep the record-cap hint in sync with the loop length
+        }),
     );
-    // Post-processing (one pass over the whole composite — scene-level, shared by all waves).
-    g.addBinding(cfg, "grain", { min: 0, max: 3, step: 0.01 }).on("change", refresh);
-    g.addBinding(cfg, "blur", { min: 0, max: 0.3, step: 0.005 }).on("change", refresh);
-    g.addBinding(cfg, "blurSamples", { min: 1, max: 16, step: 1, label: "blur samples" }).on(
-      "change",
-      refresh,
-    );
-    // Bloom (UnrealBloomPass) — 0 disables the pass entirely (no cost/pixel change). radius &
-    // threshold only bite once strength > 0. Great for the neon/wireframe/additive looks.
-    g.addBinding(cfg, "bloomStrength", { min: 0, max: 3, step: 0.01, label: "bloom" }).on(
-      "change",
-      refresh,
-    );
-    g.addBinding(cfg, "bloomRadius", { min: 0, max: 1, step: 0.01, label: "bloom radius" }).on(
-      "change",
-      refresh,
-    );
-    g.addBinding(cfg, "bloomThreshold", {
-      min: 0,
-      max: 1,
-      step: 0.01,
-      label: "bloom threshold",
-    }).on("change", refresh);
     // Whole-composition mirror (scene-level world-space flip).
     g.addButton({ title: "↔ mirror horizontal" }).on("click", () => {
       cfg.mirrorH = !cfg.mirrorH;
@@ -806,7 +795,134 @@ export class ControlPanel {
     gContent.insertBefore(this.presetDropdown.element, afterRandomize);
   }
 
+  /** "Post FX" folder: the scene-wide post-processing effects, all sliders visible. They're
+   *  ShaderPasses over the composited frame of ALL waves (tDiffuse), so they're scene-level, not
+   *  per-wave. Each effect's first slider is its gate: 0 = off (removes the pass entirely). */
+  private buildPostFxFolder(
+    mkFolder: MkFolder,
+    randomBtn: RandomBtn,
+    cfg: StudioConfig,
+    refresh: () => void,
+  ): void {
+    const fx = mkFolder("Post FX", true);
+    randomBtn(fx, randomizePostFx);
+    // A thin rule after a slider separates one effect's knobs from the next group's.
+    // Base finish — the always-on grain/blur pass over the whole composite (scene-level, shared
+    // by all waves), then bloom (UnrealBloomPass; 0 disables the pass entirely — no cost/pixel
+    // change; radius & threshold only bite once strength > 0).
+    fx.addBinding(cfg, "grain", { min: 0, max: 3, step: 0.01 }).on("change", refresh);
+    fx.addBinding(cfg, "blur", { min: 0, max: 0.3, step: 0.005 }).on("change", refresh);
+    sepAfter(
+      fx
+        .addBinding(cfg, "blurSamples", { min: 1, max: 16, step: 1, label: "blur samples" })
+        .on("change", refresh),
+    );
+    fx.addBinding(cfg, "bloomStrength", { min: 0, max: 3, step: 0.01, label: "bloom" }).on(
+      "change",
+      refresh,
+    );
+    fx.addBinding(cfg, "bloomRadius", { min: 0, max: 1, step: 0.01, label: "bloom radius" }).on(
+      "change",
+      refresh,
+    );
+    sepAfter(
+      fx
+        .addBinding(cfg, "bloomThreshold", {
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: "bloom threshold",
+        })
+        .on("change", refresh),
+    );
+    // Dither (← paper's image-dithering)
+    fx.addBinding(cfg, "dither", { min: 0, max: 1, step: 0.01, label: "dither" }).on(
+      "change",
+      refresh,
+    );
+    fx.addBinding(cfg, "ditherScale", { min: 1, max: 8, step: 1, label: "dither px" }).on(
+      "change",
+      refresh,
+    );
+    sepAfter(
+      fx
+        .addBinding(cfg, "ditherSteps", { min: 2, max: 8, step: 1, label: "dither steps" })
+        .on("change", refresh),
+    );
+    // Halftone (← paper's halftone-dots)
+    fx.addBinding(cfg, "halftone", { min: 0, max: 1, step: 0.01, label: "halftone" }).on(
+      "change",
+      refresh,
+    );
+    fx.addBinding(cfg, "halftoneCell", { min: 2, max: 16, step: 0.5, label: "halftone cell" }).on(
+      "change",
+      refresh,
+    );
+    sepAfter(
+      fx
+        .addBinding(cfg, "halftoneAngle", {
+          min: 0,
+          max: 1.57,
+          step: 0.01,
+          label: "halftone angle",
+        })
+        .on("change", refresh),
+    );
+    // CMYK halftone
+    fx.addBinding(cfg, "halftoneCmyk", { min: 0, max: 1, step: 0.01, label: "cmyk halftone" }).on(
+      "change",
+      refresh,
+    );
+    sepAfter(
+      fx
+        .addBinding(cfg, "halftoneCmykCell", { min: 2, max: 16, step: 0.5, label: "cmyk cell" })
+        .on("change", refresh),
+    );
+    // Heatmap
+    sepAfter(
+      fx
+        .addBinding(cfg, "heatmap", { min: 0, max: 1, step: 0.01, label: "heatmap" })
+        .on("change", refresh),
+    );
+    // Paper texture
+    fx.addBinding(cfg, "paperTexture", { min: 0, max: 1, step: 0.01, label: "paper texture" }).on(
+      "change",
+      refresh,
+    );
+    sepAfter(
+      fx
+        .addBinding(cfg, "paperTextureScale", { min: 0.5, max: 6, step: 0.5, label: "paper scale" })
+        .on("change", refresh),
+    );
+    // Inner light — volumetric light streaks scattered from the bright wave (last group, no rule)
+    fx.addBinding(cfg, "innerLight", { min: 0, max: 1, step: 0.01, label: "inner light" }).on(
+      "change",
+      refresh,
+    );
+    fx.addBinding(cfg, "innerLightDensity", {
+      min: 0.1,
+      max: 1,
+      step: 0.01,
+      label: "light spread",
+    }).on("change", refresh);
+    fx.addBinding(cfg, "innerLightDecay", {
+      min: 0.8,
+      max: 0.99,
+      step: 0.005,
+      label: "light decay",
+    }).on("change", refresh);
+    fx.addBinding(cfg, "innerLightX", { min: 0, max: 1, step: 0.01, label: "light x" }).on(
+      "change",
+      refresh,
+    );
+    fx.addBinding(cfg, "innerLightY", { min: 0, max: 1, step: 0.01, label: "light y" }).on(
+      "change",
+      refresh,
+    );
+  }
+
   /** "Background" folder: solid colour, editable gradient, built-in map, or uploaded media. */
+
   private buildBackgroundFolder(
     pane: Pane,
     mkFolder: MkFolder,
@@ -1012,9 +1128,11 @@ export class ControlPanel {
     const camP = this.camP;
     // Lead the section with the rig-minimap toggle (studio aid: a corner inset showing the
     // camera + lights).
-    camF.addBinding(cfg, "showCameraRig", { label: "rig minimap" }).on("change", () => {
-      this.renderer.setCameraRig(cfg.showCameraRig);
-    });
+    sepAfter(
+      camF.addBinding(cfg, "showCameraRig", { label: "rig minimap" }).on("change", () => {
+        this.renderer.setCameraRig(cfg.showCameraRig);
+      }),
+    );
     this.renderer.setCameraRig(cfg.showCameraRig);
     const onOrbit = (): void => {
       if (!this.camSyncing)
@@ -1030,17 +1148,21 @@ export class ControlPanel {
       .addBinding(camP, "elevation", { min: -89, max: 89, step: 1, label: "elevation°" })
       .on("change", onOrbit);
     // Orthographic framing: zoom (no fov/distance).
-    camF
-      .addBinding(camP, "zoom", { min: 0.1, max: 6, step: 0.05, label: "zoom" })
-      .on("change", () => {
-        if (!this.camSyncing) this.renderer.setZoom(camP.zoom);
-      });
+    sepAfter(
+      camF
+        .addBinding(camP, "zoom", { min: 0.1, max: 6, step: 0.05, label: "zoom" })
+        .on("change", () => {
+          if (!this.camSyncing) this.renderer.setZoom(camP.zoom);
+        }),
+    );
     camF
       .addBinding(camP, "panX", { min: -2000, max: 2000, step: 10, label: "pan X" })
       .on("change", onPan);
-    camF
-      .addBinding(camP, "panY", { min: -2000, max: 2000, step: 10, label: "pan Y" })
-      .on("change", onPan);
+    sepAfter(
+      camF
+        .addBinding(camP, "panY", { min: -2000, max: 2000, step: 10, label: "pan Y" })
+        .on("change", onPan),
+    );
     camF.addButton({ title: "Fit to screen" }).on("click", () => this.renderer.fitToView());
     camF.addButton({ title: "Reset camera" }).on("click", () => this.renderer.resetView());
     return camF;
@@ -1427,6 +1549,12 @@ export class ControlPanel {
       this.folders.push({ title, api });
       return api;
     };
+    // Thin rule under a control row (added via sepAfter) to group logically-related knobs in a folder.
+    injectStyleOnce(
+      "wv-sep-style",
+      ".wv-sep{padding-bottom:6px;margin-bottom:6px;" +
+        "border-bottom:1px solid color-mix(in srgb, currentColor 14%, transparent)}",
+    );
 
     // Tweakpane's combined point widgets (x/y/z in one row) are fiddly, so split
     // every Vec2/Vec3 into individual labelled 1-D sliders — one slider per axis.
@@ -1463,6 +1591,7 @@ export class ControlPanel {
     this.buildOutputFolder(pane, mkFolder);
     this.buildActionsFolder(mkFolder);
     this.buildGlobalFolder(mkFolder, randomBtn, cfg, refresh);
+    this.buildPostFxFolder(mkFolder, randomBtn, cfg, refresh);
     this.buildBackgroundFolder(pane, mkFolder, randomBtn, cfg, refresh);
     camFolder = this.buildCameraFolder(mkFolder, cfg);
     this.buildLightsFolder(mkFolder, randomBtn, vec, cfg, refresh);
@@ -1500,15 +1629,19 @@ export class ControlPanel {
 
       // Compositing (how this wave stacks on the others).
       sf.addBinding(wave, "opacity", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
-      sf.addBinding(wave, "blendMode", {
-        label: "blend",
-        options: {
-          Squared: "squared",
-          Normal: "normal",
-          Additive: "additive",
-          Multiply: "multiply",
-        },
-      }).on("change", refresh);
+      sepAfter(
+        sf
+          .addBinding(wave, "blendMode", {
+            label: "blend",
+            options: {
+              Squared: "squared",
+              Normal: "normal",
+              Additive: "additive",
+              Multiply: "multiply",
+            },
+          })
+          .on("change", refresh),
+      );
       sf.addBinding(wave, "speed", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
       sf.addBinding(wave, "seed", { min: 0, max: 20, step: 0.1 }).on("change", refresh);
 
@@ -1569,6 +1702,7 @@ export class ControlPanel {
           meshEditor.refresh();
           refresh();
         });
+      sepAfter(bMeshSoftness);
       const bUseTex = gradF
         .addBinding(wave, "usePaletteTexture", { label: "palette 2D" })
         .on("change", () => {
@@ -1684,6 +1818,7 @@ export class ControlPanel {
       const bPaletteDriftY = gradF
         .addBinding(wave, "paletteDriftY", { label: "color drift Y", min: -1, max: 1, step: 0.01 })
         .on("change", refresh);
+      sepAfter(bPaletteDriftY);
       const bEdgeColor = gradF
         .addBinding(wave, "paletteEdgeColor", { view: "color", label: "edge tint" })
         .on("change", () => {
@@ -1696,6 +1831,7 @@ export class ControlPanel {
           refresh();
           paletteDropdown.refresh();
         });
+      sepAfter(bEdgeAmt);
       gradF.addBinding(wave, "hueShift", { min: -180, max: 180, step: 1 }).on("change", refresh);
       gradF.addBinding(wave, "colorContrast", { min: 0, max: 2, step: 0.01 }).on("change", refresh);
       gradF
@@ -1753,6 +1889,7 @@ export class ControlPanel {
       const bFiberStrength = finF
         .addBinding(wave, "fiberStrength", { min: 0, max: 1, step: 0.01, label: "streak strength" })
         .on("change", refresh);
+      sepAfter(bFiberStrength);
       const bTexture = finF
         .addBinding(wave, "texture", { min: 0, max: 1, step: 0.01 })
         .on("change", refresh);
@@ -1765,6 +1902,7 @@ export class ControlPanel {
       const bIridescence = finF
         .addBinding(wave, "iridescence", { min: 0, max: 1, step: 0.01, label: "iridescence" })
         .on("change", refresh);
+      sepAfter(bIridescence);
       const bCreaseLight = finF
         .addBinding(wave, "creaseLight", { min: 0, max: 6, step: 0.01, label: "crease light" })
         .on("change", refresh);
@@ -1784,6 +1922,7 @@ export class ControlPanel {
           label: "crease softness",
         })
         .on("change", refresh);
+      sepAfter(bCreaseSoftness);
       const bEdgeFade = finF
         .addBinding(wave, "edgeFade", { min: 0, max: 0.5, step: 0.01 })
         .on("change", refresh);
@@ -1791,6 +1930,7 @@ export class ControlPanel {
       const bEdgeFeather = finF
         .addBinding(wave, "edgeFeather", { min: 0, max: 0.5, step: 0.01, label: "edge feather" })
         .on("change", refresh);
+      sepAfter(bEdgeFeather);
       // Depth tint — fade far fragments toward a colour for atmospheric depth (esp. wave stacks).
       const bDepthTint = finF
         .addBinding(wave, "depthTint", { min: 0, max: 1, step: 0.01, label: "depth tint" })
@@ -1798,6 +1938,7 @@ export class ControlPanel {
       const bDepthTintColor = finF
         .addBinding(wave, "depthTintColor", { view: "color", label: "depth tint color" })
         .on("change", refresh);
+      sepAfter(bDepthTintColor);
       const bLineAmount = finF
         .addBinding(wave, "lineAmount", { min: 1, max: 1200, step: 1, label: "line count" })
         .on("change", refresh);
@@ -1973,6 +2114,7 @@ export class ControlPanel {
       "Background",
       "Camera",
       "Waves",
+      "Post FX",
       "Interaction",
       "Lights",
     ];
@@ -2114,6 +2256,10 @@ export class ControlPanel {
         '<circle cx="8" cy="8" r="2.9"/><path d="M8 1.6v1.7M8 12.7v1.7M1.6 8h1.7M12.7 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M3.6 12.4l1.2-1.2M11.2 4.8l1.2-1.2"/>',
       ),
       Waves: svg('<path d="M5.5 2c3 2 3 4 0 6s-3 4 0 6"/><path d="M10.5 2c-3 2-3 4 0 6s3 4 0 6"/>'),
+      // A magic wand + sparkle — the post-processing effects layer.
+      "Post FX": svg(
+        '<path d="M3.2 12.8 10 6"/><path d="M11.8 1.6 12.6 3.2 14.2 4 12.6 4.8 11.8 6.4 11 4.8 9.4 4 11 3.2Z"/>',
+      ),
       // A mouse-cursor — the interaction (pointer / scroll / touch reactivity) layer.
       Interaction: svg('<path d="M2.8 2.4 2.8 11.4 5.3 9.1 7.1 13.2 8.9 12.4 7.1 8.4 10.6 8.4Z"/>'),
     };

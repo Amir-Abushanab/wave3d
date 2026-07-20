@@ -696,3 +696,215 @@ void main(){
   gl_FragColor = color;   // preserve alpha → transparent background works
 }
 `;
+
+// ---- Post pass: ordered (Bayer) dithering ----
+//
+// DERIVED FROM @paper-design/shaders `image-dithering` (https://github.com/paper-design/shaders,
+// Apache-2.0 — see THIRD-PARTY-NOTICES.md). The Bayer matrices, getBayerValue, and the brightness /
+// luminance-quantization / hue-preserving "original colours" recolour are paper's. Adapted to a
+// post pass: samples the composited scene (tDiffuse) at full-frame vUv instead of paper's sized/fit
+// u_image UV, drops the frame/aspect machinery, fixes the 8x8 matrix (paper's default), and gates
+// via uDitherStrength. The int[] arrays + dynamic indexing compile because three builds
+// ShaderMaterials as "#version 300 es". Runs AFTER OutputPass, so it dithers display-space colour;
+// keyed off gl_FragCoord/tDiffuse only (no uTime) → deterministic, friendly to pixel-digest checks.
+export const ditherFragmentShader = /* glsl */ `
+uniform sampler2D tDiffuse;
+uniform vec2 uResolution;
+uniform float uDitherStrength;  // 0..1 mix back toward the original
+uniform float uDitherScale;     // pixel-block size in device px (paper: u_pxSize)
+uniform float uDitherSteps;     // quantization levels (paper: u_colorSteps)
+varying vec2 vUv;
+
+const int bayer2x2[4] = int[4](0, 2, 3, 1);
+const int bayer4x4[16] = int[16](0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5);
+const int bayer8x8[64] = int[64](
+  0, 32, 8, 40, 2, 34, 10, 42, 48, 16, 56, 24, 50, 18, 58, 26,
+  12, 44, 4, 36, 14, 46, 6, 38, 60, 28, 52, 20, 62, 30, 54, 22,
+  3, 35, 11, 43, 1, 33, 9, 41, 51, 19, 59, 27, 49, 17, 57, 25,
+  15, 47, 7, 39, 13, 45, 5, 37, 63, 31, 55, 23, 61, 29, 53, 21
+);
+float getBayerValue(vec2 uv, int size){
+  ivec2 pos = ivec2(fract(uv / float(size)) * float(size));
+  int index = pos.y * size + pos.x;
+  if (size == 2) return float(bayer2x2[index]) / 4.0;
+  else if (size == 4) return float(bayer4x4[index]) / 16.0;
+  else if (size == 8) return float(bayer8x8[index]) / 64.0;
+  return 0.0;
+}
+
+void main(){
+  float pxSize = max(uDitherScale, 1.0);
+  vec2 pxSizeUV = gl_FragCoord.xy / pxSize;
+  vec2 sampleUV = (floor(gl_FragCoord.xy / pxSize) + 0.5) * pxSize / max(uResolution, vec2(1.0));
+  vec4 image = texture2D(tDiffuse, sampleUV);
+
+  float lum = dot(vec3(0.2126, 0.7152, 0.0722), image.rgb);
+  float colorSteps = max(floor(uDitherSteps), 1.0);
+
+  float dithering = getBayerValue(pxSizeUV, 8) - 0.5;   // paper's default 8x8 ordered screen
+  float brightness = clamp(lum + dithering / colorSteps, 0.0, 1.0);
+  brightness = mix(0.0, brightness, image.a);
+  float quantLum = floor(brightness * colorSteps + 0.5) / colorSteps;
+
+  // paper's "original colours" path: keep the source hue, quantize luminance.
+  vec3 color = image.rgb / max(lum, 0.001) * quantLum;
+  float quantAlpha = floor(image.a * colorSteps + 0.5) / colorSteps;
+  float opacity = mix(quantLum, 1.0, quantAlpha);
+
+  gl_FragColor = mix(image, vec4(color, opacity), clamp(uDitherStrength, 0.0, 1.0));
+}
+`;
+
+// ---- Post pass: innerLight (volumetric light streaks) — another "layered" post shader ----
+//
+// Radial light-scattering (à la GPU Gems 3): from each pixel, march toward a light point and
+// accumulate the wave's own brightness (weighted by alpha, so only opaque pixels emit), then add
+// the streaks back. Runs in the scene zone so it scatters the raw, pre-tone-map wave like bloom.
+export const innerLightFragmentShader = /* glsl */ `
+uniform sampler2D tDiffuse;
+uniform float uInnerLight;        // 0..1 strength of the added light
+uniform float uInnerLightDensity; // ray length / spread
+uniform float uInnerLightDecay;   // per-sample falloff (<1)
+uniform vec2  uInnerLightCenter;  // light source, UV (0..1)
+varying vec2 vUv;
+
+const int LIGHT_SAMPLES = 24;
+
+float luma(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+
+void main(){
+  vec4 src = texture2D(tDiffuse, vUv);
+  vec2 delta = (vUv - uInnerLightCenter) * (uInnerLightDensity / float(LIGHT_SAMPLES));
+  vec2 coord = vUv;
+  float decay = 1.0;
+  vec3 rays = vec3(0.0);
+  for (int i = 0; i < LIGHT_SAMPLES; i++){
+    coord -= delta;
+    vec4 s = texture2D(tDiffuse, coord);
+    rays += s.rgb * s.a * decay;   // only opaque (wave) pixels emit light
+    decay *= uInnerLightDecay;
+  }
+  rays /= float(LIGHT_SAMPLES);
+  vec3 outc = src.rgb + rays * uInnerLight;
+  float outA = max(src.a, luma(rays) * uInnerLight); // shafts stay visible over the transparent bg
+  gl_FragColor = vec4(outc, clamp(outA, 0.0, 1.0));
+}
+`;
+
+// ---- Post pass: halftone (rotated dot screen) ----
+//
+// DERIVED FROM @paper-design/shaders `halftone-dots` (https://github.com/paper-design/shaders,
+// Apache-2.0 — see THIRD-PARTY-NOTICES.md). Ports the "classic" dot type + "original colours" path:
+// paper's getCircle (dot radius ← 1 − luminance, fwidth-antialiased) and sigmoid-contrast luminance,
+// sampled once per cell centre. Adapted to a post pass — samples the composited scene (tDiffuse)
+// instead of paper's sized u_image, drops the gooey/holes/soft dot types, the diagonal grid and the
+// grain layers, and composites transparent between dots. Contrast/radius fixed at paper's defaults.
+export const halftoneFragmentShader = /* glsl */ `
+uniform sampler2D tDiffuse;
+uniform vec2 uResolution;
+uniform float uHalftone;      // 0..1 mix
+uniform float uHalftoneCell;  // dot cell size in device px (paper: u_size)
+uniform float uHalftoneAngle; // screen rotation (radians, paper: u_rotation)
+varying vec2 vUv;
+
+float sigmoid(float x, float k){ return 1.0 / (1.0 + exp(-k * (x - 0.5))); }
+// paper's classic dot: radius grows as the sampled cell darkens (1 - lum), soft edge via fwidth.
+float getCircle(vec2 uv, float lum, float baseR){
+  float r = mix(0.25 * baseR, 0.0, lum);
+  float d = length(uv - 0.5);
+  float aa = fwidth(d);
+  return 1.0 - smoothstep(r - aa, r + aa, d);
+}
+
+void main(){
+  float ca = cos(uHalftoneAngle);
+  float sa = sin(uHalftoneAngle);
+  mat2 rot = mat2(ca, sa, -sa, ca);
+  float cell = max(uHalftoneCell, 2.0);
+  vec2 gridPx = rot * gl_FragCoord.xy;                      // rotate the screen into the dot grid
+  vec2 cellId = floor(gridPx / cell);
+  vec2 inCell = fract(gridPx / cell);                       // position within the cell (0..1)
+  vec2 centrePx = transpose(rot) * ((cellId + 0.5) * cell); // cell centre, back in screen px
+  vec4 tex = texture2D(tDiffuse, centrePx / max(uResolution, vec2(1.0)));
+
+  float k = 2.0;                                            // sigmoid contrast (paper default)
+  vec3 c = vec3(sigmoid(tex.r, k), sigmoid(tex.g, k), sigmoid(tex.b, k));
+  float lum = dot(vec3(0.2126, 0.7152, 0.0722), c);
+  lum = mix(1.0, lum, tex.a);
+  float dot = getCircle(inCell, lum, 1.3);                 // baseR 1.3 ≈ paper original-colours default
+  vec4 dots = vec4(tex.rgb, tex.a * dot);                  // wave-coloured dots, transparent between
+  gl_FragColor = mix(texture2D(tDiffuse, vUv), dots, clamp(uHalftone, 0.0, 1.0));
+}
+`;
+
+// ---- Post pass: heatmap (map luminance → thermal palette) — a finish-zone filter ----
+export const heatmapFragmentShader = /* glsl */ `
+uniform sampler2D tDiffuse;
+uniform float uHeatmap;   // 0..1 mix
+varying vec2 vUv;
+vec3 heat(float t){
+  t = clamp(t, 0.0, 1.0);
+  vec3 c = mix(vec3(0.0, 0.0, 0.4), vec3(0.0, 0.6, 1.0), smoothstep(0.0, 0.25, t));
+  c = mix(c, vec3(0.0, 1.0, 0.4), smoothstep(0.25, 0.5, t));
+  c = mix(c, vec3(1.0, 1.0, 0.0), smoothstep(0.5, 0.75, t));
+  c = mix(c, vec3(1.0, 0.1, 0.0), smoothstep(0.75, 1.0, t));
+  return c;
+}
+void main(){
+  vec4 src = texture2D(tDiffuse, vUv);
+  float l = dot(src.rgb, vec3(0.299, 0.587, 0.114));
+  gl_FragColor = vec4(mix(src.rgb, heat(l), clamp(uHeatmap, 0.0, 1.0)), src.a);
+}
+`;
+
+// ---- Post pass: paper texture (fibrous substrate shading) — a finish-zone overlay ----
+export const paperTextureFragmentShader = /* glsl */ `
+uniform sampler2D tDiffuse;
+uniform float uPaper;      // 0..1 strength
+uniform float uPaperScale; // grain scale
+varying vec2 vUv;
+float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+void main(){
+  vec4 src = texture2D(tDiffuse, vUv);
+  vec2 p = gl_FragCoord.xy / max(uPaperScale, 0.5);
+  float fiber = h21(floor(p)) * 0.5 + h21(floor(p * vec2(0.3, 3.0))) * 0.5; // directional fibers
+  float tex = mix(fiber, h21(gl_FragCoord.xy), 0.3);                        // + fine speckle
+  float shade = 1.0 - (tex - 0.5) * 0.35;
+  gl_FragColor = vec4(src.rgb * mix(1.0, shade, clamp(uPaper, 0.0, 1.0)), src.a);
+}
+`;
+
+// ---- Post pass: CMYK halftone (four rotated dot screens) — a finish-zone filter ----
+export const halftoneCmykFragmentShader = /* glsl */ `
+uniform sampler2D tDiffuse;
+uniform float uHalftoneCmyk;     // 0..1 mix
+uniform float uHalftoneCmykCell; // dot cell size in device px
+varying vec2 vUv;
+// One rotated halftone dot screen for a channel value.
+float dotScreen(vec2 coord, float value, float angle, float cell){
+  float ca = cos(angle);
+  float sa = sin(angle);
+  vec2 r = mat2(ca, sa, -sa, ca) * coord;
+  vec2 c = fract(r / max(cell, 2.0)) - 0.5;
+  float radius = sqrt(clamp(value, 0.0, 1.0)) * 0.5;
+  return smoothstep(radius, radius - 0.06, length(c));
+}
+void main(){
+  vec4 src = texture2D(tDiffuse, vUv);
+  float k = 1.0 - max(max(src.r, src.g), src.b);   // RGB → CMYK
+  float invK = max(1.0 - k, 1e-3);
+  float cyan = (1.0 - src.r - k) / invK;
+  float mag = (1.0 - src.g - k) / invK;
+  float yel = (1.0 - src.b - k) / invK;
+  vec2 coord = gl_FragCoord.xy;
+  float cell = uHalftoneCmykCell;
+  float dc = dotScreen(coord, cyan, 1.309, cell); // 75°
+  float dm = dotScreen(coord, mag, 0.262, cell);  // 15°
+  float dy = dotScreen(coord, yel, 0.0, cell);    // 0°
+  float dk = dotScreen(coord, k, 0.785, cell);    // 45°
+  // Subtractive: cyan ink absorbs red, magenta absorbs green, yellow absorbs blue, black absorbs all.
+  vec3 outc = vec3(1.0) - vec3(dc, 0.0, 0.0) - vec3(0.0, dm, 0.0) - vec3(0.0, 0.0, dy) - vec3(dk);
+  outc = clamp(outc, 0.0, 1.0);
+  gl_FragColor = vec4(mix(src.rgb, outc, clamp(uHalftoneCmyk, 0.0, 1.0)), src.a);
+}
+`;
