@@ -413,14 +413,14 @@ export interface SceneConfig {
   ditherScale?: number;
   /** Quantization levels per channel (>=2) — lower = heavier posterization. */
   ditherSteps?: number;
-  /** Volumetric light streaks (godrays) scattered from the bright wave toward a light point
-   *  (godraysX/Y in UV). 0 removes the pass; density/decay/centre only bite once godrays > 0.
+  /** Volumetric light streaks (innerLight) scattered from the bright wave toward a light point
+   *  (innerLightX/Y in UV). 0 removes the pass; density/decay/centre only bite once innerLight > 0.
    *  Scene-zone (scatters the raw wave, like bloom). */
-  godrays?: number;
-  godraysDensity?: number;
-  godraysDecay?: number;
-  godraysX?: number;
-  godraysY?: number;
+  innerLight?: number;
+  innerLightDensity?: number;
+  innerLightDecay?: number;
+  innerLightX?: number;
+  innerLightY?: number;
   /** Halftone: a rotated dot screen (dot size scales with local brightness) over the final image.
    *  0 removes the pass; cell/angle only bite once halftone > 0. Finish-zone stylization. */
   halftone?: number;
@@ -428,9 +428,6 @@ export interface SceneConfig {
   halftoneAngle?: number;
   /** Heatmap recolour (luminance → thermal palette). 0 removes the pass. Finish-zone. */
   heatmap?: number;
-  /** Fluted-glass refraction (vertical ribs). 0 removes the pass; count = rib frequency. */
-  flutedGlass?: number;
-  flutedGlassCount?: number;
   /** Paper-texture overlay (fibrous substrate shading). 0 removes the pass; scale = grain size. */
   paperTexture?: number;
   paperTextureScale?: number;
@@ -609,17 +606,15 @@ export function createDefaultConfig(): StudioConfig {
     dither: 0, // off by default — the hero look is unchanged (the pass isn't inserted)
     ditherScale: 2,
     ditherSteps: 4,
-    godrays: 0,
-    godraysDensity: 0.5,
-    godraysDecay: 0.95,
-    godraysX: 0.5,
-    godraysY: 0.15,
+    innerLight: 0,
+    innerLightDensity: 0.5,
+    innerLightDecay: 0.95,
+    innerLightX: 0.5,
+    innerLightY: 0.15,
     halftone: 0,
     halftoneCell: 6,
     halftoneAngle: 0.4,
     heatmap: 0,
-    flutedGlass: 0,
-    flutedGlassCount: 24,
     paperTexture: 0,
     paperTextureScale: 2,
     halftoneCmyk: 0,
@@ -799,17 +794,15 @@ export function ensureSceneDefaults(config: StudioConfig): void {
   if (typeof config.dither !== "number") config.dither = 0;
   if (typeof config.ditherScale !== "number") config.ditherScale = 2;
   if (typeof config.ditherSteps !== "number") config.ditherSteps = 4;
-  if (typeof config.godrays !== "number") config.godrays = 0;
-  if (typeof config.godraysDensity !== "number") config.godraysDensity = 0.5;
-  if (typeof config.godraysDecay !== "number") config.godraysDecay = 0.95;
-  if (typeof config.godraysX !== "number") config.godraysX = 0.5;
-  if (typeof config.godraysY !== "number") config.godraysY = 0.15;
+  if (typeof config.innerLight !== "number") config.innerLight = 0;
+  if (typeof config.innerLightDensity !== "number") config.innerLightDensity = 0.5;
+  if (typeof config.innerLightDecay !== "number") config.innerLightDecay = 0.95;
+  if (typeof config.innerLightX !== "number") config.innerLightX = 0.5;
+  if (typeof config.innerLightY !== "number") config.innerLightY = 0.15;
   if (typeof config.halftone !== "number") config.halftone = 0;
   if (typeof config.halftoneCell !== "number") config.halftoneCell = 6;
   if (typeof config.halftoneAngle !== "number") config.halftoneAngle = 0.4;
   if (typeof config.heatmap !== "number") config.heatmap = 0;
-  if (typeof config.flutedGlass !== "number") config.flutedGlass = 0;
-  if (typeof config.flutedGlassCount !== "number") config.flutedGlassCount = 24;
   if (typeof config.paperTexture !== "number") config.paperTexture = 0;
   if (typeof config.paperTextureScale !== "number") config.paperTextureScale = 2;
   if (typeof config.halftoneCmyk !== "number") config.halftoneCmyk = 0;

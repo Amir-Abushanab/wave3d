@@ -728,38 +728,38 @@ void main(){
 }
 `;
 
-// ---- Post pass: godrays (volumetric light streaks) — another "layered" post shader ----
+// ---- Post pass: innerLight (volumetric light streaks) — another "layered" post shader ----
 //
 // Radial light-scattering (à la GPU Gems 3): from each pixel, march toward a light point and
 // accumulate the wave's own brightness (weighted by alpha, so only opaque pixels emit), then add
 // the streaks back. Runs in the scene zone so it scatters the raw, pre-tone-map wave like bloom.
-export const godraysFragmentShader = /* glsl */ `
+export const innerLightFragmentShader = /* glsl */ `
 uniform sampler2D tDiffuse;
-uniform float uGodrays;        // 0..1 strength of the added light
-uniform float uGodraysDensity; // ray length / spread
-uniform float uGodraysDecay;   // per-sample falloff (<1)
-uniform vec2  uGodraysCenter;  // light source, UV (0..1)
+uniform float uInnerLight;        // 0..1 strength of the added light
+uniform float uInnerLightDensity; // ray length / spread
+uniform float uInnerLightDecay;   // per-sample falloff (<1)
+uniform vec2  uInnerLightCenter;  // light source, UV (0..1)
 varying vec2 vUv;
 
-const int GODRAY_SAMPLES = 24;
+const int LIGHT_SAMPLES = 24;
 
 float luma(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 
 void main(){
   vec4 src = texture2D(tDiffuse, vUv);
-  vec2 delta = (vUv - uGodraysCenter) * (uGodraysDensity / float(GODRAY_SAMPLES));
+  vec2 delta = (vUv - uInnerLightCenter) * (uInnerLightDensity / float(LIGHT_SAMPLES));
   vec2 coord = vUv;
   float decay = 1.0;
   vec3 rays = vec3(0.0);
-  for (int i = 0; i < GODRAY_SAMPLES; i++){
+  for (int i = 0; i < LIGHT_SAMPLES; i++){
     coord -= delta;
     vec4 s = texture2D(tDiffuse, coord);
     rays += s.rgb * s.a * decay;   // only opaque (wave) pixels emit light
-    decay *= uGodraysDecay;
+    decay *= uInnerLightDecay;
   }
-  rays /= float(GODRAY_SAMPLES);
-  vec3 outc = src.rgb + rays * uGodrays;
-  float outA = max(src.a, luma(rays) * uGodrays); // shafts stay visible over the transparent bg
+  rays /= float(LIGHT_SAMPLES);
+  vec3 outc = src.rgb + rays * uInnerLight;
+  float outA = max(src.a, luma(rays) * uInnerLight); // shafts stay visible over the transparent bg
   gl_FragColor = vec4(outc, clamp(outA, 0.0, 1.0));
 }
 `;
@@ -827,37 +827,6 @@ void main(){
   vec4 src = texture2D(tDiffuse, vUv);
   float l = dot(src.rgb, vec3(0.299, 0.587, 0.114));
   gl_FragColor = vec4(mix(src.rgb, heat(l), clamp(uHeatmap, 0.0, 1.0)), src.a);
-}
-`;
-
-// ---- Post pass: fluted glass (vertical ribs that refract) ----
-//
-// DERIVED FROM @paper-design/shaders `fluted-glass` (https://github.com/paper-design/shaders,
-// Apache-2.0 — see THIRD-PARTY-NOTICES.md). Ports the primary "lines" rib shape + distortion
-// profile 1 (a cubic per-rib lens faded at the seams), plus paper's rib edge highlights and
-// shadows. Adapted to a post pass — samples tDiffuse; drops the other rib shapes / distortion
-// profiles, the margins, blur, grain and the 3-colour highlight/shadow system (primary mode,
-// params at paper's defaults: shift 0, distortion/highlights/shadows 1).
-export const flutedGlassFragmentShader = /* glsl */ `
-uniform sampler2D tDiffuse;
-uniform float uFluted;      // 0..1 mix
-uniform float uFlutedCount; // ribs across the frame (paper: patternSize from u_size)
-varying vec2 vUv;
-void main(){
-  float ribs = max(uFlutedCount, 2.0);
-  float ux = vUv.x * ribs;                          // rib-space x
-  float xNonSmooth = fract(ux) + 0.0001;            // position within a rib (0..1)
-  float aa = max(0.2, fwidth(ux));
-  float fadeX = smoothstep(0.0, aa, xNonSmooth) * smoothstep(1.0, 1.0 - aa, xNonSmooth);
-  float distortion = mix(0.5, -pow(1.5 * xNonSmooth, 3.0) + 0.5, fadeX) * 3.0; // cubic per-rib lens
-  vec4 image = texture2D(tDiffuse, vec2(vUv.x + distortion / ribs, vUv.y));    // refract horizontally
-  float hw = 2.0 * max(0.001, fwidth(ux));
-  float highlights = 1.0 - smoothstep(0.0, hw, xNonSmooth) * smoothstep(1.0, 1.0 - hw, xNonSmooth);
-  float shadows = pow(xNonSmooth, 1.3);
-  vec3 color = image.rgb + highlights * 0.6;        // white glass edge highlights
-  color = mix(color, color * 0.55, shadows * 0.5);  // rib shadows toward the far seam
-  vec4 outc = vec4(clamp(color, 0.0, 1.0), image.a);
-  gl_FragColor = mix(texture2D(tDiffuse, vUv), outc, clamp(uFluted, 0.0, 1.0));
 }
 `;
 

@@ -11,10 +11,9 @@ import {
   postVertexShader,
   postFragmentShader,
   ditherFragmentShader,
-  godraysFragmentShader,
+  innerLightFragmentShader,
   halftoneFragmentShader,
   heatmapFragmentShader,
-  flutedGlassFragmentShader,
   paperTextureFragmentShader,
   halftoneCmykFragmentShader,
 } from "./shaders";
@@ -240,10 +239,9 @@ export class WaveRenderer {
   /** Optional bloom pass — created lazily when bloomStrength first goes >0, removed at 0. */
   private bloomPass?: UnrealBloomPass;
   private ditherPass?: ShaderPass;
-  private godraysPass?: ShaderPass;
+  private innerLightPass?: ShaderPass;
   private halftonePass?: ShaderPass;
   private heatmapPass?: ShaderPass;
-  private flutedGlassPass?: ShaderPass;
   private paperTexturePass?: ShaderPass;
   private halftoneCmykPass?: ShaderPass;
   protected readonly container: HTMLElement;
@@ -1173,11 +1171,10 @@ export class WaveRenderer {
     u.uGrainAmount.value = this.config.grain;
     u.uBlurSamples.value = Math.round(this.config.blurSamples ?? 6);
     this.applyBloom();
-    this.applyGodrays();
+    this.applyInnerLight();
     this.applyHalftone();
     this.applyHeatmap();
     this.applyHalftoneCmyk();
-    this.applyFlutedGlass();
     this.applyPaperTexture();
     this.applyDither();
   }
@@ -1242,37 +1239,37 @@ export class WaveRenderer {
     }
   }
 
-  /** Insert / tune / remove the godrays pass — volumetric light streaks scattered from the bright
-   *  wave toward a light point (godraysX/Y in UV). Scene zone (index 1) so it scatters the raw wave
-   *  like bloom. godrays 0 removes the pass entirely; created lazily on first enable. */
-  private applyGodrays(): void {
-    const strength = this.config.godrays ?? 0;
+  /** Insert / tune / remove the innerLight pass — volumetric light streaks scattered from the bright
+   *  wave toward a light point (innerLightX/Y in UV). Scene zone (index 1) so it scatters the raw wave
+   *  like bloom. innerLight 0 removes the pass entirely; created lazily on first enable. */
+  private applyInnerLight(): void {
+    const strength = this.config.innerLight ?? 0;
     if (strength > 0) {
-      const cx = this.config.godraysX ?? 0.5;
-      const cy = this.config.godraysY ?? 0.15;
-      if (!this.godraysPass) {
-        this.godraysPass = new ShaderPass({
+      const cx = this.config.innerLightX ?? 0.5;
+      const cy = this.config.innerLightY ?? 0.15;
+      if (!this.innerLightPass) {
+        this.innerLightPass = new ShaderPass({
           uniforms: {
             tDiffuse: { value: null },
-            uGodrays: { value: strength },
-            uGodraysDensity: { value: this.config.godraysDensity ?? 0.5 },
-            uGodraysDecay: { value: this.config.godraysDecay ?? 0.95 },
-            uGodraysCenter: { value: new THREE.Vector2(cx, cy) },
+            uInnerLight: { value: strength },
+            uInnerLightDensity: { value: this.config.innerLightDensity ?? 0.5 },
+            uInnerLightDecay: { value: this.config.innerLightDecay ?? 0.95 },
+            uInnerLightCenter: { value: new THREE.Vector2(cx, cy) },
           },
           vertexShader: postVertexShader,
-          fragmentShader: godraysFragmentShader,
+          fragmentShader: innerLightFragmentShader,
         });
-        this.composer.insertPass(this.godraysPass, 1); // scene zone: scatter the raw wave
+        this.composer.insertPass(this.innerLightPass, 1); // scene zone: scatter the raw wave
       }
-      const u = this.godraysPass.uniforms;
-      u.uGodrays.value = strength;
-      u.uGodraysDensity.value = this.config.godraysDensity ?? 0.5;
-      u.uGodraysDecay.value = this.config.godraysDecay ?? 0.95;
-      (u.uGodraysCenter.value as THREE.Vector2).set(cx, cy);
-    } else if (this.godraysPass) {
-      this.composer.removePass(this.godraysPass);
-      this.godraysPass.dispose();
-      this.godraysPass = undefined;
+      const u = this.innerLightPass.uniforms;
+      u.uInnerLight.value = strength;
+      u.uInnerLightDensity.value = this.config.innerLightDensity ?? 0.5;
+      u.uInnerLightDecay.value = this.config.innerLightDecay ?? 0.95;
+      (u.uInnerLightCenter.value as THREE.Vector2).set(cx, cy);
+    } else if (this.innerLightPass) {
+      this.composer.removePass(this.innerLightPass);
+      this.innerLightPass.dispose();
+      this.innerLightPass = undefined;
     }
   }
 
@@ -1323,32 +1320,6 @@ export class WaveRenderer {
       this.composer.removePass(this.heatmapPass);
       this.heatmapPass.dispose();
       this.heatmapPass = undefined;
-    }
-  }
-
-  /** Fluted glass: vertical ribs that refract the image horizontally. Finish zone. */
-  private applyFlutedGlass(): void {
-    const strength = this.config.flutedGlass ?? 0;
-    if (strength > 0) {
-      if (!this.flutedGlassPass) {
-        this.flutedGlassPass = new ShaderPass({
-          uniforms: {
-            tDiffuse: { value: null },
-            uFluted: { value: strength },
-            uFlutedCount: { value: this.config.flutedGlassCount ?? 24 },
-          },
-          vertexShader: postVertexShader,
-          fragmentShader: flutedGlassFragmentShader,
-        });
-        this.composer.addPass(this.flutedGlassPass);
-      }
-      const u = this.flutedGlassPass.uniforms;
-      u.uFluted.value = strength;
-      u.uFlutedCount.value = Math.max(1, this.config.flutedGlassCount ?? 24);
-    } else if (this.flutedGlassPass) {
-      this.composer.removePass(this.flutedGlassPass);
-      this.flutedGlassPass.dispose();
-      this.flutedGlassPass = undefined;
     }
   }
 
@@ -1951,10 +1922,9 @@ export class WaveRenderer {
     }
     this.bloomPass?.dispose();
     this.ditherPass?.dispose();
-    this.godraysPass?.dispose();
+    this.innerLightPass?.dispose();
     this.halftonePass?.dispose();
     this.heatmapPass?.dispose();
-    this.flutedGlassPass?.dispose();
     this.paperTexturePass?.dispose();
     this.halftoneCmykPass?.dispose();
     this.composer.dispose();

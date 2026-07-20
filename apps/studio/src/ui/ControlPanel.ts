@@ -806,106 +806,92 @@ export class ControlPanel {
     gContent.insertBefore(this.presetDropdown.element, afterRandomize);
   }
 
-  /** "Background" folder: solid colour, editable gradient, built-in map, or uploaded media. */
-  /** "Post FX" folder: the scene-wide post-processing effects, each in a collapsible sub-folder
-   *  behind an enable toggle so they don't crowd the panel. These are ShaderPasses over the
-   *  composited frame of ALL waves (tDiffuse), so they're scene-level, not per-wave. */
+  /** "Post FX" folder: the scene-wide post-processing effects, all sliders visible. They're
+   *  ShaderPasses over the composited frame of ALL waves (tDiffuse), so they're scene-level, not
+   *  per-wave. Each effect's first slider is its gate: 0 = off (removes the pass entirely). */
   private buildPostFxFolder(mkFolder: MkFolder, cfg: StudioConfig, refresh: () => void): void {
-    const fx = mkFolder("Post FX", false);
-    const cfgN = cfg as unknown as Record<string, number>;
-    // Each effect: the enable toggle drives its gate value (onValue / 0) and the visibility of its
-    // params. The pass itself is removed when the gate hits 0 (see WaveRenderer.applyPost).
-    const addFx = (
-      title: string,
-      gate: string,
-      onValue: number,
-      buildParams: (s: FolderApi) => Array<{ hidden: boolean; refresh: () => void }>,
-    ): void => {
-      const sub = fx.addFolder({ title, expanded: false });
-      const state = { on: (cfgN[gate] ?? 0) > 0 };
-      const enable = sub.addBinding(state, "on", { label: "enabled" });
-      const params = buildParams(sub);
-      const sync = (): void => {
-        for (const p of params) p.hidden = !state.on;
-      };
-      enable.on("change", () => {
-        cfgN[gate] = state.on ? onValue : 0;
-        for (const p of params) p.refresh();
-        sync();
-        refresh();
-      });
-      sync();
-    };
-
-    addFx("Dither", "dither", 1, (s) => [
-      s
-        .addBinding(cfg, "dither", { min: 0, max: 1, step: 0.01, label: "amount" })
-        .on("change", refresh),
-      s
-        .addBinding(cfg, "ditherScale", { min: 1, max: 8, step: 1, label: "pixel size" })
-        .on("change", refresh),
-      s
-        .addBinding(cfg, "ditherSteps", { min: 2, max: 8, step: 1, label: "levels" })
-        .on("change", refresh),
-    ]);
-    addFx("Halftone", "halftone", 1, (s) => [
-      s
-        .addBinding(cfg, "halftone", { min: 0, max: 1, step: 0.01, label: "amount" })
-        .on("change", refresh),
-      s
-        .addBinding(cfg, "halftoneCell", { min: 2, max: 16, step: 0.5, label: "dot size" })
-        .on("change", refresh),
-      s
-        .addBinding(cfg, "halftoneAngle", { min: 0, max: 1.57, step: 0.01, label: "angle" })
-        .on("change", refresh),
-    ]);
-    addFx("Fluted glass", "flutedGlass", 1, (s) => [
-      s
-        .addBinding(cfg, "flutedGlass", { min: 0, max: 1, step: 0.01, label: "amount" })
-        .on("change", refresh),
-      s
-        .addBinding(cfg, "flutedGlassCount", { min: 4, max: 80, step: 1, label: "ribs" })
-        .on("change", refresh),
-    ]);
-    addFx("Paper texture", "paperTexture", 0.6, (s) => [
-      s
-        .addBinding(cfg, "paperTexture", { min: 0, max: 1, step: 0.01, label: "amount" })
-        .on("change", refresh),
-      s
-        .addBinding(cfg, "paperTextureScale", { min: 0.5, max: 6, step: 0.5, label: "grain scale" })
-        .on("change", refresh),
-    ]);
-    addFx("Heatmap", "heatmap", 1, (s) => [
-      s
-        .addBinding(cfg, "heatmap", { min: 0, max: 1, step: 0.01, label: "amount" })
-        .on("change", refresh),
-    ]);
-    addFx("Godrays", "godrays", 0.8, (s) => [
-      s
-        .addBinding(cfg, "godrays", { min: 0, max: 1, step: 0.01, label: "strength" })
-        .on("change", refresh),
-      s
-        .addBinding(cfg, "godraysDensity", { min: 0.1, max: 1, step: 0.01, label: "spread" })
-        .on("change", refresh),
-      s
-        .addBinding(cfg, "godraysDecay", { min: 0.8, max: 0.99, step: 0.005, label: "decay" })
-        .on("change", refresh),
-      s
-        .addBinding(cfg, "godraysX", { min: 0, max: 1, step: 0.01, label: "source x" })
-        .on("change", refresh),
-      s
-        .addBinding(cfg, "godraysY", { min: 0, max: 1, step: 0.01, label: "source y" })
-        .on("change", refresh),
-    ]);
-    addFx("CMYK halftone", "halftoneCmyk", 1, (s) => [
-      s
-        .addBinding(cfg, "halftoneCmyk", { min: 0, max: 1, step: 0.01, label: "amount" })
-        .on("change", refresh),
-      s
-        .addBinding(cfg, "halftoneCmykCell", { min: 2, max: 16, step: 0.5, label: "dot size" })
-        .on("change", refresh),
-    ]);
+    const fx = mkFolder("Post FX", true);
+    // Dither (← paper's image-dithering)
+    fx.addBinding(cfg, "dither", { min: 0, max: 1, step: 0.01, label: "dither" }).on(
+      "change",
+      refresh,
+    );
+    fx.addBinding(cfg, "ditherScale", { min: 1, max: 8, step: 1, label: "dither px" }).on(
+      "change",
+      refresh,
+    );
+    fx.addBinding(cfg, "ditherSteps", { min: 2, max: 8, step: 1, label: "dither steps" }).on(
+      "change",
+      refresh,
+    );
+    // Halftone (← paper's halftone-dots)
+    fx.addBinding(cfg, "halftone", { min: 0, max: 1, step: 0.01, label: "halftone" }).on(
+      "change",
+      refresh,
+    );
+    fx.addBinding(cfg, "halftoneCell", { min: 2, max: 16, step: 0.5, label: "halftone cell" }).on(
+      "change",
+      refresh,
+    );
+    fx.addBinding(cfg, "halftoneAngle", {
+      min: 0,
+      max: 1.57,
+      step: 0.01,
+      label: "halftone angle",
+    }).on("change", refresh);
+    // CMYK halftone
+    fx.addBinding(cfg, "halftoneCmyk", { min: 0, max: 1, step: 0.01, label: "cmyk halftone" }).on(
+      "change",
+      refresh,
+    );
+    fx.addBinding(cfg, "halftoneCmykCell", { min: 2, max: 16, step: 0.5, label: "cmyk cell" }).on(
+      "change",
+      refresh,
+    );
+    // Heatmap
+    fx.addBinding(cfg, "heatmap", { min: 0, max: 1, step: 0.01, label: "heatmap" }).on(
+      "change",
+      refresh,
+    );
+    // Paper texture
+    fx.addBinding(cfg, "paperTexture", { min: 0, max: 1, step: 0.01, label: "paper texture" }).on(
+      "change",
+      refresh,
+    );
+    fx.addBinding(cfg, "paperTextureScale", {
+      min: 0.5,
+      max: 6,
+      step: 0.5,
+      label: "paper scale",
+    }).on("change", refresh);
+    // Inner light — volumetric light streaks scattered from the bright wave
+    fx.addBinding(cfg, "innerLight", { min: 0, max: 1, step: 0.01, label: "inner light" }).on(
+      "change",
+      refresh,
+    );
+    fx.addBinding(cfg, "innerLightDensity", {
+      min: 0.1,
+      max: 1,
+      step: 0.01,
+      label: "light spread",
+    }).on("change", refresh);
+    fx.addBinding(cfg, "innerLightDecay", {
+      min: 0.8,
+      max: 0.99,
+      step: 0.005,
+      label: "light decay",
+    }).on("change", refresh);
+    fx.addBinding(cfg, "innerLightX", { min: 0, max: 1, step: 0.01, label: "light x" }).on(
+      "change",
+      refresh,
+    );
+    fx.addBinding(cfg, "innerLightY", { min: 0, max: 1, step: 0.01, label: "light y" }).on(
+      "change",
+      refresh,
+    );
   }
+
+  /** "Background" folder: solid colour, editable gradient, built-in map, or uploaded media. */
 
   private buildBackgroundFolder(
     pane: Pane,
@@ -2062,10 +2048,10 @@ export class ControlPanel {
       "Output",
       "Actions",
       "Global",
-      "Post FX",
       "Background",
       "Camera",
       "Waves",
+      "Post FX",
       "Interaction",
       "Lights",
     ];
@@ -2207,6 +2193,10 @@ export class ControlPanel {
         '<circle cx="8" cy="8" r="2.9"/><path d="M8 1.6v1.7M8 12.7v1.7M1.6 8h1.7M12.7 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M3.6 12.4l1.2-1.2M11.2 4.8l1.2-1.2"/>',
       ),
       Waves: svg('<path d="M5.5 2c3 2 3 4 0 6s-3 4 0 6"/><path d="M10.5 2c-3 2-3 4 0 6s3 4 0 6"/>'),
+      // A magic wand + sparkle — the post-processing effects layer.
+      "Post FX": svg(
+        '<path d="M3.2 12.8 10 6"/><path d="M11.8 1.6 12.6 3.2 14.2 4 12.6 4.8 11.8 6.4 11 4.8 9.4 4 11 3.2Z"/>',
+      ),
       // A mouse-cursor — the interaction (pointer / scroll / touch reactivity) layer.
       Interaction: svg('<path d="M2.8 2.4 2.8 11.4 5.3 9.1 7.1 13.2 8.9 12.4 7.1 8.4 10.6 8.4Z"/>'),
     };
