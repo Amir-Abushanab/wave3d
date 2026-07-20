@@ -35,6 +35,7 @@ import {
   randomizeFinish,
   randomizeLights,
   randomizeGlobal,
+  randomizePostFx,
   randomizeWave,
 } from "@wave3d/core/studio";
 import type { StudioWaveRenderer } from "@wave3d/core/studio";
@@ -825,8 +826,14 @@ export class ControlPanel {
   /** "Post FX" folder: the scene-wide post-processing effects, all sliders visible. They're
    *  ShaderPasses over the composited frame of ALL waves (tDiffuse), so they're scene-level, not
    *  per-wave. Each effect's first slider is its gate: 0 = off (removes the pass entirely). */
-  private buildPostFxFolder(mkFolder: MkFolder, cfg: StudioConfig, refresh: () => void): void {
+  private buildPostFxFolder(
+    mkFolder: MkFolder,
+    randomBtn: RandomBtn,
+    cfg: StudioConfig,
+    refresh: () => void,
+  ): void {
     const fx = mkFolder("Post FX", true);
+    randomBtn(fx, randomizePostFx);
     // A thin rule after a slider separates one effect's knobs from the next group's.
     // Dither (← paper's image-dithering)
     fx.addBinding(cfg, "dither", { min: 0, max: 1, step: 0.01, label: "dither" }).on(
@@ -1575,7 +1582,7 @@ export class ControlPanel {
     this.buildOutputFolder(pane, mkFolder);
     this.buildActionsFolder(mkFolder);
     this.buildGlobalFolder(mkFolder, randomBtn, cfg, refresh);
-    this.buildPostFxFolder(mkFolder, cfg, refresh);
+    this.buildPostFxFolder(mkFolder, randomBtn, cfg, refresh);
     this.buildBackgroundFolder(pane, mkFolder, randomBtn, cfg, refresh);
     camFolder = this.buildCameraFolder(mkFolder, cfg);
     this.buildLightsFolder(mkFolder, randomBtn, vec, cfg, refresh);
