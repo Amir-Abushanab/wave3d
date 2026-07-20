@@ -789,92 +789,6 @@ export class ControlPanel {
       step: 0.01,
       label: "bloom threshold",
     }).on("change", refresh);
-    // Dithering (ordered Bayer) — a self-contained "layered" post shader in the spirit of
-    // paper-design/shaders. 0 removes the pass entirely; scale & steps only bite once dither > 0.
-    g.addBinding(cfg, "dither", { min: 0, max: 1, step: 0.01, label: "dither" }).on(
-      "change",
-      refresh,
-    );
-    g.addBinding(cfg, "ditherScale", { min: 1, max: 8, step: 1, label: "dither px" }).on(
-      "change",
-      refresh,
-    );
-    g.addBinding(cfg, "ditherSteps", { min: 2, max: 8, step: 1, label: "dither steps" }).on(
-      "change",
-      refresh,
-    );
-    // Godrays (volumetric light streaks) — scene-zone light scatter from the bright wave.
-    g.addBinding(cfg, "godrays", { min: 0, max: 1, step: 0.01, label: "godrays" }).on(
-      "change",
-      refresh,
-    );
-    g.addBinding(cfg, "godraysDensity", {
-      min: 0.1,
-      max: 1,
-      step: 0.01,
-      label: "godray spread",
-    }).on("change", refresh);
-    g.addBinding(cfg, "godraysDecay", {
-      min: 0.8,
-      max: 0.99,
-      step: 0.005,
-      label: "godray decay",
-    }).on("change", refresh);
-    g.addBinding(cfg, "godraysX", { min: 0, max: 1, step: 0.01, label: "godray x" }).on(
-      "change",
-      refresh,
-    );
-    g.addBinding(cfg, "godraysY", { min: 0, max: 1, step: 0.01, label: "godray y" }).on(
-      "change",
-      refresh,
-    );
-    // Halftone (rotated dot screen sized by brightness) — finish-zone stylization.
-    g.addBinding(cfg, "halftone", { min: 0, max: 1, step: 0.01, label: "halftone" }).on(
-      "change",
-      refresh,
-    );
-    g.addBinding(cfg, "halftoneCell", { min: 2, max: 16, step: 0.5, label: "halftone cell" }).on(
-      "change",
-      refresh,
-    );
-    g.addBinding(cfg, "halftoneAngle", {
-      min: 0,
-      max: 1.57,
-      step: 0.01,
-      label: "halftone angle",
-    }).on("change", refresh);
-    // Filter-type effects ported from paper-design (finish-zone): heatmap recolour, fluted-glass
-    // refraction, paper-texture overlay, CMYK halftone.
-    g.addBinding(cfg, "heatmap", { min: 0, max: 1, step: 0.01, label: "heatmap" }).on(
-      "change",
-      refresh,
-    );
-    g.addBinding(cfg, "flutedGlass", { min: 0, max: 1, step: 0.01, label: "fluted glass" }).on(
-      "change",
-      refresh,
-    );
-    g.addBinding(cfg, "flutedGlassCount", { min: 4, max: 80, step: 1, label: "flute ribs" }).on(
-      "change",
-      refresh,
-    );
-    g.addBinding(cfg, "paperTexture", { min: 0, max: 1, step: 0.01, label: "paper texture" }).on(
-      "change",
-      refresh,
-    );
-    g.addBinding(cfg, "paperTextureScale", {
-      min: 0.5,
-      max: 6,
-      step: 0.5,
-      label: "paper scale",
-    }).on("change", refresh);
-    g.addBinding(cfg, "halftoneCmyk", { min: 0, max: 1, step: 0.01, label: "cmyk halftone" }).on(
-      "change",
-      refresh,
-    );
-    g.addBinding(cfg, "halftoneCmykCell", { min: 2, max: 16, step: 0.5, label: "cmyk cell" }).on(
-      "change",
-      refresh,
-    );
     // Whole-composition mirror (scene-level world-space flip).
     g.addButton({ title: "↔ mirror horizontal" }).on("click", () => {
       cfg.mirrorH = !cfg.mirrorH;
@@ -893,6 +807,106 @@ export class ControlPanel {
   }
 
   /** "Background" folder: solid colour, editable gradient, built-in map, or uploaded media. */
+  /** "Post FX" folder: the scene-wide post-processing effects, each in a collapsible sub-folder
+   *  behind an enable toggle so they don't crowd the panel. These are ShaderPasses over the
+   *  composited frame of ALL waves (tDiffuse), so they're scene-level, not per-wave. */
+  private buildPostFxFolder(mkFolder: MkFolder, cfg: StudioConfig, refresh: () => void): void {
+    const fx = mkFolder("Post FX", false);
+    const cfgN = cfg as unknown as Record<string, number>;
+    // Each effect: the enable toggle drives its gate value (onValue / 0) and the visibility of its
+    // params. The pass itself is removed when the gate hits 0 (see WaveRenderer.applyPost).
+    const addFx = (
+      title: string,
+      gate: string,
+      onValue: number,
+      buildParams: (s: FolderApi) => Array<{ hidden: boolean; refresh: () => void }>,
+    ): void => {
+      const sub = fx.addFolder({ title, expanded: false });
+      const state = { on: (cfgN[gate] ?? 0) > 0 };
+      const enable = sub.addBinding(state, "on", { label: "enabled" });
+      const params = buildParams(sub);
+      const sync = (): void => {
+        for (const p of params) p.hidden = !state.on;
+      };
+      enable.on("change", () => {
+        cfgN[gate] = state.on ? onValue : 0;
+        for (const p of params) p.refresh();
+        sync();
+        refresh();
+      });
+      sync();
+    };
+
+    addFx("Dither", "dither", 1, (s) => [
+      s
+        .addBinding(cfg, "dither", { min: 0, max: 1, step: 0.01, label: "amount" })
+        .on("change", refresh),
+      s
+        .addBinding(cfg, "ditherScale", { min: 1, max: 8, step: 1, label: "pixel size" })
+        .on("change", refresh),
+      s
+        .addBinding(cfg, "ditherSteps", { min: 2, max: 8, step: 1, label: "levels" })
+        .on("change", refresh),
+    ]);
+    addFx("Halftone", "halftone", 1, (s) => [
+      s
+        .addBinding(cfg, "halftone", { min: 0, max: 1, step: 0.01, label: "amount" })
+        .on("change", refresh),
+      s
+        .addBinding(cfg, "halftoneCell", { min: 2, max: 16, step: 0.5, label: "dot size" })
+        .on("change", refresh),
+      s
+        .addBinding(cfg, "halftoneAngle", { min: 0, max: 1.57, step: 0.01, label: "angle" })
+        .on("change", refresh),
+    ]);
+    addFx("Fluted glass", "flutedGlass", 1, (s) => [
+      s
+        .addBinding(cfg, "flutedGlass", { min: 0, max: 1, step: 0.01, label: "amount" })
+        .on("change", refresh),
+      s
+        .addBinding(cfg, "flutedGlassCount", { min: 4, max: 80, step: 1, label: "ribs" })
+        .on("change", refresh),
+    ]);
+    addFx("Paper texture", "paperTexture", 0.6, (s) => [
+      s
+        .addBinding(cfg, "paperTexture", { min: 0, max: 1, step: 0.01, label: "amount" })
+        .on("change", refresh),
+      s
+        .addBinding(cfg, "paperTextureScale", { min: 0.5, max: 6, step: 0.5, label: "grain scale" })
+        .on("change", refresh),
+    ]);
+    addFx("Heatmap", "heatmap", 1, (s) => [
+      s
+        .addBinding(cfg, "heatmap", { min: 0, max: 1, step: 0.01, label: "amount" })
+        .on("change", refresh),
+    ]);
+    addFx("Godrays", "godrays", 0.8, (s) => [
+      s
+        .addBinding(cfg, "godrays", { min: 0, max: 1, step: 0.01, label: "strength" })
+        .on("change", refresh),
+      s
+        .addBinding(cfg, "godraysDensity", { min: 0.1, max: 1, step: 0.01, label: "spread" })
+        .on("change", refresh),
+      s
+        .addBinding(cfg, "godraysDecay", { min: 0.8, max: 0.99, step: 0.005, label: "decay" })
+        .on("change", refresh),
+      s
+        .addBinding(cfg, "godraysX", { min: 0, max: 1, step: 0.01, label: "source x" })
+        .on("change", refresh),
+      s
+        .addBinding(cfg, "godraysY", { min: 0, max: 1, step: 0.01, label: "source y" })
+        .on("change", refresh),
+    ]);
+    addFx("CMYK halftone", "halftoneCmyk", 1, (s) => [
+      s
+        .addBinding(cfg, "halftoneCmyk", { min: 0, max: 1, step: 0.01, label: "amount" })
+        .on("change", refresh),
+      s
+        .addBinding(cfg, "halftoneCmykCell", { min: 2, max: 16, step: 0.5, label: "dot size" })
+        .on("change", refresh),
+    ]);
+  }
+
   private buildBackgroundFolder(
     pane: Pane,
     mkFolder: MkFolder,
@@ -1540,6 +1554,7 @@ export class ControlPanel {
     this.buildOutputFolder(pane, mkFolder);
     this.buildActionsFolder(mkFolder);
     this.buildGlobalFolder(mkFolder, randomBtn, cfg, refresh);
+    this.buildPostFxFolder(mkFolder, cfg, refresh);
     this.buildBackgroundFolder(pane, mkFolder, randomBtn, cfg, refresh);
     camFolder = this.buildCameraFolder(mkFolder, cfg);
     this.buildLightsFolder(mkFolder, randomBtn, vec, cfg, refresh);
@@ -2047,6 +2062,7 @@ export class ControlPanel {
       "Output",
       "Actions",
       "Global",
+      "Post FX",
       "Background",
       "Camera",
       "Waves",
