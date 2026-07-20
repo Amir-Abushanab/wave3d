@@ -142,11 +142,11 @@ function seatRandomAtTop(folder: FolderApi, el: HTMLElement): void {
   content.prepend(el);
 }
 
-/** Drop a thin separator rule after a binding's row — groups adjacent Post FX knobs visually. */
+/** Mark a binding's row so a thin rule renders below it, grouping adjacent Post FX knobs. Uses a
+ *  CSS class (a border on the row), NOT an inserted node — Tweakpane's rack re-syncs its DOM and
+ *  would orphan any foreign child to the bottom of the section. */
 function addFxSeparator(binding: { element: HTMLElement }): void {
-  const sep = document.createElement("div");
-  sep.className = "wv-fx-sep";
-  binding.element.after(sep);
+  binding.element.classList.add("wv-fx-sep");
 }
 
 /**
@@ -820,7 +820,8 @@ export class ControlPanel {
     const fx = mkFolder("Post FX", true);
     injectStyleOnce(
       "wv-fx-sep-style",
-      ".wv-fx-sep{height:1px;margin:6px 8px;background:currentColor;opacity:0.13}",
+      ".wv-fx-sep{padding-bottom:6px;margin-bottom:6px;" +
+        "border-bottom:1px solid color-mix(in srgb, currentColor 14%, transparent)}",
     );
     // A thin rule after a slider separates one effect's knobs from the next group's.
     // Dither (← paper's image-dithering)
