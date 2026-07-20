@@ -1613,15 +1613,19 @@ export class ControlPanel {
 
       // Compositing (how this wave stacks on the others).
       sf.addBinding(wave, "opacity", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
-      sf.addBinding(wave, "blendMode", {
-        label: "blend",
-        options: {
-          Squared: "squared",
-          Normal: "normal",
-          Additive: "additive",
-          Multiply: "multiply",
-        },
-      }).on("change", refresh);
+      sepAfter(
+        sf
+          .addBinding(wave, "blendMode", {
+            label: "blend",
+            options: {
+              Squared: "squared",
+              Normal: "normal",
+              Additive: "additive",
+              Multiply: "multiply",
+            },
+          })
+          .on("change", refresh),
+      );
       sf.addBinding(wave, "speed", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
       sf.addBinding(wave, "seed", { min: 0, max: 20, step: 0.1 }).on("change", refresh);
 
@@ -1682,6 +1686,7 @@ export class ControlPanel {
           meshEditor.refresh();
           refresh();
         });
+      sepAfter(bMeshSoftness);
       const bUseTex = gradF
         .addBinding(wave, "usePaletteTexture", { label: "palette 2D" })
         .on("change", () => {
@@ -1797,6 +1802,7 @@ export class ControlPanel {
       const bPaletteDriftY = gradF
         .addBinding(wave, "paletteDriftY", { label: "color drift Y", min: -1, max: 1, step: 0.01 })
         .on("change", refresh);
+      sepAfter(bPaletteDriftY);
       const bEdgeColor = gradF
         .addBinding(wave, "paletteEdgeColor", { view: "color", label: "edge tint" })
         .on("change", () => {
@@ -1809,6 +1815,7 @@ export class ControlPanel {
           refresh();
           paletteDropdown.refresh();
         });
+      sepAfter(bEdgeAmt);
       gradF.addBinding(wave, "hueShift", { min: -180, max: 180, step: 1 }).on("change", refresh);
       gradF.addBinding(wave, "colorContrast", { min: 0, max: 2, step: 0.01 }).on("change", refresh);
       gradF
@@ -1866,6 +1873,7 @@ export class ControlPanel {
       const bFiberStrength = finF
         .addBinding(wave, "fiberStrength", { min: 0, max: 1, step: 0.01, label: "streak strength" })
         .on("change", refresh);
+      sepAfter(bFiberStrength);
       const bTexture = finF
         .addBinding(wave, "texture", { min: 0, max: 1, step: 0.01 })
         .on("change", refresh);
@@ -1878,6 +1886,7 @@ export class ControlPanel {
       const bIridescence = finF
         .addBinding(wave, "iridescence", { min: 0, max: 1, step: 0.01, label: "iridescence" })
         .on("change", refresh);
+      sepAfter(bIridescence);
       const bCreaseLight = finF
         .addBinding(wave, "creaseLight", { min: 0, max: 6, step: 0.01, label: "crease light" })
         .on("change", refresh);
@@ -1897,6 +1906,7 @@ export class ControlPanel {
           label: "crease softness",
         })
         .on("change", refresh);
+      sepAfter(bCreaseSoftness);
       const bEdgeFade = finF
         .addBinding(wave, "edgeFade", { min: 0, max: 0.5, step: 0.01 })
         .on("change", refresh);
@@ -1904,6 +1914,7 @@ export class ControlPanel {
       const bEdgeFeather = finF
         .addBinding(wave, "edgeFeather", { min: 0, max: 0.5, step: 0.01, label: "edge feather" })
         .on("change", refresh);
+      sepAfter(bEdgeFeather);
       // Depth tint — fade far fragments toward a colour for atmospheric depth (esp. wave stacks).
       const bDepthTint = finF
         .addBinding(wave, "depthTint", { min: 0, max: 1, step: 0.01, label: "depth tint" })
@@ -1911,6 +1922,7 @@ export class ControlPanel {
       const bDepthTintColor = finF
         .addBinding(wave, "depthTintColor", { view: "color", label: "depth tint color" })
         .on("change", refresh);
+      sepAfter(bDepthTintColor);
       const bLineAmount = finF
         .addBinding(wave, "lineAmount", { min: 1, max: 1200, step: 1, label: "line count" })
         .on("change", refresh);
