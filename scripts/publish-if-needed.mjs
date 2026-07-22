@@ -11,10 +11,16 @@
  * reach npm, but the job goes red with no git tags and no GitHub Releases.
  *
  * `changeset publish` is itself only a wrapper around `pnpm publish` (which rewrites workspace: deps
- * and performs npm OIDC trusted publishing), so we call that directly — but only for versions the
- * registry confirms are missing, so we never provoke the E403. For each package we publish we print
- * the `New tag:` line ourselves; changesets/action scans this script's stdout for those (it ignores
- * our exit code) and creates the git tag (at the release commit, via the GitHub API) and the Release.
+ * and performs npm OIDC trusted publishing) plus a local `git tag` per published package, so we do
+ * both directly — but only for versions the registry confirms are missing, so we never provoke the
+ * E403. For each package we publish we create the tag and print the `New tag:` line;
+ * changesets/action scans this script's stdout for those (it ignores our exit code), runs
+ * `git push origin <tag>` for each — which is why the tag must already exist in this checkout —
+ * and then cuts the GitHub Releases.
+ *
+ * Also self-heals: an already-on-npm version whose git tag never made it to origin (a past run
+ * that published, then died before tags were pushed) gets its tag and `New tag:` line restored,
+ * so no release stays permanently tagless. See restoreMissingTags.
  *
  * Run via `pnpm release`, which builds the packages first. Pass `--dry-run` to preview.
  */
@@ -67,9 +73,62 @@ function isPublished(name, version) {
   }
 }
 
+/** Annotated tag at HEAD, like `changeset publish` makes; a pre-existing tag only warns. */
+function ensureLocalTag(tag) {
+  try {
+    execFileSync("git", ["tag", tag, "-m", tag], { stdio: ["ignore", "ignore", "pipe"] });
+  } catch (err) {
+    console.error(`warning: could not create git tag ${tag}: ${String(err?.stderr ?? err)}`);
+  }
+}
+
+/**
+ * A version can be live on npm yet have no git tag or GitHub Release: a previous run published,
+ * then died before changesets/action pushed the tags (0.3.0 lost its tags to the changesets↔npm 11
+ * crash, 0.4.1 to this script not creating them), or the first publish ran from a laptop. Such a
+ * version never re-enters `pending`, so without this pass its tag would stay lost on every future
+ * run. Re-create it here (at this run's commit — the original release commit isn't knowable) and
+ * re-print `New tag:` so changesets/action pushes it and cuts the Release. Never fails the run.
+ */
+function restoreMissingTags(onNpm) {
+  if (onNpm.length === 0) return;
+  let remote;
+  try {
+    const raw = execFileSync("git", ["ls-remote", "--tags", "origin"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    remote = new Set(
+      raw
+        .split("\n")
+        .map((line) => line.split("\t")[1])
+        .filter(Boolean)
+        .map((ref) => ref.replace("refs/tags/", "").replace(/\^\{\}$/, "")),
+    );
+  } catch (err) {
+    console.error(
+      `warning: could not list origin tags, skipping tag restore: ${String(err?.stderr ?? err)}`,
+    );
+    return;
+  }
+  for (const p of onNpm) {
+    const tag = `${p.name}@${p.version}`;
+    if (remote.has(tag)) continue;
+    if (dryRun) {
+      console.log(`(dry run) would restore missing tag ${tag}`);
+      continue;
+    }
+    console.log(`Restoring missing tag for already-published ${tag}`);
+    ensureLocalTag(tag);
+    console.log(`New tag: ${tag}`);
+  }
+}
+
 const pkgs = publishablePackages();
 const label = (list) => list.map((p) => `${p.name}@${p.version}`).join(", ");
 const pending = pkgs.filter((p) => !isPublished(p.name, p.version));
+
+restoreMissingTags(pkgs.filter((p) => !pending.includes(p)));
 
 if (pending.length === 0) {
   console.log(`Nothing to publish. Already on npm: ${label(pkgs)}`);
@@ -94,7 +153,10 @@ for (const p of pending) {
       cwd: p.dir,
       stdio: "inherit",
     });
-    console.log(`New tag: ${p.name}@${p.version}`);
+    // changesets/action will `git push origin <tag>`, so the tag must exist locally.
+    const tag = `${p.name}@${p.version}`;
+    ensureLocalTag(tag);
+    console.log(`New tag: ${tag}`);
     published.push(p);
   } catch {
     // A non-zero exit is benign only if the version is already on npm (our pre-check raced a
