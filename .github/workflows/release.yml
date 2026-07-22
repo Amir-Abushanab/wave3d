@@ -62,7 +62,9 @@ jobs:
       - name: Version Packages PR / publish
         uses: changesets/action@v1
         with:
-          version: pnpm changeset version
+          # `pnpm run version` = changeset version + sync the skill's library_version, so the skill
+          # bump rides this same PR instead of drifting behind the packages.
+          version: pnpm run version
           # Empty until the packages exist on npm (see preflight) → PR-only, no publish attempt.
           publish: ${{ needs.preflight.outputs.publish }}
           commit: "chore: version packages"

@@ -12,6 +12,7 @@
     "build": "pnpm -r build",
     "build:packages": "pnpm -r --filter \"@wave3d/*\" build",
     "pack:all": "pnpm -r --filter \"@wave3d/*\" exec pnpm pack",
+    "version": "changeset version && node scripts/sync-skill-version.mjs",
     "release": "pnpm build:packages && node scripts/publish-if-needed.mjs",
     "preview": "pnpm --filter wave-studio preview",
     "typecheck": "pnpm -r typecheck",

@@ -3,18 +3,20 @@ name: wave3d
 description: >
   Add an animated 3D gradient "wave of light" (the glossy twisting ribbon seen across Stripe's
   designs) to a website as a drop-in component, powered by three.js/WebGL. Load this when a user
-  wants a @wave3d package — @wave3d/react (<Wave3D>), @wave3d/element (<wave-3d>), or @wave3d/core
-  (createWave / mountWave) — or asks for an animated gradient hero background, a poster-first lazy
-  WebGL wave, a CDN <script> wave, or how to reproduce a wave exported from Wave Studio.
+  wants a @wave3d package — @wave3d/react (<Wave3D>), @wave3d/element (<wave-3d>), @wave3d/core
+  (createWave / mountWave) or @wave3d/vite (build-time posters) — or asks for an animated gradient
+  hero background, a poster-first lazy WebGL wave, a CDN <script> wave, film-grain / bloom / dither
+  / halftone post effects on a wave, or how to reproduce a wave exported from Wave Studio.
 metadata:
   type: core
   library: "@wave3d/core"
-  library_version: "0.1.0"
+  library_version: "0.3.0"
 sources:
   - "wave3d/wave3d:README.md"
   - "wave3d/wave3d:packages/core/src/config/model.ts"
   - "wave3d/wave3d:packages/core/src/shell/createWave.ts"
   - "wave3d/wave3d:packages/core/src/presets.ts"
+  - "wave3d/wave3d:packages/vite/README.md"
 ---
 
 # @wave3d — drop-in animated 3D gradient waves
@@ -36,6 +38,7 @@ load**. Framework-agnostic core, with React and web-component adapters.
 pnpm add @wave3d/react three     # React
 pnpm add @wave3d/element three   # <wave-3d> for Vue / Svelte / plain HTML
 pnpm add @wave3d/core three      # framework-agnostic createWave
+pnpm add -D @wave3d/vite         # optional: capture posters at dev time
 ```
 
 `three` is a **peer dependency** of `@wave3d/core` (`>=0.180 <1`). For TypeScript, also add
@@ -51,6 +54,7 @@ pnpm add @wave3d/core three      # framework-agnostic createWave
 | Direct renderer (no shell/poster)    | `import { WaveRenderer } from "@wave3d/core/renderer"`             |
 | One `<script>` from a CDN (three in) | `import { mountWave } from "@wave3d/core/standalone"` (via esm.sh) |
 | Built-in presets                     | `import { PRESETS } from "@wave3d/core/presets"`                   |
+| Poster written to disk at dev time   | `import { wave3dPoster } from "@wave3d/vite"` (Vite plugin)        |
 
 The `.` entry (`@wave3d/core`) has **no static three import** — the engine arrives via a dynamic
 import, so bundlers keep three out of your initial chunk until a wave actually upgrades.
@@ -127,6 +131,28 @@ wave with the page) live on `SceneConfig.interaction`. In React the flat `intera
 the first wave; the studio authors it per wave (Hover / Click & touch / Bindings) plus a global
 Interaction folder for the shared inputs and a scroll preview.
 
+## Post effects (optional)
+
+Passes over the finished composite. Each is a plain **scene-level** `SceneConfig` field (a sibling of
+`background` / `quality`, **not** per wave) that defaults to off, and setting it to `0` removes the
+pass entirely — cost and pixels identical to never having set it.
+
+| Field           | Extra knobs                                                  | Effect                                                      |
+| --------------- | ------------------------------------------------------------ | ----------------------------------------------------------- |
+| `grain`         | —                                                            | Static film-grain speckle.                                  |
+| `blur`          | `blurSamples`                                                | Soft-focus spin blur, smeared toward the top/bottom edges.  |
+| `bloomStrength` | `bloomRadius`, `bloomThreshold`                              | Glow bleed off the bright ribbon (three's UnrealBloomPass). |
+| `innerLight`    | `innerLightDensity`, `innerLightDecay`, `innerLightX`/`Y`    | Volumetric light streaks from a light point (X/Y in UV).    |
+| `dither`        | `ditherScale` (cell px), `ditherSteps` (levels/channel, >=2) | Ordered (Bayer) dithering + posterization.                  |
+| `halftone`      | `halftoneCell`, `halftoneAngle`                              | Rotated dot screen; dot size tracks local brightness.       |
+| `halftoneCmyk`  | `halftoneCmykCell`                                           | Four rotated screens — subtractive CMYK print look.         |
+| `heatmap`       | —                                                            | Luminance → thermal-palette recolour.                       |
+| `paperTexture`  | `paperTextureScale`                                          | Fibrous printed-paper substrate overlay.                    |
+
+`bloomStrength` and `innerLight` are **scene-zone** — they scatter the raw wave, so they read as
+light. The rest are **finish-zone** stylization, applied after tone-map + sRGB (`dither` runs last).
+Only `blur` and `grain` are bindable from an interaction input; the others are authored values.
+
 ## Presets
 
 14 built-in presets (`@wave3d/core/presets`): **Hero**, **Wave 2**, **Wave 3**, **Wave 4**,
@@ -144,9 +170,17 @@ The shell shows a poster immediately, then crossfades to the live wave.
 - **Poster source:** the `poster` option/prop (URL or data-URI), or — for SSR — an
   `<img data-wave3d-poster>` you render inside the container; the shell **adopts** it (no hydration
   flash). React: pass it as a child.
+- **`posterFit`** (`"fill"` default | `"cover"` | `"contain"`) sets how the poster maps into the box.
+  The `fill` default matters: it makes the poster match the canvas exactly, so the handoff doesn't
+  visibly jump.
 - **Make a poster:** the studio's Export dialog, or capture the live frame at runtime — once
   running, `handle.snapshot()` (core/element) or `onReady(renderer)` → `renderer.captureImage()`
   (React) resolves an image Blob you can host and feed back as the `poster`.
+- **`@wave3d/vite`** automates that in a Vite app: `wave3dPoster()` snapshots the wave from the
+  browser already rendering it and writes the file to `public/` — mark a `<wave-3d>` with
+  `data-wave3d-poster-out="hero.webp"`, or call `registerPoster(handle, out)` from
+  `@wave3d/vite/client` for React / `createWave`. Re-snapshots over HMR; `vite build` just uses the
+  committed file.
 - **`onFallback(reason)`** fires when the shell keeps the poster instead of upgrading; reasons:
   `"no-webgl" | "reduced-motion" | "save-data" | "context-lost" | "load-error"`.
 - **`onStateChange(state)`**: `"poster" → "loading" → "running"`, or `"fallback"`.
@@ -160,6 +194,8 @@ The shell shows a poster immediately, then crossfades to the live wave.
 - `dprMax` clamps device-pixel-ratio (default 2). `quality` and `waves.length` changing forces a
   geometry **rebuild** (costlier than a uniform refresh); `fiberCount`, `loopSeconds` (0 = off),
   and `paused` are cheap. The renderer already pauses offscreen and when the tab is hidden.
+- Every enabled **post effect** is one more full-screen pass — leave the ones you aren't using at
+  `0` (that removes the pass, rather than running it as a no-op).
 
 ## SSR / Next.js
 
