@@ -1,5 +1,12 @@
 # wave-studio
 
+## 0.1.6
+
+### Patch Changes
+
+- Updated dependencies [[`cb924c7`](https://github.com/Amir-Abushanab/wave3d/commit/cb924c70e29d914cb650143d315d7c33d43edeed)]:
+  - @wave3d/core@0.4.1
+
 ## 0.1.5
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "wave3d-poster-example",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "private": true,
   "description": "Example app and dev/test harness for @wave3d/vite",
   "type": "module",
