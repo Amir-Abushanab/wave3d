@@ -73,6 +73,8 @@ After that it releases tokenlessly via CI like the rest.
 2. Changesets opens/updates a **"Version Packages"** PR (bumps the shared version, writes `CHANGELOG.md`).
 3. **Merge that PR** → CI publishes the new version, tags it, and cuts a GitHub Release.
 
+> **Benign red run:** merging the Version PR while an older Release run is still in flight can fail that older run with _"The pull request cannot be reopened"_ — it raced the merge. The run for the Version PR's own merge commit does the real work; nothing to fix.
+
 > **Fallback:** pnpm's OIDC support is still maturing — if CI publishing 404s, create a granular **`NPM_TOKEN`** (scoped to `@wave3d`, read-write, no IP allowlist) and uncomment the `NODE_AUTH_TOKEN` line in `release.yml`.
 
 ## What's _not_ wired up here
