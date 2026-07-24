@@ -60,6 +60,12 @@ jobs:
       # Trusted publishing needs npm >= 11.5.1; Node 24 may ship an older npm.
       - run: npm install -g npm@latest
       - name: Version Packages PR / publish
+        id: changesets
+        # Soft-fail on purpose. This action manages BOTH the version PR and the publish, and it
+        # reports PR-API problems as a bare `HttpError` — an Octokit RequestError whose message is
+        # empty, so `Error.toString()` degrades to just the name. That tells you nothing and kills
+        # the run. The guard step below decides the real outcome and prints the actual API error.
+        continue-on-error: true
         uses: changesets/action@v1
         with:
           # `pnpm run version` = changeset version + sync the skill's library_version, so the skill
@@ -75,3 +81,41 @@ jobs:
           # Fallback if OIDC publishing misbehaves (pnpm's OIDC support is still maturing):
           # add a granular NPM_TOKEN secret and uncomment the next line.
           # NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Decide the run's real outcome, and self-heal the failure the action cannot report on.
+      # Two flakes observed so far, both leaving the version branch pushed but no PR open:
+      #   • create path — empty-body HttpError, nothing opened (2026-07-24, reproducible)
+      #   • update path — "State cannot be changed. The pull request cannot be reopened.", when the
+      #     PR it listed as open gets merged mid-run (2026-07-22, a race with a human merge)
+      # `gh` prints the real status, so a genuine block — e.g. the account-level "Allow GitHub
+      # Actions to create and approve pull requests" toggle — surfaces as a message, not "HttpError".
+      - name: Ensure Version Packages PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          branch=changeset-release/main
+          failed='${{ steps.changesets.outcome }}'
+
+          # Ask the API rather than git: actions/checkout clones shallow, so a local
+          # `rev-list origin/main..origin/$branch` can miss the merge base and lie.
+          ahead=$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$branch" --jq '.ahead_by' 2>/dev/null || echo "")
+
+          # No version branch, or nothing on it: there was no PR to open, so the action's outcome
+          # is the whole story — a failure here was in the publish path and must stay red.
+          if [ -z "$ahead" ] || [ "$ahead" = "0" ]; then
+            echo "::notice::no version commits on $branch — nothing to open"
+            if [ "$failed" = "failure" ]; then exit 1; fi
+            exit 0
+          fi
+
+          if [ "$(gh pr list --head "$branch" --base main --state open --json number --jq 'length')" != "0" ]; then
+            echo "::notice::version PR already open"
+            exit 0
+          fi
+
+          echo "No open version PR but $branch is $ahead commit(s) ahead — opening it here."
+          gh pr create --base main --head "$branch" \
+            --title "chore: version packages" \
+            --body "Automated version bump from changesets. Merging this publishes the bumped \`@wave3d/*\` packages to npm. Opened by the release workflow's self-heal step because \`changesets/action\` could not create it."
