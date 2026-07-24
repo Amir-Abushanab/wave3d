@@ -334,6 +334,11 @@ export class WaveRenderer {
   private readonly resizeObserver: ResizeObserver;
   private readonly intersectionObserver: IntersectionObserver;
   private readonly motionQuery: MediaQueryList;
+  /** Re-armed at the live devicePixelRatio on every change — see watchDpr(). */
+  private dprQuery?: MediaQueryList;
+  /** Pending coalesced resize (0 = none), and the metrics the last resize() actually applied. */
+  private resizeRaf = 0;
+  private lastResize?: { w: number; h: number; dpr: number };
 
   protected capturing = false;
   /** Fixed backing-buffer dimensions used by the studio's visible export frame. Embeds leave
@@ -420,6 +425,7 @@ export class WaveRenderer {
 
     this.resizeObserver = new ResizeObserver(this.onResize);
     this.resizeObserver.observe(container);
+    this.watchDpr(); // the CSS box can stay put while devicePixelRatio moves under it
 
     this.applyBackground();
     this.buildWaves();
@@ -1414,9 +1420,60 @@ export class WaveRenderer {
     }
   }
 
+  /** Coalesce observer-driven resizes to one per frame, and drop any that don't move a device pixel.
+   *
+   *  resize() is expensive — composer.setSize reallocates every pass's render target, and
+   *  applyBackground() rebuilds a container-sized canvas + texture for gradient/image backgrounds.
+   *  The old 1:1 `observe → resize()` paid that for observations that changed nothing: the observer
+   *  reports fractional content-box sizes, so sub-pixel layout shifts (and anything that rounds to
+   *  the same backing buffer) triggered a full reallocation, as did every observation while an
+   *  export frame is pinned and the container is not what drives the buffer at all.
+   *
+   *  Genuine per-frame changes — a mobile URL bar collapsing animates the container height — still
+   *  resize every frame. That work is necessary; the canvas would otherwise stretch. What is
+   *  removed is the redundant work, not the real work.
+   *
+   *  Only this path is throttled. `resize()` itself stays synchronous and unconditional — context
+   *  restore and setOutputSize must re-apply immediately, and on a fresh GPU context the metrics
+   *  are unchanged but the resources are not. */
   private onResize = (): void => {
+    if (this.resizeRaf) return;
+    this.resizeRaf = requestAnimationFrame(() => {
+      this.resizeRaf = 0;
+      const next = this.viewportMetrics();
+      const last = this.lastResize;
+      if (last && next.w === last.w && next.h === last.h && next.dpr === last.dpr) return;
+      this.resize();
+    });
+  };
+
+  /** Re-arm the DPR watch and re-render at the new device-pixel ratio.
+   *
+   *  ResizeObserver watches the CSS box only, so browser zoom or dragging the window to a monitor
+   *  with a different DPR changes devicePixelRatio without changing the box — the backing buffer
+   *  stayed at the old resolution and the wave went soft until something else forced a resize. */
+  private onDprChange = (): void => {
+    this.watchDpr();
     this.resize();
   };
+
+  /** A `(resolution: Xdppx)` query only fires when we LEAVE the current ratio, so it is re-armed at
+   *  the new one on every change. */
+  private watchDpr(): void {
+    this.dprQuery?.removeEventListener("change", this.onDprChange);
+    this.dprQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+    this.dprQuery.addEventListener("change", this.onDprChange);
+  }
+
+  /** The backing-buffer metrics resize() will apply: the export frame when one is pinned, else the
+   *  container box at the (clamped) device-pixel ratio. */
+  private viewportMetrics(): { w: number; h: number; dpr: number } {
+    return {
+      w: this.outputSize?.width ?? Math.max(1, this.container.clientWidth),
+      h: this.outputSize?.height ?? Math.max(1, this.container.clientHeight),
+      dpr: this.outputSize ? 1 : Math.min(window.devicePixelRatio || 1, this.config.dprMax),
+    };
+  }
 
   private onContextLost = (e: Event): void => {
     e.preventDefault(); // tell the browser we'll recover → no "Aw, Snap" crash
@@ -1435,9 +1492,8 @@ export class WaveRenderer {
   };
 
   resize(): void {
-    const w = this.outputSize?.width ?? Math.max(1, this.container.clientWidth);
-    const h = this.outputSize?.height ?? Math.max(1, this.container.clientHeight);
-    const dpr = this.outputSize ? 1 : Math.min(window.devicePixelRatio || 1, this.config.dprMax);
+    const { w, h, dpr } = this.viewportMetrics();
+    this.lastResize = { w, h, dpr }; // what onResize compares against to skip no-op observations
     this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(w, h, !this.outputSize);
     if (this.outputSize) {
@@ -1953,12 +2009,14 @@ export class WaveRenderer {
 
   dispose(): void {
     cancelAnimationFrame(this.rafId);
+    cancelAnimationFrame(this.resizeRaf); // a coalesced resize may still be queued
     this.running = false;
     this.interaction?.dispose();
     this.interaction = undefined;
     this.resizeObserver.disconnect();
     this.intersectionObserver.disconnect();
     this.motionQuery.removeEventListener("change", this.onMotionChange);
+    this.dprQuery?.removeEventListener("change", this.onDprChange);
     document.removeEventListener("visibilitychange", this.onVisibilityChange);
     this.renderer.domElement.removeEventListener("webglcontextlost", this.onContextLost);
     this.renderer.domElement.removeEventListener("webglcontextrestored", this.onContextRestored);
