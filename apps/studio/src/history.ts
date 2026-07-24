@@ -106,6 +106,8 @@ const FRIENDLY: Record<string, string> = {
   gradientAngle: "gradient",
   gradientType: "gradient",
   cameraZoom: "zoom",
+  cameraFit: "framing",
+  cameraMinVisibleWidth: "framing",
   blendMode: "blend",
   twistFrequency: "twist",
   twistPower: "twist",

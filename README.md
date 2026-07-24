@@ -66,6 +66,12 @@ Or one `<script>` from a CDN, with three bundled in:
 
 Every package is poster-first: it shows a still, then upgrades to live WebGL only when the browser can handle it, and falls back to the poster on no-WebGL, Save-Data, reduced motion, or a lost context. `three.js` is code-split out of the initial load to minimize performance impact.
 
+The canvas already tracks its container (`ResizeObserver` plus a clamped DPR) — but _framing_ is a cover of a 16:9 reference, so it crops hard when the container is narrower than that: a portrait phone shows ~26% of the authored width. `cameraMinVisibleWidth` puts a floor under it — `1` keeps the whole horizontal composition you authored at 16:9, `0.6` keeps 60% of it — and `cameraFit` (`cover` | `contain` | `width` | `height`) switches the mapping outright. Both are authorable in the studio's Camera folder.
+
+```tsx
+<Wave3D preset="Hero" config={{ cameraMinVisibleWidth: 0.6 }} />
+```
+
 `three` is a peer dependency (`>=0.180 <1`); add `@types/three` for TypeScript. Per-package docs: [`@wave3d/core`](packages/core), [`@wave3d/react`](packages/react), [`@wave3d/element`](packages/element).
 
 ## 🛠️ How it works

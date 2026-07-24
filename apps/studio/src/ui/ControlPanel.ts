@@ -1148,12 +1148,30 @@ export class ControlPanel {
       .addBinding(camP, "elevation", { min: -89, max: 89, step: 1, label: "elevation°" })
       .on("change", onOrbit);
     // Orthographic framing: zoom (no fov/distance).
+    camF
+      .addBinding(camP, "zoom", { min: 0.1, max: 6, step: 0.05, label: "zoom" })
+      .on("change", () => {
+        if (!this.camSyncing) this.renderer.setZoom(camP.zoom);
+      });
+    // How the authored 16:9 frame reconciles with a canvas of another aspect. "cover" is the hero
+    // look but binds on HEIGHT once the canvas is narrower than 16:9, so a portrait phone shows a
+    // zoomed sliver; "min visible W" is the dial back out of that crop (0 = off, 1 = full width).
+    // Resize the preview frame narrow to author against it.
+    camF
+      .addBinding(cfg, "cameraFit", {
+        label: "fit",
+        options: { Cover: "cover", Contain: "contain", Width: "width", Height: "height" },
+      })
+      .on("change", () => this.renderer.refreshFraming());
     sepAfter(
       camF
-        .addBinding(camP, "zoom", { min: 0.1, max: 6, step: 0.05, label: "zoom" })
-        .on("change", () => {
-          if (!this.camSyncing) this.renderer.setZoom(camP.zoom);
-        }),
+        .addBinding(cfg, "cameraMinVisibleWidth", {
+          label: "min visible W",
+          min: 0,
+          max: 1,
+          step: 0.05,
+        })
+        .on("change", () => this.renderer.refreshFraming()),
     );
     camF
       .addBinding(camP, "panX", { min: -2000, max: 2000, step: 10, label: "pan X" })

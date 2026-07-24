@@ -6,7 +6,7 @@
 import * as THREE from "three";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { TransformControls } from "three/addons/controls/TransformControls.js";
-import { WaveRenderer, FRAME_W, FRAME_H, hexToLinearVec3 } from "../renderer/WaveRenderer";
+import { WaveRenderer, hexToLinearVec3 } from "../renderer/WaveRenderer";
 import { createLight, DEFAULT_LIGHT_POSITION, MAX_LIGHTS } from "../config/model";
 import type { LightConfig } from "../config/model";
 import { roundTo } from "../util/math";
@@ -400,6 +400,14 @@ export class StudioWaveRenderer extends WaveRenderer {
     if (!this.running) this.renderOnce();
   }
 
+  /** Re-apply the responsive framing after config.cameraFit / cameraMinVisibleWidth were edited in
+   *  place (the panel binds the live config object, so there is no setConfig to hook). Embeds get
+   *  this for free — handle.set() → setConfig → applyCameraFromConfig → applyZoom. */
+  refreshFraming(): void {
+    this.applyZoom();
+    if (!this.running) this.renderOnce();
+  }
+
   /** Studio-only scroll preview (the studio page doesn't scroll): override the `scroll` source with
    *  a fixed 0..1 value, or pass null to return to the live container-progress read. NEVER touches
    *  config. No-op until interaction is enabled (the controller exists). */
@@ -737,17 +745,20 @@ export class StudioWaveRenderer extends WaveRenderer {
       z: roundTo(p.z, 3),
     };
     // Capture the LIVE ortho zoom (mouse-scroll changes camera.zoom directly) back into
-    // config.cameraZoom — the user multiplier — by inverting applyZoom's responsive COVER
-    // factor. Without this, scroll-zoom changed the view but was never saved/exported, so a
-    // framing tuned at a scrolled zoom didn't reproduce (its pan made sense only at that zoom).
-    const cover = Math.max(
-      (this.camera.right - this.camera.left) / FRAME_W,
-      (this.camera.top - this.camera.bottom) / FRAME_H,
+    // config.cameraZoom — the user multiplier — by inverting applyZoom's responsive base factor.
+    // Without this, scroll-zoom changed the view but was never saved/exported, so a framing tuned
+    // at a scrolled zoom didn't reproduce (its pan made sense only at that zoom). It reads the
+    // factor through baseFrameZoom so it tracks cameraFit / cameraMinVisibleWidth: inverting a
+    // hardcoded COVER while the scene rendered under another fit would bake the ratio between the
+    // two into cameraZoom, and the framing would drift a little on every orbit.
+    const base = this.baseFrameZoom(
+      this.camera.right - this.camera.left,
+      this.camera.top - this.camera.bottom,
     );
     // Divide interactionZoom back out too: a live scroll→cameraZoom reaction multiplies camera.zoom
     // for the preview, but only the authored zoom belongs in the persisted (and exported) config.
-    if (cover > 0) {
-      this.config.cameraZoom = roundTo(this.camera.zoom / cover / (this.interactionZoom || 1), 3);
+    if (base > 0) {
+      this.config.cameraZoom = roundTo(this.camera.zoom / base / (this.interactionZoom || 1), 3);
     }
     if (this.orbit) {
       const t = this.orbit.target;

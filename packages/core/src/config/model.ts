@@ -37,6 +37,19 @@ export type GradientType = BasicGradientType | "mesh";
 export type BackgroundMode = "color" | "gradient" | "image";
 export type BackgroundImageFit = "cover" | "contain" | "stretch";
 
+/** How the authored reference frame (FRAME_W × FRAME_H, a 16:9 rectangle centred on cameraTarget)
+ *  is mapped onto a canvas of a different aspect:
+ *  - `cover`   — fill both axes, crop the overflow. The default and the hero look.
+ *  - `contain` — fit the whole frame, revealing world beyond it on the long axis.
+ *  - `width`   — always bind on width, so the horizontal composition is identical at every aspect.
+ *                Above 16:9 this is exactly `cover`; below it, it reveals vertically instead of cropping.
+ *  - `height`  — always bind on height (the mirror of `width`).
+ *  Pair with `cameraMinVisibleWidth` to land between `cover` and `width`. */
+export type CameraFit = "cover" | "contain" | "width" | "height";
+
+/** Runtime whitelist for {@link CameraFit} (validating imported/serialized configs). */
+export const CAMERA_FITS: readonly CameraFit[] = ["cover", "contain", "width", "height"];
+
 /** What fills the 2D palette texture: the baked hero LUT, our editable stops, or
  *  a named built-in map (see PALETTE_MAPS). Any string is allowed for forward-compat. */
 export type PaletteSource = "hero" | "stops" | (string & {});
@@ -400,6 +413,22 @@ export interface SceneConfig {
   cameraZoom: number;
   cameraPosition: Vec3;
   cameraTarget: Vec3;
+  /** How the authored reference frame maps onto the canvas when their aspects differ.
+   *  Default `"cover"`. See {@link CameraFit}. */
+  cameraFit?: CameraFit;
+  /** Floor on how much of the authored frame's WIDTH stays on screen, as a fraction (0..1).
+   *  A ceiling on zoom applied AFTER {@link cameraFit}, so the two compose instead of fighting:
+   *  it only ever zooms out, and is inert for fits that already do (`contain`, `width`).
+   *
+   *  This is the narrow-screen crop control. `cameraFit: "cover"` binds on height once the canvas
+   *  is narrower than the 16:9 reference, so a portrait phone (390×844 @ dpr 2) zooms 2.25× and
+   *  shows only ~26% of the authored width. `0.6` holds 60% of it on screen; `1` is equivalent to
+   *  `"width"`. Default 0 (off) — existing configs frame exactly as before.
+   *
+   *  It clamps the BASE zoom, before the cameraZoom multiplier, which makes the fraction read
+   *  against your own composition rather than the raw constant: `1` shows exactly the horizontal
+   *  span you see at 16:9 whatever cameraZoom you authored at, and `0.6` shows 60% of that. */
+  cameraMinVisibleWidth?: number;
   /** Film grain amount (post pass). */
   grain: number;
   /** Soft-focus / spin blur amount (post pass). */
@@ -604,6 +633,8 @@ export function createDefaultConfig(): StudioConfig {
     cameraPosition: { x: 100, y: 0, z: 5000 },
     cameraTarget: { x: -44, y: -250, z: 0 },
     cameraZoom: 1.0,
+    cameraFit: "cover",
+    cameraMinVisibleWidth: 0, // off — see the field docs for the narrow-screen crop control
     // Post (one pass over the whole composite): hero grain 1.1, blur 0.02.
     grain: 1.1,
     blur: 0.02,
@@ -731,6 +762,13 @@ export function ensureCamera(config: StudioConfig): void {
     config.cameraPosition = { x: 0, y: 0, z: config.cameraDistance ?? 62 };
   if (!config.cameraTarget) config.cameraTarget = { x: 0, y: 0, z: 0 };
   if (typeof config.cameraZoom !== "number") config.cameraZoom = 1;
+  // Framing policy: absent → the historical cover framing, so every saved config/preset that
+  // predates these fields reproduces byte-identically.
+  if (!CAMERA_FITS.includes(config.cameraFit as CameraFit)) config.cameraFit = "cover";
+  config.cameraMinVisibleWidth =
+    typeof config.cameraMinVisibleWidth === "number"
+      ? clamp(config.cameraMinVisibleWidth, 0, 1)
+      : 0;
 }
 
 /** Backfill/repair a wave so the renderer can consume it (covers partial wave-model JSON). */

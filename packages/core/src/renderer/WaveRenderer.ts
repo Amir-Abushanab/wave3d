@@ -49,19 +49,55 @@ import {
   MAX_NOISE_BANDS,
   ensureStudioConfig,
 } from "../config/model";
-import type { StudioConfig, WaveConfig, BlendMode } from "../config/model";
+import type { StudioConfig, WaveConfig, BlendMode, CameraFit } from "../config/model";
 
 const BASE_SEGMENTS = 220; // base segment count along the ribbon; denser = smoother (scaled down per wave — see get segments)
 
 /** Reference frame (world units) the orthographic camera fills at cameraZoom 1. The wave is
- *  framed by COVERING this FRAME_W × FRAME_H rectangle (centred on cameraTarget) into the canvas
- *  — scaled to fill both dimensions, cropping the aspect overflow — so a given cameraZoom /
- *  cameraTarget frames the wave the SAME at any canvas size or aspect (only the cropped margin
- *  differs). FRAME_H = FRAME_W / (16/9) makes the reference a 16:9 rectangle; for canvases wider
- *  than that the width binds, narrower ones zoom in to fill instead of
- *  showing empty bands. This is what makes a saved preset reproduce on anyone's screen. */
+ *  framed by mapping this FRAME_W × FRAME_H rectangle (centred on cameraTarget) onto the canvas,
+ *  so a given cameraZoom / cameraTarget frames the wave the SAME at any canvas size or aspect
+ *  (only the margin differs). FRAME_H = FRAME_W / (16/9) makes the reference a 16:9 rectangle.
+ *  This is what makes a saved preset reproduce on anyone's screen. See {@link frameZoom} for how
+ *  a canvas of a different aspect is reconciled against it. */
 export const FRAME_W = 1333;
 export const FRAME_H = 750;
+
+/**
+ * The responsive base zoom: how many device pixels one world unit occupies so the FRAME_W × FRAME_H
+ * reference lands on a `dw × dh` (device px) canvas under `fit`, then clamped so at least
+ * `minVisibleWidth` of the frame's width survives.
+ *
+ * Shared by the renderer (which applies it) and the studio (which inverts it to persist a
+ * scroll-zoom back into config.cameraZoom) — one implementation, so the two cannot drift.
+ *
+ * The clamp is a pure zoom CEILING layered on top of the fit, which is what lets both knobs
+ * coexist: it can only widen the view, never tighten it, so it is inert for `contain`/`width`
+ * (already at or below that zoom) and bites exactly where the crop hurts — `cover`/`height` on a
+ * canvas narrower than 16:9. `minVisibleWidth` 0 disables it and restores pure-fit behaviour.
+ */
+export function frameZoom(dw: number, dh: number, fit: CameraFit, minVisibleWidth = 0): number {
+  const byWidth = dw / FRAME_W;
+  const byHeight = dh / FRAME_H;
+  let zoom: number;
+  switch (fit) {
+    case "contain": // fit the whole frame — reveals world beyond it on the long axis
+      zoom = Math.min(byWidth, byHeight);
+      break;
+    case "width": // horizontal composition identical at every aspect
+      zoom = byWidth;
+      break;
+    case "height":
+      zoom = byHeight;
+      break;
+    default: // "cover" — fill both axes, crop the overflow
+      zoom = Math.max(byWidth, byHeight);
+  }
+  if (minVisibleWidth > 0) {
+    // Visible world width = dw / zoom; hold it at ≥ FRAME_W × minVisibleWidth.
+    zoom = Math.min(zoom, dw / (FRAME_W * minVisibleWidth));
+  }
+  return zoom;
+}
 
 export interface WaveRendererOptions {
   /** Honor prefers-reduced-motion by freezing animation. Default true. */
@@ -1742,10 +1778,9 @@ export class WaveRenderer {
   /** Hook ④: called at the end of resize(), before the trailing renderOnce(). */
   protected onAfterResize(): void {}
 
-  /** Responsive ortho zoom: COVER the FRAME_W × FRAME_H reference frame onto the canvas so the
-   *  wave frames the same at any size/aspect/dpr (only the cropped margin differs), times the
-   *  user's cameraZoom. `max(...)` = cover (fill both axes, crop overflow); `min(...)` would be
-   *  contain (fit with letterbox bands). Cover keeps the wave filling the frame on every screen. */
+  /** Responsive ortho zoom: map the FRAME_W × FRAME_H reference frame onto the canvas (per
+   *  config.cameraFit / cameraMinVisibleWidth — see {@link frameZoom}) so the wave frames the same
+   *  at any size/aspect/dpr, times the user's cameraZoom. */
   protected applyZoom(): void {
     const dw = this.camera.right - this.camera.left; // device px (set in resize)
     const dh = this.camera.top - this.camera.bottom;
@@ -1753,8 +1788,19 @@ export class WaveRenderer {
     // writeCameraToConfig divides it back out (so the studio's orbit-persisted config isn't polluted)
     // and captureImage strips it from camera.zoom (so exports use the authored framing).
     this.camera.zoom =
-      Math.max(dw / FRAME_W, dh / FRAME_H) * (this.config.cameraZoom ?? 1) * this.interactionZoom;
+      this.baseFrameZoom(dw, dh) * (this.config.cameraZoom ?? 1) * this.interactionZoom;
     this.camera.updateProjectionMatrix();
+  }
+
+  /** The responsive base zoom for the current config's framing policy, before the cameraZoom
+   *  multiplier. Subclasses invert this to recover cameraZoom from a live camera. */
+  protected baseFrameZoom(dw: number, dh: number): number {
+    return frameZoom(
+      dw,
+      dh,
+      this.config.cameraFit ?? "cover",
+      this.config.cameraMinVisibleWidth ?? 0,
+    );
   }
 
   /** Fit the orthographic near/far planes to the scene before every render, so no part of a wave
