@@ -1,5 +1,13 @@
 # wave3d-poster-example
 
+## 0.0.7
+
+### Patch Changes
+
+- Updated dependencies [[`f359f19`](https://github.com/Amir-Abushanab/wave3d/commit/f359f195df6ad75c210213b11496932a52f29711), [`398a825`](https://github.com/Amir-Abushanab/wave3d/commit/398a8258308c3e4ab3528605718d2ad0a694a485)]:
+  - @wave3d/core@0.5.0
+  - @wave3d/element@0.5.0
+
 ## 0.0.6
 
 ### Patch Changes
