@@ -131,6 +131,14 @@ wave with the page) live on `SceneConfig.interaction`. In React the flat `intera
 the first wave; the studio authors it per wave (Hover / Click & touch / Bindings) plus a global
 Interaction folder for the shared inputs and a scroll preview.
 
+**Touch is ignored unless you opt in.** `SceneConfig.interaction.touch` defaults to `false`, and
+coarse pointers are dropped before any handler runs — so on a phone, `hover`, `press`/`ripple` and
+the `hover` / `pointerX` / `pointerY` / `pointerSpeed` / `press` sources are all inert no matter what
+you tune. Set `interaction: { touch: true }` on the scene to follow the finger while it is down
+(listeners are passive, so this does **not** block page scrolling). Untouched by the gate: `scroll`,
+`scrollVelocity` and `appear` read container progress through the viewport, not pointer events, so
+they drive normally on mobile — scroll bindings are the way to stay reactive with `touch` off.
+
 ## Post effects (optional)
 
 Passes over the finished composite. Each is a plain **scene-level** `SceneConfig` field (a sibling of
