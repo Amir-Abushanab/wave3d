@@ -57,6 +57,12 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Gate both the version PR and the publish on the suite. ci.yml runs on these same pushes but
+      # is a SEPARATE workflow with no dependency here, so without this step a red suite could still
+      # publish to npm — the one thing this pipeline does that can't be taken back. Deliberately
+      # `test` and not `check`: it covers the code being shipped without letting a studio-only lint
+      # or typecheck failure block a package release.
+      - run: pnpm test
       # Trusted publishing needs npm >= 11.5.1; Node 24 may ship an older npm.
       - run: npm install -g npm@latest
       - name: Version Packages PR / publish
