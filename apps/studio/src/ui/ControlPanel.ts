@@ -9,6 +9,7 @@ import {
   DEFAULT_LIGHT_POSITION,
   createNoiseBand,
   ensureSceneDefaults,
+  ensureStudioConfig,
   normalizeWave,
   MAX_COLORS,
   MAX_LIGHTS,
@@ -371,13 +372,13 @@ export class ControlPanel {
     private readonly hooks: PanelHooks = {},
   ) {
     if (hooks.defaultPreset) this.selectedPreset = hooks.defaultPreset;
-    this.build();
+    this.buildSafely();
   }
 
   setConfig(config: StudioConfig, presetName = "—"): void {
     this.config = config;
     this.selectedPreset = presetName;
-    setTimeout(() => this.rebuildPanel(), 0);
+    this.scheduleRebuild();
   }
 
   /** Revert the preset label to "—" after a manual edit, so it doesn't claim a preset the
@@ -491,15 +492,14 @@ export class ControlPanel {
   }
 
   dispose(): void {
-    this.disposeEditor();
-    this.pane.dispose();
+    this.teardownPanel();
   }
 
   private rebuildWaves = (): void => {
     resizeWaves(this.config);
     this.renderer.rebuild();
     this.hooks.onEdit?.(); // add/remove wave is a structural edit — record it (skips `refresh`)
-    setTimeout(() => this.rebuildPanel(), 0);
+    this.scheduleRebuild();
   };
 
   /** "Output" folder: export size/preset + GPU warning, image export, recording, embed export. */
@@ -1211,7 +1211,7 @@ export class ControlPanel {
         await this.renderer.setLightEditMode(on);
         // Rebuild so the added light's controls appear and the "drag waves in 3D" toggle clears
         // (the two modes are mutually exclusive).
-        setTimeout(() => this.rebuildPanel(), 0);
+        this.scheduleRebuild();
       });
     cfg.lights.forEach((light, i) => {
       const sub = lightsF.addFolder({ title: `Light ${i + 1}`, expanded: i === 0 });
@@ -1222,7 +1222,7 @@ export class ControlPanel {
         sub.addButton({ title: "remove this light" }).on("click", () => {
           cfg.lights.splice(i, 1);
           refresh();
-          setTimeout(() => this.rebuildPanel(), 0);
+          this.scheduleRebuild();
         });
       }
     });
@@ -1230,7 +1230,7 @@ export class ControlPanel {
       lightsF.addButton({ title: "+ add light" }).on("click", () => {
         cfg.lights.push(createLight({ x: -800, y: 600, z: 900 }, 0.7));
         refresh();
-        setTimeout(() => this.rebuildPanel(), 0);
+        this.scheduleRebuild();
       });
     }
   }
@@ -1442,6 +1442,14 @@ export class ControlPanel {
     render();
   }
 
+  /** Every rebuild goes through here. A binding's own change handler can't dispose the pane it is
+   *  running inside, so the rebuild is deferred to the next macrotask — which also puts it outside
+   *  the originating caller's try/catch (a JSON "Apply", say). That's why the error boundary lives
+   *  in buildSafely below rather than at the ~10 call sites. */
+  private scheduleRebuild(): void {
+    setTimeout(() => this.rebuildPanel(), 0);
+  }
+
   private rebuildPanel(): void {
     // Remember which folders are open so the rebuild doesn't reset them.
     for (const f of this.folders) this.foldState[f.title] = f.api.expanded;
@@ -1450,13 +1458,107 @@ export class ControlPanel {
     // rebuilds). Capture the scroll offset and restore it — synchronously, then again next frame so
     // async editor/thumbnail layout (per-wave GradientEditor/PaletteDropdown) can't clobber it.
     const scrollTop = this.container.scrollTop;
-    this.disposeEditor();
-    this.pane.dispose();
-    this.build();
+    this.teardownPanel();
+    this.buildSafely();
     this.container.scrollTop = scrollTop;
     requestAnimationFrame(() => {
       this.container.scrollTop = scrollTop;
     });
+  }
+
+  /**
+   * The panel's error boundary. `build()` walks the whole document to create several hundred
+   * bindings, and Tweakpane throws for a value it has no controller for — anything that isn't a
+   * number/string/boolean/colour. So a config that omits a bound field, or retypes one (a
+   * hand-edited JSON dropping `timeOffset`, an older save-state, a share link from a future
+   * version), took down the entire panel: rebuildPanel has already disposed the old pane by the
+   * time build runs, so the throw left an empty rail AND a raw stack trace in the user's face.
+   *
+   * A build failure is nearly always a config the normalizers should have repaired, so: renormalize
+   * and build once more. That fixes the field and the user keeps a working panel — the first
+   * failure is logged rather than shown, so it stays visible to us without being the user's
+   * problem. Only if the retry also fails is the config genuinely beyond repair, and then a
+   * recovery card beats an empty rail. The canvas is never affected either way (it lives outside
+   * this.container, and the renderer holds the same config object).
+   */
+  private buildSafely(): void {
+    try {
+      this.build();
+      return;
+    } catch (err) {
+      console.error("[wave-studio] control panel build failed; repairing config and retrying", err);
+    }
+    // build() may have thrown midway, leaving a half-built pane (and editors) mounted — tear those
+    // down before the retry, or the second build appends a second copy of the panel.
+    this.teardownPanel();
+    try {
+      ensureStudioConfig(this.config);
+      this.build();
+    } catch (err) {
+      console.error("[wave-studio] control panel unrecoverable", err);
+      this.teardownPanel();
+      this.showRecoveryCard(err);
+    }
+  }
+
+  /**
+   * Tear the current panel down: the colour editors, the Tweakpane instance, and anything else left
+   * in the container — a recovery card from an earlier failure, or the DOM of a half-finished build.
+   *
+   * Best-effort on purpose. The pane may be half-constructed, not yet built, or already disposed
+   * (Tweakpane's own `dispose()` throws "View has been already disposed" the second time), and a
+   * throw in teardown must neither mask the build error we're recovering from nor escape to the
+   * window handler — which is exactly what left the panel dead after a failed build.
+   */
+  private teardownPanel(): void {
+    try {
+      this.disposeEditor();
+      this.pane?.dispose();
+    } catch {
+      /* half-built, already disposed, or never constructed */
+    }
+    this.folders = [];
+    this.container.replaceChildren();
+  }
+
+  /** Shown only when even a renormalized config can't build a panel. Keeps the studio usable —
+   *  the wave is still rendering, and the config is still exportable — instead of pairing an empty
+   *  rail with the global error overlay. */
+  private showRecoveryCard(err: unknown): void {
+    const card = document.createElement("div");
+    card.className = "wv-panel-error";
+    card.style.cssText =
+      "margin:8px;padding:12px;border-radius:6px;border:1px solid rgba(255,90,90,0.45);" +
+      "background:rgba(120,12,12,0.35);color:#f3d6d6;" +
+      "font:12px/1.5 ui-sans-serif,system-ui,-apple-system,sans-serif;";
+    const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+    const title = document.createElement("div");
+    title.style.cssText = "font-weight:600;color:#fff;margin-bottom:6px;";
+    title.textContent = "The controls couldn't be built";
+    const body = document.createElement("div");
+    body.textContent =
+      "This config has a value the panel can't edit. The wave is still rendering and you can " +
+      "still export or edit the JSON — resetting to the default gives you the controls back.";
+    card.append(title, body);
+
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;";
+    const mkBtn = (label: string, onClick: () => void): void => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = label;
+      b.style.cssText =
+        "padding:5px 10px;border-radius:4px;cursor:pointer;color:#fff;" +
+        "background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.24);font:inherit;";
+      b.addEventListener("click", onClick);
+      row.appendChild(b);
+    };
+    mkBtn("Reset to default", () => this.hooks.onReset?.());
+    mkBtn("Edit config (JSON)", () => this.hooks.onEditConfig?.());
+    mkBtn("Try again", () => this.scheduleRebuild());
+    mkBtn("Copy error", () => void navigator.clipboard?.writeText(detail).catch(() => {}));
+    card.appendChild(row);
+    this.container.appendChild(card);
   }
 
   private build(): void {
@@ -1628,14 +1730,14 @@ export class ControlPanel {
         btn.on("click", () => {
           fn(wave);
           refresh();
-          setTimeout(() => this.rebuildPanel(), 0);
+          this.scheduleRebuild();
         });
         seatRandomAtTop(folder, btn.element);
       };
       sf.addButton({ title: "🎲 randomize wave" }).on("click", () => {
         randomizeWave(wave);
         refresh();
-        setTimeout(() => this.rebuildPanel(), 0);
+        this.scheduleRebuild();
       });
       if (cfg.waves.length > 1) {
         sf.addButton({ title: "✕ remove wave" }).on("click", () => {
@@ -2018,14 +2120,14 @@ export class ControlPanel {
         sub.addButton({ title: "remove this band" }).on("click", () => {
           wave.noiseBands.splice(bi, 1);
           refresh();
-          setTimeout(() => this.rebuildPanel(), 0);
+          this.scheduleRebuild();
         });
       });
       if (wave.noiseBands.length < MAX_NOISE_BANDS) {
         bandsF.addButton({ title: "+ add band" }).on("click", () => {
           wave.noiseBands.push(createNoiseBand());
           refresh();
-          setTimeout(() => this.rebuildPanel(), 0);
+          this.scheduleRebuild();
         });
       }
 
@@ -2083,7 +2185,7 @@ export class ControlPanel {
       .addBinding(waveDragProxy, "edit", { label: "drag waves in 3D" })
       .on("change", async (ev) => {
         await this.renderer.setWaveEditMode(Boolean(ev.value));
-        setTimeout(() => this.rebuildPanel(), 0);
+        this.scheduleRebuild();
       });
     if (this.renderer.isWaveEditMode()) {
       const gizmoProxy = { mode: this.renderer.getGizmoMode() };
