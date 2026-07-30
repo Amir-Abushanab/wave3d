@@ -1,0 +1,14 @@
+# npm-check-updates config, read by `pnpm ncu`.
+#
+# cooldown: never propose a version that was published less than 7 days ago. Compromised releases
+# are typically yanked within hours-to-days of publication, so a week's lag means the ecosystem
+# finds the bad ones before this repo would pull them in — at the cost of adopting genuine fixes a
+# week late. With the default `--target latest`, a package whose newest version is inside the
+# window falls back to the newest version OLDER than the window rather than being skipped, so
+# updates keep flowing.
+#
+# This only governs what `pnpm ncu` PROPOSES for direct dependencies. It is not an install-time
+# gate: `pnpm install` will still fetch whatever the lockfile pins, at any age. pnpm's own
+# `minimumReleaseAge` (settable in pnpm-workspace.yaml) is the install-time equivalent, covering
+# transitive dependencies too.
+cooldown: 7
