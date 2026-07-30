@@ -1,6 +1,10 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignore": [".ncurc.cjs"],
   "workspaces": {
+    ".": {
+      "ignoreDependencies": ["@tweakpane/core"]
+    },
     "packages/core": {
       "project": ["src/**/*.ts"],
       "ignoreDependencies": ["@tanstack/intent"]

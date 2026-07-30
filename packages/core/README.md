@@ -40,9 +40,7 @@ const blob = await handle.snapshot(); // resolves null until running. options: {
 ```html
 <script type="module">
   import { mountWave } from "https://esm.sh/@wave3d/core/standalone";
-  mountWave(document.getElementById("wave"), {
-    /* your exported config */
-  });
+  mountWave(document.getElementById("wave"), {/* your exported config */});
 </script>
 ```
 
@@ -76,9 +74,7 @@ createWave(el, {
     touch: false, // follow touch pointers too
     bindings: [{ source: "scroll", target: "timeOffset", to: 40 }], // scrub the whole wave with scroll
   },
-  waves: [
-    /* each wave carries its own `interaction` (hover / press / bindings) */
-  ],
+  waves: [/* each wave carries its own `interaction` (hover / press / bindings) */],
 });
 ```
 
