@@ -63,13 +63,15 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsdown && pnpm build:standalone",
-    "build:standalone": "vite build --config vite.standalone.config.ts"
+    "build:standalone": "vite build --config vite.standalone.config.ts",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@tanstack/intent": "^0.3.4",
     "@types/three": "^0.185.0",
     "three": "^0.185.0",
-    "vite": "^8.1.0"
+    "vite": "^8.1.0",
+    "vitest": "^4.1.10"
   },
   "peerDependencies": {
     "@types/three": ">=0.180",

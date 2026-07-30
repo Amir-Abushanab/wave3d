@@ -16,6 +16,7 @@
     "release": "pnpm build:packages && node scripts/publish-if-needed.mjs",
     "preview": "pnpm --filter wave-studio preview",
     "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
     "lint": "oxlint .",
     "lint:fix": "oxlint . --fix",
     "format": "oxfmt . '!gallery/waves/**'",
@@ -24,7 +25,7 @@
     "knip": "knip",
     "skill:validate": "intent validate packages/core/skills",
     "gallery:validate": "node scripts/validate-gallery.mjs",
-    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm depcruise && pnpm knip && pnpm skill:validate && pnpm gallery:validate",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm depcruise && pnpm knip && pnpm skill:validate && pnpm gallery:validate",
     "ncu": "pnpm dlx npm-check-updates"
   },
   "devDependencies": {

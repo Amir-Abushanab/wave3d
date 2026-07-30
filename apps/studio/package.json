@@ -11,7 +11,8 @@
     "prebuild": "pnpm --filter @wave3d/core build:standalone",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@codemirror/lang-json": "^6.0.2",
@@ -30,6 +31,8 @@
   "devDependencies": {
     "@tweakpane/core": "^2.0.5",
     "@types/three": "^0.185.0",
-    "vite": "^8.1.0"
+    "jsdom": "^30.0.1",
+    "vite": "^8.1.0",
+    "vitest": "^4.1.10"
   }
 }
