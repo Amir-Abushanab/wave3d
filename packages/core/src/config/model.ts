@@ -666,8 +666,12 @@ export function createDefaultConfig(): StudioConfig {
 /** Clamp/backfill a single wave's colour + palette fields (legacy `string[]` palettes become
  *  ColorStop[]; mesh points + texture transform are clamped). */
 function normalizeWaveColour(config: WaveConfig): void {
-  const p = config.palette as unknown as Array<string | ColorStop>;
-  if (p.length > 0 && typeof p[0] === "string") {
+  const p = config.palette as unknown as Array<string | ColorStop> | undefined;
+  if (!Array.isArray(p) || p.length === 0) {
+    // A wave with no usable palette at all (`"waves": [{}]`) used to throw right here, out of the
+    // very normalizer whose job is to make an untrusted config safe to render.
+    config.palette = defaultWave().palette;
+  } else if (typeof p[0] === "string") {
     config.palette = makeStops(p as string[]);
   }
   if (
@@ -709,6 +713,8 @@ function normalizeWaveColour(config: WaveConfig): void {
 
 /** Backfill background styling for states saved before gradient/image backgrounds existed. */
 export function normalizeBackground(config: StudioConfig): void {
+  if (typeof config.background !== "string") config.background = "#ffffff";
+  if (typeof config.transparentBackground !== "boolean") config.transparentBackground = true;
   if (
     config.backgroundMode !== "gradient" &&
     config.backgroundMode !== "image" &&
@@ -736,7 +742,7 @@ export function normalizeBackground(config: StudioConfig): void {
   }
   if (!Number.isFinite(config.backgroundMeshSoftness)) config.backgroundMeshSoftness = 0.62;
   config.backgroundMeshSoftness = clamp01(config.backgroundMeshSoftness);
-  if (typeof config.backgroundGradientAngle !== "number") config.backgroundGradientAngle = 135;
+  if (!Number.isFinite(config.backgroundGradientAngle)) config.backgroundGradientAngle = 135;
   if (typeof config.backgroundGradientSource !== "string")
     config.backgroundGradientSource = "stops";
   if (typeof config.backgroundImageSource !== "string") config.backgroundImageSource = "vaporwave";
@@ -747,7 +753,7 @@ export function normalizeBackground(config: StudioConfig): void {
   ) {
     config.backgroundImageFit = "cover";
   }
-  if (typeof config.backgroundImageZoom !== "number") config.backgroundImageZoom = 1;
+  if (!Number.isFinite(config.backgroundImageZoom)) config.backgroundImageZoom = 1;
   config.backgroundImageZoom = clamp(config.backgroundImageZoom, 0.1, 8);
   if (!config.backgroundImagePosition) config.backgroundImagePosition = { x: 0, y: 0 };
   if (typeof config.backgroundImagePosition.x !== "number") config.backgroundImagePosition.x = 0;
@@ -761,7 +767,7 @@ export function ensureCamera(config: StudioConfig): void {
   if (!config.cameraPosition)
     config.cameraPosition = { x: 0, y: 0, z: config.cameraDistance ?? 62 };
   if (!config.cameraTarget) config.cameraTarget = { x: 0, y: 0, z: 0 };
-  if (typeof config.cameraZoom !== "number") config.cameraZoom = 1;
+  if (!Number.isFinite(config.cameraZoom)) config.cameraZoom = 1;
   // Framing policy: absent → the historical cover framing, so every saved config/preset that
   // predates these fields reproduces byte-identically.
   if (!CAMERA_FITS.includes(config.cameraFit as CameraFit)) config.cameraFit = "cover";
@@ -774,49 +780,52 @@ export function ensureCamera(config: StudioConfig): void {
 /** Backfill/repair a wave so the renderer can consume it (covers partial wave-model JSON). */
 export function normalizeWave(s: WaveConfig): void {
   normalizeWaveColour(s);
-  if (typeof s.gradientAngle !== "number") s.gradientAngle = 90;
-  if (typeof s.gradientShift !== "number") s.gradientShift = 0.15;
+  if (!Number.isFinite(s.gradientAngle)) s.gradientAngle = 90;
+  if (!Number.isFinite(s.gradientShift)) s.gradientShift = 0.15;
   if (typeof s.usePaletteTexture !== "boolean") s.usePaletteTexture = true;
   if (typeof s.paletteSource !== "string") s.paletteSource = "hero";
   if (typeof s.paletteEdgeColor !== "string") s.paletteEdgeColor = "#8e9dff";
-  if (typeof s.paletteEdgeAmount !== "number") s.paletteEdgeAmount = 0.3;
-  if (typeof s.paletteDriftX !== "number") s.paletteDriftX = 0;
-  if (typeof s.paletteDriftY !== "number") s.paletteDriftY = 0;
-  if (typeof s.hueShift !== "number") s.hueShift = 0;
-  if (typeof s.colorContrast !== "number") s.colorContrast = 1;
-  if (typeof s.colorSaturation !== "number") s.colorSaturation = 1;
-  if (typeof s.fiberCount !== "number") s.fiberCount = 600;
-  if (typeof s.fiberStrength !== "number") s.fiberStrength = 0.2;
+  if (!Number.isFinite(s.paletteEdgeAmount)) s.paletteEdgeAmount = 0.3;
+  if (!Number.isFinite(s.paletteDriftX)) s.paletteDriftX = 0;
+  if (!Number.isFinite(s.paletteDriftY)) s.paletteDriftY = 0;
+  if (!Number.isFinite(s.hueShift)) s.hueShift = 0;
+  if (!Number.isFinite(s.colorContrast)) s.colorContrast = 1;
+  if (!Number.isFinite(s.colorSaturation)) s.colorSaturation = 1;
+  if (!Number.isFinite(s.fiberCount)) s.fiberCount = 600;
+  if (!Number.isFinite(s.fiberStrength)) s.fiberStrength = 0.2;
   if (!Array.isArray(s.noiseBands)) s.noiseBands = [];
-  if (typeof s.texture !== "number") s.texture = 0;
-  if (typeof s.creaseLight !== "number") s.creaseLight = 0.6;
-  if (typeof s.creaseSharpness !== "number") s.creaseSharpness = 0.589;
-  if (typeof s.creaseSoftness !== "number") s.creaseSoftness = 1;
-  if (typeof s.sheen !== "number") s.sheen = 0;
-  if (typeof s.roundness !== "number") s.roundness = 0;
-  if (typeof s.iridescence !== "number") s.iridescence = 0;
-  if (typeof s.edgeFade !== "number") s.edgeFade = 0.04;
-  if (typeof s.edgeFeather !== "number") s.edgeFeather = 0.1;
-  if (typeof s.depthTint !== "number") s.depthTint = 0;
+  normalizeNoiseBands(s);
+  if (!Number.isFinite(s.texture)) s.texture = 0;
+  if (!Number.isFinite(s.creaseLight)) s.creaseLight = 0.6;
+  if (!Number.isFinite(s.creaseSharpness)) s.creaseSharpness = 0.589;
+  if (!Number.isFinite(s.creaseSoftness)) s.creaseSoftness = 1;
+  if (!Number.isFinite(s.sheen)) s.sheen = 0;
+  if (!Number.isFinite(s.roundness)) s.roundness = 0;
+  if (!Number.isFinite(s.iridescence)) s.iridescence = 0;
+  if (!Number.isFinite(s.edgeFade)) s.edgeFade = 0.04;
+  if (!Number.isFinite(s.edgeFeather)) s.edgeFeather = 0.1;
+  if (!Number.isFinite(s.depthTint)) s.depthTint = 0;
   if (typeof s.depthTintColor !== "string") s.depthTintColor = "#0a2540";
   if (!s.displaceFrequency) s.displaceFrequency = { x: 0.003234, y: 0.00799 };
-  if (typeof s.displaceAmount !== "number") s.displaceAmount = 6.051;
-  if (typeof s.detailFrequency !== "number") s.detailFrequency = 0.04;
-  if (typeof s.detailAmount !== "number") s.detailAmount = 0;
+  if (!Number.isFinite(s.displaceAmount)) s.displaceAmount = 6.051;
+  if (!Number.isFinite(s.detailFrequency)) s.detailFrequency = 0.04;
+  if (!Number.isFinite(s.detailAmount)) s.detailAmount = 0;
   if (!s.twistFrequency) s.twistFrequency = { x: -0.055, y: 0.077, z: -0.518 };
   if (!s.twistPower) s.twistPower = { x: 3.95, y: 5.85, z: 6.33 };
+  // false, not absent: the panel binds this directly, and a wave that omits it can't be edited.
+  if (typeof s.twistMotion !== "boolean") s.twistMotion = false;
   if (typeof s.theme !== "string") s.theme = "solid";
-  if (typeof s.lineAmount !== "number") s.lineAmount = 425;
-  if (typeof s.lineThickness !== "number") s.lineThickness = 1;
-  if (typeof s.lineDerivativePower !== "number") s.lineDerivativePower = 0.95;
-  if (typeof s.maxWidth !== "number") s.maxWidth = 1232;
+  if (!Number.isFinite(s.lineAmount)) s.lineAmount = 425;
+  if (!Number.isFinite(s.lineThickness)) s.lineThickness = 1;
+  if (!Number.isFinite(s.lineDerivativePower)) s.lineDerivativePower = 0.95;
+  if (!Number.isFinite(s.maxWidth)) s.maxWidth = 1232;
   if (!s.position) s.position = { x: 0, y: 0, z: 0 };
   if (!s.rotation) s.rotation = { x: 0, y: 0, z: 0 };
   if (!s.scale) s.scale = { x: 10, y: 10, z: 7 };
   if (typeof s.blendMode !== "string") s.blendMode = "squared";
-  if (typeof s.speed !== "number") s.speed = 0.04;
-  if (typeof s.opacity !== "number") s.opacity = 1;
-  if (typeof s.seed !== "number") s.seed = 0;
+  if (!Number.isFinite(s.speed)) s.speed = 0.04;
+  if (!Number.isFinite(s.opacity)) s.opacity = 1;
+  if (!Number.isFinite(s.seed)) s.seed = 0;
   if (s.interaction) normalizeWaveInteraction(s); // present-only; absence stays inert
 }
 
@@ -824,35 +833,39 @@ export function normalizeWave(s: WaveConfig): void {
 export function ensureSceneDefaults(config: StudioConfig): void {
   normalizeBackground(config);
   ensureCamera(config);
-  if (typeof config.ambient !== "number") config.ambient = 0.45;
+  if (!Number.isFinite(config.ambient)) config.ambient = 0.45;
   if (!Array.isArray(config.lights)) config.lights = [];
-  if (typeof config.quality !== "number") config.quality = 1;
-  if (typeof config.dprMax !== "number") config.dprMax = 2;
-  if (typeof config.grain !== "number") config.grain = 1.1;
-  if (typeof config.blur !== "number") config.blur = 0.02;
-  if (typeof config.blurSamples !== "number") config.blurSamples = 6;
-  if (typeof config.bloomStrength !== "number") config.bloomStrength = 0;
-  if (typeof config.bloomRadius !== "number") config.bloomRadius = 0.4;
-  if (typeof config.bloomThreshold !== "number") config.bloomThreshold = 0.85;
-  if (typeof config.dither !== "number") config.dither = 0;
-  if (typeof config.ditherScale !== "number") config.ditherScale = 2;
-  if (typeof config.ditherSteps !== "number") config.ditherSteps = 4;
-  if (typeof config.innerLight !== "number") config.innerLight = 0;
-  if (typeof config.innerLightDensity !== "number") config.innerLightDensity = 0.5;
-  if (typeof config.innerLightDecay !== "number") config.innerLightDecay = 0.95;
-  if (typeof config.innerLightX !== "number") config.innerLightX = 0.5;
-  if (typeof config.innerLightY !== "number") config.innerLightY = 0.15;
-  if (typeof config.halftone !== "number") config.halftone = 0;
-  if (typeof config.halftoneCell !== "number") config.halftoneCell = 6;
-  if (typeof config.halftoneAngle !== "number") config.halftoneAngle = 0.4;
-  if (typeof config.heatmap !== "number") config.heatmap = 0;
-  if (typeof config.paperTexture !== "number") config.paperTexture = 0;
-  if (typeof config.paperTextureScale !== "number") config.paperTextureScale = 2;
-  if (typeof config.halftoneCmyk !== "number") config.halftoneCmyk = 0;
-  if (typeof config.halftoneCmykCell !== "number") config.halftoneCmykCell = 6;
+  normalizeLights(config);
+  if (!Number.isFinite(config.quality)) config.quality = 1;
+  if (!Number.isFinite(config.dprMax)) config.dprMax = 2;
+  if (!Number.isFinite(config.grain)) config.grain = 1.1;
+  if (!Number.isFinite(config.blur)) config.blur = 0.02;
+  if (!Number.isFinite(config.blurSamples)) config.blurSamples = 6;
+  if (!Number.isFinite(config.bloomStrength)) config.bloomStrength = 0;
+  if (!Number.isFinite(config.bloomRadius)) config.bloomRadius = 0.4;
+  if (!Number.isFinite(config.bloomThreshold)) config.bloomThreshold = 0.85;
+  if (!Number.isFinite(config.dither)) config.dither = 0;
+  if (!Number.isFinite(config.ditherScale)) config.ditherScale = 2;
+  if (!Number.isFinite(config.ditherSteps)) config.ditherSteps = 4;
+  if (!Number.isFinite(config.innerLight)) config.innerLight = 0;
+  if (!Number.isFinite(config.innerLightDensity)) config.innerLightDensity = 0.5;
+  if (!Number.isFinite(config.innerLightDecay)) config.innerLightDecay = 0.95;
+  if (!Number.isFinite(config.innerLightX)) config.innerLightX = 0.5;
+  if (!Number.isFinite(config.innerLightY)) config.innerLightY = 0.15;
+  if (!Number.isFinite(config.halftone)) config.halftone = 0;
+  if (!Number.isFinite(config.halftoneCell)) config.halftoneCell = 6;
+  if (!Number.isFinite(config.halftoneAngle)) config.halftoneAngle = 0.4;
+  if (!Number.isFinite(config.heatmap)) config.heatmap = 0;
+  if (!Number.isFinite(config.paperTexture)) config.paperTexture = 0;
+  if (!Number.isFinite(config.paperTextureScale)) config.paperTextureScale = 2;
+  if (!Number.isFinite(config.halftoneCmyk)) config.halftoneCmyk = 0;
+  if (!Number.isFinite(config.halftoneCmykCell)) config.halftoneCmykCell = 6;
   if (typeof config.showCameraRig !== "boolean") config.showCameraRig = false;
   if (typeof config.paused !== "boolean") config.paused = false;
-  if (typeof config.loopSeconds !== "number") config.loopSeconds = 0;
+  // Not clamped to the studio slider's 0..60: a driver stepping a paused scene frame by frame
+  // (the embed's timeOffset drive) legitimately passes any finite phase.
+  if (!Number.isFinite(config.timeOffset)) config.timeOffset = 0;
+  if (!Number.isFinite(config.loopSeconds)) config.loopSeconds = 0;
   if (typeof config.mirrorH !== "boolean") config.mirrorH = false;
   if (typeof config.mirrorV !== "boolean") config.mirrorV = false;
   // NOTE: `interaction` (scene + per-wave) is deliberately NOT backfilled — absence is semantically
@@ -864,6 +877,50 @@ export function ensureSceneDefaults(config: StudioConfig): void {
 function clampNumber(v: unknown, min: number, max: number, dflt: number): number {
   const n = Number(v);
   return Number.isFinite(n) ? clamp(n, min, max) : dflt;
+}
+
+/** Coerce an untrusted field to a finite number, falling back to `dflt`. Deliberately does NOT
+ *  clamp — it repairs broken values without reinterpreting out-of-range ones that a saved config
+ *  may legitimately rely on. */
+function num(v: unknown, dflt: number): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : dflt;
+}
+
+/**
+ * Repair the ELEMENTS of the scene's `lights` and a wave's `noiseBands`. Both arrays are
+ * type-checked where they're backfilled, but their entries never were — and the studio binds every
+ * field below directly, so one hand-authored `"lights": [{}]` was enough to make the whole control
+ * panel unbuildable. Entries that aren't objects at all are dropped.
+ */
+function normalizeLights(config: StudioConfig): void {
+  config.lights = config.lights.filter((l) => typeof l === "object" && l !== null);
+  for (const l of config.lights) {
+    if (typeof l.position !== "object" || l.position === null) {
+      l.position = { ...DEFAULT_LIGHT_POSITION };
+    }
+    l.position.x = num(l.position.x, DEFAULT_LIGHT_POSITION.x);
+    l.position.y = num(l.position.y, DEFAULT_LIGHT_POSITION.y);
+    l.position.z = num(l.position.z, DEFAULT_LIGHT_POSITION.z);
+    if (typeof l.color !== "string") l.color = "#ffffff";
+    l.intensity = num(l.intensity, 1);
+  }
+}
+
+function normalizeNoiseBands(s: WaveConfig): void {
+  s.noiseBands = s.noiseBands.filter((b) => typeof b === "object" && b !== null);
+  const d = createNoiseBand();
+  for (const b of s.noiseBands) {
+    b.startX = num(b.startX, d.startX);
+    b.endX = num(b.endX, d.endX);
+    b.startY = num(b.startY, d.startY);
+    b.endY = num(b.endY, d.endY);
+    b.feather = num(b.feather, d.feather);
+    b.strength = num(b.strength, d.strength);
+    b.frequency = num(b.frequency, d.frequency);
+    b.colorAttenuation = num(b.colorAttenuation, d.colorAttenuation);
+    b.parabolaPower = num(b.parabolaPower, d.parabolaPower);
+  }
 }
 
 /** True for a valid interaction source string: a built-in name or a non-empty `custom:<name>`. */

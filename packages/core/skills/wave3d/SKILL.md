@@ -87,13 +87,7 @@ import { Wave3D } from "@wave3d/react";
 ```ts
 import { createWave } from "@wave3d/core";
 
-const handle = createWave(
-  document.getElementById("wave"),
-  {
-    /* config */
-  },
-  { poster: "/wave.png" },
-);
+const handle = createWave(document.getElementById("wave"), {/* config */}, { poster: "/wave.png" });
 // handle: { state, renderer, set(config), play(), pause(), destroy() }
 ```
 

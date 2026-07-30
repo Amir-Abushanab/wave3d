@@ -58,9 +58,7 @@ Or one `<script>` from a CDN, with three bundled in:
 ```html
 <script type="module">
   import { mountWave } from "https://esm.sh/@wave3d/core/standalone";
-  mountWave(document.getElementById("wave"), {
-    /* your exported config */
-  });
+  mountWave(document.getElementById("wave"), {/* your exported config */});
 </script>
 ```
 
