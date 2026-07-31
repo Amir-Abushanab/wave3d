@@ -1,0 +1,53 @@
+{
+  "title": "Hero Double Helix",
+  "author": "Amir-Abushanab",
+  "config": {
+    "background": "#ffffff",
+    "transparentBackground": false,
+    "waveCount": 2,
+    "loopSeconds": 24,
+    "cameraDistance": 12000,
+    "cameraPosition": { "x": 1670.077, "y": 3075.603, "z": 11478.306 },
+    "cameraTarget": { "x": 0, "y": 0, "z": 0 },
+    "cameraZoom": 0.104,
+    "grain": 0.9,
+    "waves": [
+      {
+        "colorSaturation": 1,
+        "creaseLight": 1.98,
+        "creaseSharpness": 0.806,
+        "creaseSoftness": 0.834,
+        "displaceFrequency": { "x": 0.005831, "y": 0.016001 },
+        "displaceAmount": 60,
+        "twistFrequency": { "x": 0, "y": 0, "z": 0 },
+        "twistPower": { "x": 3.63, "y": 0.7, "z": 3.95 },
+        "helixTurns": 2,
+        "helixRadius": 204.444,
+        "helixRoll": 0.5,
+        "helixPhase": 0,
+        "position": { "x": 0, "y": 0, "z": 0 },
+        "rotation": { "x": 0, "y": 0, "z": 0 },
+        "scale": { "x": 28.622, "y": 7, "z": 7 },
+        "speed": 0.08
+      },
+      {
+        "colorSaturation": 1,
+        "creaseLight": 1.98,
+        "creaseSharpness": 0.806,
+        "creaseSoftness": 0.834,
+        "displaceFrequency": { "x": 0.005831, "y": 0.016001 },
+        "displaceAmount": 60,
+        "twistFrequency": { "x": 0, "y": 0, "z": 0 },
+        "twistPower": { "x": 3.63, "y": 0.7, "z": 3.95 },
+        "helixTurns": 2,
+        "helixRadius": 204.444,
+        "helixRoll": 0.5,
+        "helixPhase": 180,
+        "position": { "x": 0, "y": 0, "z": 0 },
+        "rotation": { "x": 0, "y": 0, "z": 0 },
+        "scale": { "x": 28.622, "y": 7, "z": 7 },
+        "speed": 0.08
+      }
+    ]
+  }
+}
