@@ -18,7 +18,15 @@ export function createThumbHost(width: number, height: number): HTMLDivElement {
 export function prepThumbConfig(cfg: StudioConfig): void {
   cfg.paused = true;
   cfg.transparentBackground = false;
-  if (cfg.waves[0]?.theme !== "wireframe") cfg.background = "#ffffff";
+  if (cfg.waves[0]?.theme !== "wireframe") {
+    cfg.background = "#ffffff";
+    // Swapping an authored dark background for the white card breaks the passes that SCATTER light
+    // out of bright pixels: they were tuned against the dark original, and white sits far above any
+    // sane threshold, so they bloom the card itself and wash the whole frame out. A preset with
+    // bloom rendered a blank white thumbnail — 0.3% non-white pixels — until this zeroed them.
+    cfg.bloomStrength = 0;
+    cfg.innerLight = 0;
+  }
 }
 
 /** Render the current config to a fresh 2D canvas (null if the WebGL canvas is missing). */

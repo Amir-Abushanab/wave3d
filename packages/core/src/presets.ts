@@ -390,8 +390,14 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     w.colorContrast = 1.06;
     w.colorSaturation = 1.12;
     w.fiberStrength = 0.14;
-    c.cameraTarget = { x: 0, y: 0, z: 0 };
-    c.cameraZoom = 0.72;
+    // Framed down the axis rather than side-on: the coil reads as a screw receding into the frame,
+    // and each turn shows its blade face instead of an edge. cameraDistance is the orbit radius
+    // (= |position − target|); the camera is orthographic, so it's the rig's dolly, not the scale —
+    // cameraZoom sets that.
+    c.cameraPosition = { x: -526.009, y: -285.284, z: -425.489 };
+    c.cameraTarget = { x: -95.046, y: -17.053, z: -105.608 };
+    c.cameraDistance = 600;
+    c.cameraZoom = 1.176;
     c.grain = 0.3;
     c.blur = 0.008;
     c.bloomStrength = 0.35;
