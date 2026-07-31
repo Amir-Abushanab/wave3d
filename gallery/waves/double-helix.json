@@ -1,0 +1,149 @@
+{
+  "title": "Double Helix",
+  "author": "Amir-Abushanab",
+  "config": {
+    "background": "#05060f",
+    "transparentBackground": false,
+    "backgroundMode": "color",
+    "waveCount": 2,
+    "paused": false,
+    "loopSeconds": 20,
+    "cameraDistance": 5001,
+    "cameraPosition": {
+      "x": 0,
+      "y": 0,
+      "z": 5000
+    },
+    "cameraTarget": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "cameraZoom": 1.05,
+    "grain": 0.5,
+    "blur": 0,
+    "bloomStrength": 0.55,
+    "bloomRadius": 0.6,
+    "bloomThreshold": 0.5,
+    "waves": [
+      {
+        "displaceAmount": 105,
+        "displaceFrequency": {
+          "x": 0.013,
+          "y": 0.0004
+        },
+        "detailAmount": 0,
+        "twistFrequency": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "twistPower": {
+          "x": 4,
+          "y": 4,
+          "z": 2
+        },
+        "twistMotion": false,
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 3.2,
+          "y": 3,
+          "z": 0.5
+        },
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "seed": 62,
+        "hueShift": 0,
+        "usePaletteTexture": false,
+        "paletteSource": "stops",
+        "palette": [
+          {
+            "color": "#7ee8ff",
+            "pos": 0
+          },
+          {
+            "color": "#2f7bff",
+            "pos": 0.5
+          },
+          {
+            "color": "#6d3bff",
+            "pos": 1
+          }
+        ],
+        "gradientType": "linear",
+        "gradientAngle": 90,
+        "gradientShift": 0,
+        "colorSaturation": 1.25,
+        "edgeFade": 0.04,
+        "edgeFeather": 0.1,
+        "speed": 0.12
+      },
+      {
+        "displaceAmount": 105,
+        "displaceFrequency": {
+          "x": 0.013,
+          "y": 0.0004
+        },
+        "detailAmount": 0,
+        "twistFrequency": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "twistPower": {
+          "x": 4,
+          "y": 4,
+          "z": 2
+        },
+        "twistMotion": false,
+        "rotation": {
+          "x": 180,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 3.2,
+          "y": 3,
+          "z": 0.5
+        },
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "seed": 62,
+        "hueShift": 0,
+        "usePaletteTexture": false,
+        "paletteSource": "stops",
+        "palette": [
+          {
+            "color": "#ff4d9d",
+            "pos": 0
+          },
+          {
+            "color": "#ff7a3c",
+            "pos": 0.5
+          },
+          {
+            "color": "#ffd166",
+            "pos": 1
+          }
+        ],
+        "gradientType": "linear",
+        "gradientAngle": 90,
+        "gradientShift": 0,
+        "colorSaturation": 1.25,
+        "edgeFade": 0.04,
+        "edgeFeather": 0.1,
+        "speed": 0.12
+      }
+    ]
+  }
+}

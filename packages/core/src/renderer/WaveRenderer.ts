@@ -532,7 +532,11 @@ export class WaveRenderer {
       uEdgeFeather: { value: 0.1 }, // ribbon-edge softness (read only under EDGE_FEATHER)
       uOpacity: { value: 1 },
       uSquared: { value: 1 }, // "squared" deep-colour mode: square the colour in-shader (see applyBlendMode)
-      uResolution: { value: new THREE.Vector2(1, 1) },
+      // Seed from the CURRENT drawing buffer, not (1,1): resize() is the only other writer, so a wave
+      // added afterwards (wave count raised, multi-wave preset/share link loaded) would keep (1,1)
+      // until the next resize — and the edgeFade vignette divides gl_FragCoord by it, so
+      // `1 - smoothstep(1-edgeFade, 1, sc)` collapses to 0 and the whole wave renders invisible.
+      uResolution: { value: this.renderer.getDrawingBufferSize(new THREE.Vector2()) },
       uAmbient: { value: 0.45 },
       uNumLights: { value: 1 },
       uLightPos: { value: lightPos },
