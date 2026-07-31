@@ -1,0 +1,104 @@
+{
+  "title": "DNA Double Helix",
+  "author": "Amir-Abushanab",
+  "config": {
+    "background": "#05060f",
+    "transparentBackground": false,
+    "backgroundMode": "color",
+    "waveCount": 1,
+    "paused": false,
+    "loopSeconds": 20,
+    "cameraPosition": {
+      "x": 457.406,
+      "y": 736.002,
+      "z": 2022.148
+    },
+    "cameraTarget": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "cameraDistance": 2200,
+    "cameraZoom": 0.62,
+    "grain": 0.35,
+    "blur": 0,
+    "bloomStrength": 0.45,
+    "bloomRadius": 0.6,
+    "bloomThreshold": 0.45,
+    "waves": [
+      {
+        "displaceAmount": 12,
+        "displaceFrequency": {
+          "x": 0.006,
+          "y": 0.0008
+        },
+        "detailAmount": 0,
+        "twistFrequency": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "twistPower": {
+          "x": 4,
+          "y": 4,
+          "z": 2
+        },
+        "twistMotion": false,
+        "helixTurns": 6,
+        "helixRadius": 0,
+        "helixRoll": 1,
+        "helixPhase": 0,
+        "theme": "wireframe",
+        "lineAmount": 6.283,
+        "lineThickness": 0.16,
+        "rungAmount": 200,
+        "rungThickness": 2.4,
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 12.42,
+          "y": 3.0,
+          "z": 3.0
+        },
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "seed": 0,
+        "speed": 0.12,
+        "usePaletteTexture": false,
+        "paletteSource": "stops",
+        "palette": [
+          {
+            "color": "#5ce1ff",
+            "pos": 0
+          },
+          {
+            "color": "#8b5cf6",
+            "pos": 0.25
+          },
+          {
+            "color": "#ff4d9d",
+            "pos": 0.5
+          },
+          {
+            "color": "#8b5cf6",
+            "pos": 0.75
+          },
+          {
+            "color": "#5ce1ff",
+            "pos": 1
+          }
+        ],
+        "gradientType": "linear",
+        "gradientAngle": 90,
+        "gradientShift": 0,
+        "colorSaturation": 1.2
+      }
+    ]
+  }
+}

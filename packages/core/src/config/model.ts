@@ -202,11 +202,35 @@ export interface WaveConfig {
   twistFrequency: Vec3;
   twistPower: Vec3;
   twistMotion?: boolean;
+  /** Helix: sweep the ribbon around its OWN length axis, `helixTurns` full turns from end to end.
+   *  The three twists above can't express this — their axes sit 45°/90° off the length, and
+   *  `expStep` is a monotone falloff, so nothing they do ever repeats. This angle is periodic in the
+   *  length coordinate instead, which is what makes a helix (and a DNA ladder) reachable.
+   *  0 turns still leaves the block inert unless radius or roll is non-zero. */
+  helixTurns?: number;
+  /** Carries the WHOLE ribbon around the axis at this radius (world units, pre-scale), keeping its
+   *  orientation. A narrow ribbon then reads as a single strand — two waves half a turn apart in
+   *  `helixPhase` are the two strands of a double helix. 0 = off. */
+  helixRadius?: number;
+  /** Rolls the ribbon's own cross-section about the axis as it advances, as a fraction of
+   *  `helixTurns` (1 = rolls exactly in step, a rigid twisted ribbon). That swings the ribbon's two
+   *  long edges onto opposite sides of the axis, so ONE wave becomes a ladder whose edges are both
+   *  strands — pair it with `rungAmount` for the rungs between them. 0 = off. */
+  helixRoll?: number;
+  /** Phase offset in degrees — where along the turn the ribbon starts. The per-wave knob that puts
+   *  a second wave on the opposite side of the same helix (180). */
+  helixPhase?: number;
   // Material ("solid" surface vs "wireframe" line shader)
   theme?: "solid" | "wireframe";
   lineAmount?: number;
   lineThickness?: number;
   lineDerivativePower?: number;
+  /** Wireframe RUNGS: a second line family carved at constant uv.y, so these run ACROSS the ribbon
+   *  where `lineAmount`'s run along it — the two cross into a ladder. Frequency, like `lineAmount`
+   *  (rungs ≈ amount / π). 0 = off, and the cross-wise path isn't compiled. */
+  rungAmount?: number;
+  /** Rung line width, in pixels (screen-space, so it holds at any zoom). */
+  rungThickness?: number;
   maxWidth?: number;
   // Transform (absolute — no shared base to offset from)
   position: Vec3;
@@ -272,6 +296,9 @@ const WAVE_TARGET_NAMES = [
   "twistFrequencyX",
   "twistFrequencyY",
   "twistFrequencyZ",
+  "helixPhase",
+  "helixTurns",
+  "helixRadius",
   "hueShift",
   "gradientShift",
   "colorSaturation",
@@ -568,10 +595,17 @@ function defaultWave(): WaveConfig {
     twistFrequency: { x: -0.055, y: 0.077, z: -0.518 },
     twistPower: { x: 3.95, y: 5.85, z: 6.33 },
     twistMotion: false,
+    // Helix off: radius and roll both 0 leave the whole block uncompiled (see waveDefines).
+    helixTurns: 0,
+    helixRadius: 0,
+    helixRoll: 0,
+    helixPhase: 0,
     theme: "solid",
     lineAmount: 425, // wireframe-theme line params (defaults)
     lineThickness: 1,
     lineDerivativePower: 0.95,
+    rungAmount: 0, // cross-wise rungs off
+    rungThickness: 1,
     maxWidth: 1232,
     // Hero mesh transform at FULL scale (the ortho camera frames in pixels).
     position: { x: -24.3, y: -56.4, z: -11.1 },
@@ -814,10 +848,16 @@ export function normalizeWave(s: WaveConfig): void {
   if (!s.twistPower) s.twistPower = { x: 3.95, y: 5.85, z: 6.33 };
   // false, not absent: the panel binds this directly, and a wave that omits it can't be edited.
   if (typeof s.twistMotion !== "boolean") s.twistMotion = false;
+  if (!Number.isFinite(s.helixTurns)) s.helixTurns = 0;
+  if (!Number.isFinite(s.helixRadius)) s.helixRadius = 0;
+  if (!Number.isFinite(s.helixRoll)) s.helixRoll = 0;
+  if (!Number.isFinite(s.helixPhase)) s.helixPhase = 0;
   if (typeof s.theme !== "string") s.theme = "solid";
   if (!Number.isFinite(s.lineAmount)) s.lineAmount = 425;
   if (!Number.isFinite(s.lineThickness)) s.lineThickness = 1;
   if (!Number.isFinite(s.lineDerivativePower)) s.lineDerivativePower = 0.95;
+  if (!Number.isFinite(s.rungAmount)) s.rungAmount = 0;
+  if (!Number.isFinite(s.rungThickness)) s.rungThickness = 1;
   if (!Number.isFinite(s.maxWidth)) s.maxWidth = 1232;
   if (!s.position) s.position = { x: 0, y: 0, z: 0 };
   if (!s.rotation) s.rotation = { x: 0, y: 0, z: 0 };

@@ -147,6 +147,34 @@ describe("ensureStudioConfig repairs configs that used to break the panel", () =
     const twice = ensureStudioConfig(structuredClone(once));
     expect(JSON.stringify(twice)).toBe(JSON.stringify(once));
   });
+
+  it("backfills helix + rung fields to their off values", () => {
+    // Every config written before these existed must come back with the helix and the wireframe
+    // rungs inert — the renderer keys HELIX/RUNGS off radius/roll/rungAmount, so a stray undefined
+    // here would both break the panel binding and risk compiling a variant program for nothing.
+    const w = ensureStudioConfig(hostile({ waves: [{}] })).waves[0];
+    expect(w.helixTurns).toBe(0);
+    expect(w.helixRadius).toBe(0);
+    expect(w.helixRoll).toBe(0);
+    expect(w.helixPhase).toBe(0);
+    expect(w.rungAmount).toBe(0);
+    expect(w.rungThickness).toBe(1);
+  });
+
+  it("leaves authored helix + rung values alone, including a negative roll", () => {
+    const w = ensureStudioConfig(
+      hostile({
+        waves: [
+          { helixTurns: 3, helixRadius: 150, helixRoll: -0.5, helixPhase: 180, rungAmount: 94 },
+        ],
+      }),
+    ).waves[0];
+    expect(w.helixTurns).toBe(3);
+    expect(w.helixRadius).toBe(150);
+    expect(w.helixRoll).toBe(-0.5); // counter-roll is meaningful; not clamped to the slider's 0..2
+    expect(w.helixPhase).toBe(180);
+    expect(w.rungAmount).toBe(94);
+  });
 });
 
 describe("normalizing never rewrites a value the config already declares", () => {

@@ -221,6 +221,9 @@ const IX_WAVE_TARGETS: Record<string, WaveInteractionTarget> = {
   "Twist freq X": "twistFrequencyX",
   "Twist freq Y": "twistFrequencyY",
   "Twist freq Z": "twistFrequencyZ",
+  "Helix phase": "helixPhase",
+  "Helix turns": "helixTurns",
+  "Helix radius": "helixRadius",
   "Hue shift": "hueShift",
   "Gradient shift": "gradientShift",
   Saturation: "colorSaturation",
@@ -255,6 +258,9 @@ const IX_TARGET_DEFAULT_TO: Record<string, number> = {
   twistFrequencyX: 1.5, // ±2
   twistFrequencyY: 1.5,
   twistFrequencyZ: 1.5,
+  helixPhase: 360, // a full turn — scroll→phase spins the coil exactly once
+  helixTurns: 6, // 0..12
+  helixRadius: 200, // ±300
   hueShift: 180, // ±180°
   gradientShift: 0.6, // 0..0.6
   colorSaturation: 2, // 0..2
@@ -2073,6 +2079,12 @@ export class ControlPanel {
           label: "line falloff",
         })
         .on("change", refresh);
+      const bRungAmount = finF
+        .addBinding(wave, "rungAmount", { min: 0, max: 400, step: 1, label: "rung count" })
+        .on("change", refresh);
+      const bRungThickness = finF
+        .addBinding(wave, "rungThickness", { min: 0, max: 6, step: 0.05, label: "rung thickness" })
+        .on("change", refresh);
       const bMaxWidth = finF
         .addBinding(wave, "maxWidth", { min: 1, max: 3000, step: 1, label: "max width" })
         .on("change", refresh);
@@ -2091,7 +2103,14 @@ export class ControlPanel {
         bDepthTint,
         bDepthTintColor,
       ];
-      const wireOnly = [bLineAmount, bLineThickness, bLineFalloff, bMaxWidth];
+      const wireOnly = [
+        bLineAmount,
+        bLineThickness,
+        bLineFalloff,
+        bRungAmount,
+        bRungThickness,
+        bMaxWidth,
+      ];
       const updateMaterialControls = (): void => {
         const wire = wave.theme === "wireframe";
         for (const b of solidOnly) b.hidden = wire;
@@ -2138,8 +2157,11 @@ export class ControlPanel {
         "Z (wid)",
         "",
       ]);
+      // ±120 rather than ±12: the old cap held the noise swell to 3% of the 400-unit ribbon, which
+      // put every big-amplitude look (the weaving strands the helix pairs with) out of reach of the
+      // panel entirely — configs were never clamped, so those were editable only as raw JSON.
       dispF
-        .addBinding(wave, "displaceAmount", { min: -12, max: 12, step: 0.05 })
+        .addBinding(wave, "displaceAmount", { min: -120, max: 120, step: 0.05 })
         .on("change", refresh);
       // Second octave: finer ripples riding on the broad swell (amount 0 = off).
       dispF
@@ -2168,12 +2190,29 @@ export class ControlPanel {
       vec(twF, wave.twistPower, "twist power", { min: 0, max: 8, step: 0.05 });
       twF.addBinding(wave, "twistMotion", { label: "twist wobble" }).on("change", refresh);
       sectionRandom(twF, randomizeTwist);
+
+      // --- Helix --- the periodic sweep the three twists can't express (their angle is a monotone
+      // falloff). Open like its sibling shape sections, so the coil is discoverable rather than
+      // hidden behind a twirl — it reads as inert until radius or roll is dialled up.
+      const hxF = sf.addFolder({ title: "Helix", expanded: true });
+      hxF
+        .addBinding(wave, "helixTurns", { min: 0, max: 12, step: 0.05, label: "turns" })
+        .on("change", refresh);
+      hxF
+        .addBinding(wave, "helixRadius", { min: -300, max: 300, step: 1, label: "radius" })
+        .on("change", refresh);
+      hxF
+        .addBinding(wave, "helixRoll", { min: -1, max: 2, step: 0.01, label: "roll" })
+        .on("change", refresh);
+      hxF
+        .addBinding(wave, "helixPhase", { min: -180, max: 180, step: 1, label: "phase °" })
+        .on("change", refresh);
       // Order the sub-sections: appearance (colour, finish) → shape (displacement, twist) → pose
       // (transform) → advanced (noise bands) → interaction (this wave's reactivity, last — mirrors
       // the global Interaction folder sitting last in the panel). DOM move so the blocks stay grouped.
       const waveContent =
         (sf.element.querySelector(":scope > .tp-fldv_c") as HTMLElement | null) ?? sf.element;
-      for (const f of [gradF, finF, dispF, twF, trF, bandsF, waveIx])
+      for (const f of [gradF, finF, dispF, twF, hxF, trF, bandsF, waveIx])
         waveContent.appendChild(f.element);
     };
 
@@ -2371,6 +2410,11 @@ export class ControlPanel {
         '<path d="M8 2.4v11.2M2.4 8h11.2M6.3 4.3 8 2.4l1.7 1.9M6.3 11.7 8 13.6l1.7-1.9M4.3 6.3 2.4 8l1.9 1.7M11.7 6.3 13.6 8l-1.9 1.7"/>',
       ),
       Twist: svg('<path d="M13 8a5 5 0 1 1-1.6-3.7"/><path d="M13.2 2.6v3.1h-3.1"/>'),
+      // A coil seen side-on: one wire looping twice down the axis. Two crossing strands (the DNA
+      // glyph) collapse into a figure-8 at 13px, and more than two loops turn to mush — this holds
+      // its shape at the size the panel actually renders. Deliberately unlike the Twist arrow
+      // beside it, since the two sections are otherwise easy to confuse.
+      Helix: svg('<path d="M4.2 3.4C12 4.1 12 7.5 4.2 8.2 12 8.9 12 12.3 4.2 13"/>'),
       Finish: svg('<path d="m8 1.9 1.4 4.1 4.1 1-4.1 1L8 12.1 6.6 8l-4.1-1 4.1-1z"/>'),
       Lights: svg(
         '<circle cx="8" cy="8" r="2.9"/><path d="M8 1.6v1.7M8 12.7v1.7M1.6 8h1.7M12.7 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M3.6 12.4l1.2-1.2M11.2 4.8l1.2-1.2"/>',

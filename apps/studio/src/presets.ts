@@ -23,4 +23,5 @@ export const PRESETS: Record<string, () => StudioConfig> = {
   "Spider-Man — Webbed City": PRESETS_EXTRA["Spider-Man — Webbed City"],
   "Vaporwave Sunset": CORE["Vaporwave Sunset"],
   Kaleidoscope: CORE["Kaleidoscope"],
+  Corkscrew: CORE["Corkscrew"],
 };

@@ -10,6 +10,15 @@ const X_AXIS = new THREE.Vector3(1, 0, 0);
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 /**
+ * Local-Z centre of the folded ribbon's width. The fold collapses x ∈ [-NATIVE/2, NATIVE/2] onto a
+ * single arm and SHIFT recentres it, which lands the width at [-100, 84] rather than symmetric
+ * about 0 — so a rotation about local X through the ORIGIN would swing the ribbon's two long edges
+ * to radii 100 and 84 (a visibly lopsided helix). The vertex shader's helix roll rotates about this
+ * line instead, so both edges come out at equal radius.
+ */
+export const RIBBON_Z_CENTER = (SHIFT - NATIVE / 2 + (SHIFT - FOLD_X)) / 2;
+
+/**
  * Base wave geometry — `folded()`: a flat PlaneGeometry folded into a hairpin
  * (sideways-U) cross-section, then stood up so the fold runs along the wave's length.
  *

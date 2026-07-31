@@ -95,8 +95,22 @@ const handle = createWave(document.getElementById("wave"), {/* config */}, { pos
 
 A wave is one JSON-serializable `StudioConfig`: scene fields (`background`, `quality`, `dprMax`,
 `loopSeconds`, `paused`, camera…) plus a `waves: WaveConfig[]` array (each wave has its own
-`palette`, `fiberCount`, `speed`, `displaceAmount`, `twist…`, `blendMode`, `theme`, transform…).
-Omitted fields fall back to `createDefaultConfig()`.
+`palette`, `fiberCount`, `speed`, `displaceAmount`, `twist…`, `helix…`, `blendMode`, `theme`,
+transform…). Omitted fields fall back to `createDefaultConfig()`.
+
+**Shape: twist vs helix.** `twistFrequency`/`twistPower` rotate by `freq * expStep(uv, power)`, a
+MONOTONE falloff — good for one dramatic ramp, but it can never repeat, so it cannot make a coil.
+`helixTurns` sweeps a _periodic_ angle along the ribbon's length instead, and is the only way to get
+a repeating helix:
+
+- `helixRadius` carries the whole ribbon around the axis (orientation intact). A narrow ribbon
+  (small `scale.z`) then reads as one strand — **two waves 180° apart in `helixPhase` are a double
+  helix**, and they genuinely swap depth at every crossing.
+- `helixRoll` rolls the ribbon's own cross-section in step (1 = rigid twisted ribbon), swinging its
+  two long edges onto opposite sides of the axis, so **one wave becomes a ladder whose edges are
+  both strands**. Add `rungAmount` (wireframe theme) for the rungs between them.
+- Both are off at 0, and the helix code path isn't compiled unless `helixRadius` or `helixRoll` is
+  non-zero — a wave without one renders byte-identically to before.
 
 **React flat props** are a shortcut mapped onto `waves[0]` and the scene:
 `palette` (`string[]` | `ColorStop[]`), `fiberCount`, `fiberStrength`, `sheen`, `iridescence`,
@@ -118,8 +132,10 @@ Sources: `scroll`, `hover`, `pointerX` / `pointerY`, `pointerSpeed`, `press`, `s
 `appear`, or a developer-fed `custom:*` (via `handle.setInteractionInput(name, value)` /
 `renderer.setInteractionInput`). Each binding rests at the authored value and moves toward `to` as
 its input rises 0→1 — `{ source: "hover", target: "displaceAmount", to: 12 }` grows the folds on
-hover. Each wave's `hover.smoothing` sets its own cursor-follow lag (vary it across a stack for a
-parallax drag). **Shared inputs** (one cursor + scroll: `radius`, `touch`) and **scene-param
+hover. `helixPhase` / `helixTurns` / `helixRadius` are bindable too, so
+`{ source: "scroll", target: "helixPhase", to: 360 }` spins a helix exactly one turn down the page
+(and the helix path is compiled for a wave that binds one but authors radius/roll at 0). Each wave's
+`hover.smoothing` sets its own cursor-follow lag (vary it across a stack for a parallax drag). **Shared inputs** (one cursor + scroll: `radius`, `touch`) and **scene-param
 bindings** (`timeOffset`, `cameraZoom`, `blur`, `grain` — e.g. `scroll → timeOffset` scrubs the whole
 wave with the page) live on `SceneConfig.interaction`. In React the flat `interaction` prop targets
 the first wave; the studio authors it per wave (Hover / Click & touch / Bindings) plus a global
