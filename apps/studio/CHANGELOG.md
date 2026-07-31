@@ -1,5 +1,28 @@
 # wave-studio
 
+## 0.1.8
+
+### Patch Changes
+
+- [#17](https://github.com/Amir-Abushanab/wave3d/pull/17) [`1311194`](https://github.com/Amir-Abushanab/wave3d/commit/1311194be433db096950143a11e8dc0df1ac9002) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Make the helix drivable from interaction inputs: `helixPhase`, `helixTurns` and `helixRadius` join the per-wave binding targets, so `{ source: "scroll", target: "helixPhase", to: 360 }` spins a coil exactly one turn down the page, and hover or press can wind, unwind, or open it.
+
+  `waveDefines` now compiles the helix path for a wave that binds one of these but authors `helixRadius`/`helixRoll` at 0 — otherwise driving the radius up from a resting 0 would have nowhere to land. Same precedent as `detailAmount` and the second displacement octave. Waves with neither a helix nor a helix binding are unaffected.
+
+- [#17](https://github.com/Amir-Abushanab/wave3d/pull/17) [`1311194`](https://github.com/Amir-Abushanab/wave3d/commit/1311194be433db096950143a11e8dc0df1ac9002) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Add a **Corkscrew** preset showcasing the helix mode, and surface the Helix section better in the studio.
+
+  Corkscrew is a single wave with `helixRoll: 1`, which rolls the ribbon's cross-section in step with the sweep so the flat strip becomes an auger blade winding around its own length axis; `helixRadius` then lifts that blade off the axis so the turns read as a screw thread rather than a flat twist. It carries a mesh gradient rather than a stop ramp, so the colour field runs along the blade and each turn picks up a different part of the spectrum. There is no twist on it at all — the shape is unreachable with `twistFrequency`, whose `expStep` angle is monotone and can only ramp once.
+
+  It is framed down the axis rather than side-on, so the coil reads as a screw receding into the frame and each turn shows its blade face instead of an edge.
+
+  The studio's Helix folder is now open by default like its sibling shape sections, and has its own icon: a coil seen side-on. Two crossing strands (the DNA glyph) collapse into a figure-8 at the 13px the panel actually renders, and more than two loops turn to mush, so it's a two-loop spring — and deliberately unlike the Twist rotate-arrow sitting directly above it.
+
+- [#17](https://github.com/Amir-Abushanab/wave3d/pull/17) [`1311194`](https://github.com/Amir-Abushanab/wave3d/commit/1311194be433db096950143a11e8dc0df1ac9002) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Widen the displacement-amount slider from ±12 to ±120, and add panel controls for the new helix (turns / radius / roll / phase) and wireframe rungs (count / thickness).
+
+  ±12 held the noise swell to 3% of the 400-unit ribbon, which put every large-amplitude look out of reach of the panel entirely — configs have never been clamped, so those shapes were editable only by hand-writing JSON in the config editor.
+
+- Updated dependencies [[`1311194`](https://github.com/Amir-Abushanab/wave3d/commit/1311194be433db096950143a11e8dc0df1ac9002), [`1311194`](https://github.com/Amir-Abushanab/wave3d/commit/1311194be433db096950143a11e8dc0df1ac9002), [`1311194`](https://github.com/Amir-Abushanab/wave3d/commit/1311194be433db096950143a11e8dc0df1ac9002), [`c32bef1`](https://github.com/Amir-Abushanab/wave3d/commit/c32bef107c6f68ff2c09447155ebabb982854349), [`1311194`](https://github.com/Amir-Abushanab/wave3d/commit/1311194be433db096950143a11e8dc0df1ac9002), [`6d556f6`](https://github.com/Amir-Abushanab/wave3d/commit/6d556f6a1ca6b72ff4f820d9b795e5a7d478ea0f), [`1311194`](https://github.com/Amir-Abushanab/wave3d/commit/1311194be433db096950143a11e8dc0df1ac9002)]:
+  - @wave3d/core@0.6.0
+
 ## 0.1.7
 
 ### Patch Changes

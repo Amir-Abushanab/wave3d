@@ -1,5 +1,52 @@
 # @wave3d/core
 
+## 0.6.0
+
+### Minor Changes
+
+- [#17](https://github.com/Amir-Abushanab/wave3d/pull/17) [`1311194`](https://github.com/Amir-Abushanab/wave3d/commit/1311194be433db096950143a11e8dc0df1ac9002) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Make the helix drivable from interaction inputs: `helixPhase`, `helixTurns` and `helixRadius` join the per-wave binding targets, so `{ source: "scroll", target: "helixPhase", to: 360 }` spins a coil exactly one turn down the page, and hover or press can wind, unwind, or open it.
+
+  `waveDefines` now compiles the helix path for a wave that binds one of these but authors `helixRadius`/`helixRoll` at 0 — otherwise driving the radius up from a resting 0 would have nowhere to land. Same precedent as `detailAmount` and the second displacement octave. Waves with neither a helix nor a helix binding are unaffected.
+
+- [#17](https://github.com/Amir-Abushanab/wave3d/pull/17) [`1311194`](https://github.com/Amir-Abushanab/wave3d/commit/1311194be433db096950143a11e8dc0df1ac9002) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Add a **Corkscrew** preset showcasing the helix mode, and surface the Helix section better in the studio.
+
+  Corkscrew is a single wave with `helixRoll: 1`, which rolls the ribbon's cross-section in step with the sweep so the flat strip becomes an auger blade winding around its own length axis; `helixRadius` then lifts that blade off the axis so the turns read as a screw thread rather than a flat twist. It carries a mesh gradient rather than a stop ramp, so the colour field runs along the blade and each turn picks up a different part of the spectrum. There is no twist on it at all — the shape is unreachable with `twistFrequency`, whose `expStep` angle is monotone and can only ramp once.
+
+  It is framed down the axis rather than side-on, so the coil reads as a screw receding into the frame and each turn shows its blade face instead of an edge.
+
+  The studio's Helix folder is now open by default like its sibling shape sections, and has its own icon: a coil seen side-on. Two crossing strands (the DNA glyph) collapse into a figure-8 at the 13px the panel actually renders, and more than two loops turn to mush, so it's a two-loop spring — and deliberately unlike the Twist rotate-arrow sitting directly above it.
+
+- [#17](https://github.com/Amir-Abushanab/wave3d/pull/17) [`1311194`](https://github.com/Amir-Abushanab/wave3d/commit/1311194be433db096950143a11e8dc0df1ac9002) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Add a **helix** shape mode and wireframe **rungs** — periodic shapes the wave could not previously express.
+
+  The three twists rotate by `freq * expStep(uv, power)`, and `expStep` is a monotone falloff whose crossover always sits at the ribbon's midpoint regardless of power, so a twist can only ever ramp once — it can't coil. Their axes are also 45°/90° off the ribbon's length, so pushing the frequency up just balls the sheet into a rosette rather than winding it. Four new per-wave fields sweep a _periodic_ angle along the length instead:
+
+  - `helixTurns` — full turns from one end of the ribbon to the other.
+  - `helixRadius` — carries the whole ribbon around the axis with its orientation intact, so a narrow ribbon reads as a single strand. Two waves 180° apart in `helixPhase` are a double helix that genuinely swaps depth at each crossing.
+  - `helixRoll` — rolls the ribbon's own cross-section in step with the sweep (1 = a rigid twisted ribbon), swinging its two long edges onto opposite sides of the axis so one wave becomes a ladder whose edges are both strands. The roll is about the ribbon's width centre (`RIBBON_Z_CENTER`), not the origin — the fold leaves the width at [-100, 84], so rotating about the origin would put the two edges at radii 100 and 84.
+  - `helixPhase` — degrees; the per-wave knob that puts a second wave on the opposite side of the same helix.
+
+  The wireframe theme gains `rungAmount` / `rungThickness`, a second line family carved at constant `uv.y` so it runs ACROSS the ribbon where `lineAmount`'s lines run along it — the two cross into a ladder. Rung width comes from `fwidth`, so a rung holds its pixel width at any zoom or ribbon scale (the lengthwise term's `dFdy(vUv).x` is the derivative of the wrong axis for this direction).
+
+  Both are additive and default to off: the helix path only compiles when `helixRadius` or `helixRoll` is non-zero, rungs only when `rungAmount > 0` on a wireframe wave, so any existing config compiles the same program and renders the same pixels.
+
+### Patch Changes
+
+- [#16](https://github.com/Amir-Abushanab/wave3d/pull/16) [`c32bef1`](https://github.com/Amir-Abushanab/wave3d/commit/c32bef107c6f68ff2c09447155ebabb982854349) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Backfill every config field the studio binds, so a partial or hand-edited config can't produce an unusable panel. `ensureSceneDefaults` skipped `timeOffset`, `background` and `transparentBackground`, and `normalizeWave` skipped `twistMotion` — a config omitting one left the value `undefined`, which Tweakpane rejects with `No matching controller for '<field>'`. Separately, `normalizeWaveColour` threw `Cannot read properties of undefined` on a wave with no `palette` at all (`{"waves":[{}]}`), out of the very normalizer meant to make untrusted configs safe.
+
+  Also repairs the _elements_ of `lights` and `noiseBands` (only the arrays themselves were checked, so `"lights":[{}]` left `color`/`intensity`/`position` absent, and non-object entries are now dropped), and hardens the numeric guards to reject `NaN`/`Infinity` — `typeof NaN === "number"` passed, so a poisoned value reached the shader and rendered a blank frame with no error. Out-of-range values are deliberately left alone rather than clamped, so a `timeOffset` beyond the studio slider's range still drives a paused scene frame by frame. Normalizing every preset and the default config is byte-identical to before.
+
+- [#17](https://github.com/Amir-Abushanab/wave3d/pull/17) [`1311194`](https://github.com/Amir-Abushanab/wave3d/commit/1311194be433db096950143a11e8dc0df1ac9002) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Fix a config with bloom rendering a **blank white thumbnail**.
+
+  `prepThumbConfig` swaps the authored background for a white card so thumbnails read against the picker UI, but it left the post passes that scatter light out of bright pixels — `bloomStrength` and `innerLight` — running at values tuned against the original (usually dark) background. White sits far above any sane `bloomThreshold`, so those passes bloomed the card itself and washed the whole frame out: a bloom preset came back 0.3% non-white, i.e. blank. Both are now zeroed alongside the background swap.
+
+  Only configs that actually set bloom or inner light are affected; every other preset's thumbnail is pixel-identical.
+
+- [`6d556f6`](https://github.com/Amir-Abushanab/wave3d/commit/6d556f6a1ca6b72ff4f820d9b795e5a7d478ea0f) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Document the coarse-pointer gate in the agent skill. `SceneConfig.interaction.touch` defaults to `false` and drops touch pointers before any handler runs, but the skill described `press` ripples as firing on a "click/tap" without saying so — so hover/press values tuned for mobile silently did nothing. The skill now states the default, that opting in does not block page scrolling, and that `scroll` / `scrollVelocity` / `appear` are unaffected because they read container progress rather than pointer events.
+
+- [#17](https://github.com/Amir-Abushanab/wave3d/pull/17) [`1311194`](https://github.com/Amir-Abushanab/wave3d/commit/1311194be433db096950143a11e8dc0df1ac9002) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Fix waves added after the renderer was constructed rendering completely invisible. `uResolution` was seeded to `(1, 1)` in `makeUniforms()` and only ever written by `resize()`, so any wave created later — raising the wave count, or loading a multi-wave preset / share link / saved state through `setConfig` — kept `(1, 1)` until the next resize happened to fire. The solid theme's `edgeFade` vignette divides `gl_FragCoord` by `uResolution`, so the resulting screen coordinate is far above 1, `1.0 - smoothstep(1.0 - uEdgeFade, 1.0, sc)` collapses to 0, and the wave's alpha goes to zero everywhere: the mesh is in the scene, visible, and drawn (the draw call is issued and the triangles are submitted) but contributes no pixels. It bites at the default `edgeFade` of 0.04, and only stayed hidden because no shipped preset or gallery config has more than one wave.
+
+  `makeUniforms()` now seeds `uResolution` from the current drawing-buffer size. Single-wave configs are unaffected — the constructor's own resize already set it.
+
 ## 0.5.0
 
 ### Minor Changes
