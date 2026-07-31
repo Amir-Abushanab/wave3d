@@ -1,0 +1,96 @@
+{
+  "title": "DNA Ladder",
+  "author": "Amir-Abushanab",
+  "config": {
+    "background": "#05060f",
+    "transparentBackground": false,
+    "backgroundMode": "color",
+    "waveCount": 1,
+    "paused": false,
+    "loopSeconds": 20,
+    "cameraDistance": 5001,
+    "cameraPosition": {
+      "x": 0,
+      "y": 0,
+      "z": 5000
+    },
+    "cameraTarget": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "cameraZoom": 0.8,
+    "grain": 0.4,
+    "blur": 0,
+    "bloomStrength": 0.5,
+    "bloomRadius": 0.6,
+    "bloomThreshold": 0.4,
+    "waves": [
+      {
+        "displaceAmount": 0,
+        "displaceFrequency": {
+          "x": 0.008,
+          "y": 0.0004
+        },
+        "detailAmount": 0,
+        "twistFrequency": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "twistPower": {
+          "x": 4,
+          "y": 4,
+          "z": 2
+        },
+        "twistMotion": false,
+        "helixTurns": 3,
+        "helixRadius": 0,
+        "helixRoll": 1,
+        "helixPhase": 0,
+        "theme": "wireframe",
+        "lineAmount": 6.283,
+        "lineThickness": 0.12,
+        "rungAmount": 160,
+        "rungThickness": 3.0,
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 3,
+          "y": 3,
+          "z": 1
+        },
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "seed": 0,
+        "speed": 0.12,
+        "usePaletteTexture": false,
+        "paletteSource": "stops",
+        "palette": [
+          {
+            "color": "#7ee8ff",
+            "pos": 0.0
+          },
+          {
+            "color": "#2f7bff",
+            "pos": 0.5
+          },
+          {
+            "color": "#6d3bff",
+            "pos": 1.0
+          }
+        ],
+        "gradientType": "linear",
+        "gradientAngle": 90,
+        "gradientShift": 0,
+        "colorSaturation": 1.2
+      }
+    ]
+  }
+}

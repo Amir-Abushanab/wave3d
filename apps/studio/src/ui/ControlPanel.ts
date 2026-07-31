@@ -2073,6 +2073,12 @@ export class ControlPanel {
           label: "line falloff",
         })
         .on("change", refresh);
+      const bRungAmount = finF
+        .addBinding(wave, "rungAmount", { min: 0, max: 400, step: 1, label: "rung count" })
+        .on("change", refresh);
+      const bRungThickness = finF
+        .addBinding(wave, "rungThickness", { min: 0, max: 6, step: 0.05, label: "rung thickness" })
+        .on("change", refresh);
       const bMaxWidth = finF
         .addBinding(wave, "maxWidth", { min: 1, max: 3000, step: 1, label: "max width" })
         .on("change", refresh);
@@ -2091,7 +2097,14 @@ export class ControlPanel {
         bDepthTint,
         bDepthTintColor,
       ];
-      const wireOnly = [bLineAmount, bLineThickness, bLineFalloff, bMaxWidth];
+      const wireOnly = [
+        bLineAmount,
+        bLineThickness,
+        bLineFalloff,
+        bRungAmount,
+        bRungThickness,
+        bMaxWidth,
+      ];
       const updateMaterialControls = (): void => {
         const wire = wave.theme === "wireframe";
         for (const b of solidOnly) b.hidden = wire;
@@ -2138,8 +2151,11 @@ export class ControlPanel {
         "Z (wid)",
         "",
       ]);
+      // ±120 rather than ±12: the old cap held the noise swell to 3% of the 400-unit ribbon, which
+      // put every big-amplitude look (the weaving strands the helix pairs with) out of reach of the
+      // panel entirely — configs were never clamped, so those were editable only as raw JSON.
       dispF
-        .addBinding(wave, "displaceAmount", { min: -12, max: 12, step: 0.05 })
+        .addBinding(wave, "displaceAmount", { min: -120, max: 120, step: 0.05 })
         .on("change", refresh);
       // Second octave: finer ripples riding on the broad swell (amount 0 = off).
       dispF
@@ -2168,12 +2184,28 @@ export class ControlPanel {
       vec(twF, wave.twistPower, "twist power", { min: 0, max: 8, step: 0.05 });
       twF.addBinding(wave, "twistMotion", { label: "twist wobble" }).on("change", refresh);
       sectionRandom(twF, randomizeTwist);
+
+      // --- Helix --- the periodic sweep the three twists can't express (their angle is a monotone
+      // falloff). Collapsed by default: it's off unless radius or roll is dialled up.
+      const hxF = sf.addFolder({ title: "Helix", expanded: false });
+      hxF
+        .addBinding(wave, "helixTurns", { min: 0, max: 12, step: 0.05, label: "turns" })
+        .on("change", refresh);
+      hxF
+        .addBinding(wave, "helixRadius", { min: -300, max: 300, step: 1, label: "radius" })
+        .on("change", refresh);
+      hxF
+        .addBinding(wave, "helixRoll", { min: -1, max: 2, step: 0.01, label: "roll" })
+        .on("change", refresh);
+      hxF
+        .addBinding(wave, "helixPhase", { min: -180, max: 180, step: 1, label: "phase °" })
+        .on("change", refresh);
       // Order the sub-sections: appearance (colour, finish) → shape (displacement, twist) → pose
       // (transform) → advanced (noise bands) → interaction (this wave's reactivity, last — mirrors
       // the global Interaction folder sitting last in the panel). DOM move so the blocks stay grouped.
       const waveContent =
         (sf.element.querySelector(":scope > .tp-fldv_c") as HTMLElement | null) ?? sf.element;
-      for (const f of [gradF, finF, dispF, twF, trF, bandsF, waveIx])
+      for (const f of [gradF, finF, dispF, twF, hxF, trF, bandsF, waveIx])
         waveContent.appendChild(f.element);
     };
 

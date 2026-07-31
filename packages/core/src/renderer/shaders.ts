@@ -1,4 +1,5 @@
 import { MAX_COLORS, MAX_LIGHTS, MAX_MESH_POINTS, MAX_NOISE_BANDS } from "../config/model";
+import { RIBBON_Z_CENTER } from "./WaveGeometry";
 
 /**
  * The wave shaders. Vertex: a flat plane is Y-displaced by simplex noise, then
@@ -180,6 +181,15 @@ uniform float uDetailFreq, uDetailAmount; // 2nd displacement octave (only read 
 uniform float uTwFreqX, uTwFreqY, uTwFreqZ, uTwPowX, uTwPowY, uTwPowZ;
 uniform float uLoopSeconds; // seamless-loop period (only read under LOOP_MOTION)
 
+// Helix (optional). Behind HELIX so a wave without one compiles the exact same program — same
+// byte-identity contract as the pointer block below.
+#ifdef HELIX
+uniform float uHelixTurns;  // full turns from one end of the ribbon to the other
+uniform float uHelixRadius; // orbit radius: carries the whole ribbon around the axis
+uniform float uHelixRoll;   // cross-section roll, as a fraction of the turns (1 = rigid ladder)
+uniform float uHelixPhase;  // degrees
+#endif
+
 varying vec2 vUv;
 varying vec3 vWorldPos;
 varying vec3 vViewDir;
@@ -266,6 +276,28 @@ void main(){
 #else
   pos.y += uDetailAmount * simplexNoise(vec2(pos.x * uDetailFreq + t, pos.z * uDetailFreq + t));
 #endif
+#endif
+
+#ifdef HELIX
+  // Helix — the one shape the three twists below cannot reach. Their angle is freq * expStep(uv),
+  // a MONOTONE falloff, so it can only ramp once; this one is periodic in uv.y (the length), so
+  // uHelixTurns full turns land evenly from end to end. Runs AFTER the displacement so the noise
+  // above still samples the undeformed pos.x/pos.z (byte-identical sampling), and BEFORE the twist
+  // so the two compose.
+  //   roll   rolls the ribbon's own cross-section about the axis in step with the sweep, swinging
+  //          its two long edges onto opposite sides — one wave becomes a ladder whose edges are
+  //          both strands (pair with the wireframe theme's rungs for the rungs between them).
+  //   radius carries the whole ribbon around the axis instead, orientation intact — a narrow ribbon
+  //          then reads as ONE strand, and a second wave at phase+180 is the other.
+  float hAng = 6.28318530718 * uHelixTurns * uv.y + radians(uHelixPhase);
+  // Roll about the ribbon's width centre, not the origin — see RIBBON_Z_CENTER in WaveGeometry.
+  float rollA = hAng * uHelixRoll;
+  float rollC = cos(rollA), rollS = sin(rollA);
+  vec2 rel = vec2(pos.y, pos.z - ${RIBBON_Z_CENTER.toFixed(1)});
+  pos.y = rel.x * rollC - rel.y * rollS;
+  pos.z = ${RIBBON_Z_CENTER.toFixed(1)} + rel.x * rollS + rel.y * rollC;
+  pos.y += uHelixRadius * cos(hAng);
+  pos.z += uHelixRadius * sin(hAng);
 #endif
 
   // The X-twist frequency feeding rotB. Two modes: by default uTwFreqX is used
@@ -601,6 +633,11 @@ uniform float uLineAmount;          // default 425
 uniform float uLineThickness;       // default 1
 uniform float uLineDerivativePower; // default 0.95
 uniform float uMaxWidth;            // default 1232
+// Cross-wise rungs (optional) — behind RUNGS so a wave without them compiles the same program.
+#ifdef RUNGS
+uniform float uRungAmount;    // frequency across the ribbon (rungs ≈ amount / π)
+uniform float uRungThickness; // rung width in pixels
+#endif
 uniform vec3 uClearColor;           // = page background colour (shown between the lines)
 
 varying vec2 vUv;
@@ -631,6 +668,16 @@ void main(){
 #endif
   float a = abs(sin(vUv.x * uLineAmount));
   a = smoothstep(lineThickness, 0.0, a);
+
+#ifdef RUNGS
+  // Rungs: the same carve at constant uv.y instead of uv.x, so this family runs ACROSS the ribbon
+  // where the one above runs along it — together they read as a ladder. Width comes from fwidth()
+  // rather than the lengthwise term's dFdy(vUv).x, which is the derivative of the wrong axis for
+  // this direction: |sin| climbs by ~uRungAmount·fwidth(vUv.y) per pixel, so scaling by that keeps
+  // a rung uRungThickness pixels wide at any zoom or ribbon scale.
+  float rung = abs(sin(vUv.y * uRungAmount));
+  a = max(a, smoothstep(uRungThickness * uRungAmount * fwidth(vUv.y), 0.0, rung));
+#endif
 
   // Depth fade: the wave recedes into the background colour with depth. Watch the
   // argument order: clamp(0.0, 1.0, z*6) is a swapped-args trap — it clamps the

@@ -95,8 +95,22 @@ const handle = createWave(document.getElementById("wave"), {/* config */}, { pos
 
 A wave is one JSON-serializable `StudioConfig`: scene fields (`background`, `quality`, `dprMax`,
 `loopSeconds`, `paused`, camera…) plus a `waves: WaveConfig[]` array (each wave has its own
-`palette`, `fiberCount`, `speed`, `displaceAmount`, `twist…`, `blendMode`, `theme`, transform…).
-Omitted fields fall back to `createDefaultConfig()`.
+`palette`, `fiberCount`, `speed`, `displaceAmount`, `twist…`, `helix…`, `blendMode`, `theme`,
+transform…). Omitted fields fall back to `createDefaultConfig()`.
+
+**Shape: twist vs helix.** `twistFrequency`/`twistPower` rotate by `freq * expStep(uv, power)`, a
+MONOTONE falloff — good for one dramatic ramp, but it can never repeat, so it cannot make a coil.
+`helixTurns` sweeps a _periodic_ angle along the ribbon's length instead, and is the only way to get
+a repeating helix:
+
+- `helixRadius` carries the whole ribbon around the axis (orientation intact). A narrow ribbon
+  (small `scale.z`) then reads as one strand — **two waves 180° apart in `helixPhase` are a double
+  helix**, and they genuinely swap depth at every crossing.
+- `helixRoll` rolls the ribbon's own cross-section in step (1 = rigid twisted ribbon), swinging its
+  two long edges onto opposite sides of the axis, so **one wave becomes a ladder whose edges are
+  both strands**. Add `rungAmount` (wireframe theme) for the rungs between them.
+- Both are off at 0, and the helix code path isn't compiled unless `helixRadius` or `helixRoll` is
+  non-zero — a wave without one renders byte-identically to before.
 
 **React flat props** are a shortcut mapped onto `waves[0]` and the scene:
 `palette` (`string[]` | `ColorStop[]`), `fiberCount`, `fiberStrength`, `sheen`, `iridescence`,

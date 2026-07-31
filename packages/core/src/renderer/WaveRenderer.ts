@@ -555,6 +555,15 @@ export class WaveRenderer {
       // Interaction / pointer field. ALWAYS present in JS (read only under POINTER_FX /
       // POINTER_RIPPLES); three uploads them only when the compiled program declares them, so their
       // presence never affects a non-interactive wave (byte-identity precedent: uDetailAmount).
+      // Helix (vertex, under HELIX) + wireframe rungs (line fragment, under RUNGS). Always present
+      // JS-side; three uploads them only when the compiled program declares them, so a wave with no
+      // helix / no rungs is untouched (byte-identity precedent: uDetailAmount).
+      uHelixTurns: { value: 0 },
+      uHelixRadius: { value: 0 },
+      uHelixRoll: { value: 0 },
+      uHelixPhase: { value: 0 },
+      uRungAmount: { value: 0 },
+      uRungThickness: { value: 1 },
       uPointer: { value: new THREE.Vector2(0, 0) }, // smoothed pointer NDC
       uPointerActive: { value: 0 }, // presence ramp × per-wave influence
       uPointerRadius: { value: 0.6 }, // falloff radius in NDC-y (config radius × 2)
@@ -588,6 +597,12 @@ export class WaveRenderer {
     if ((sc?.detailAmount ?? 0) !== 0 || bindsDetail) defines.DETAIL_OCTAVE = "";
     if ((sc?.depthTint ?? 0) > 0) defines.DEPTH_TINT = "";
     if ((sc?.edgeFeather ?? 0.1) !== 0.1) defines.EDGE_FEATHER = "";
+    // Helix: turns/phase alone move nothing — the block only displaces via radius or roll, so those
+    // two are what decide whether it's compiled at all.
+    if ((sc?.helixRadius ?? 0) !== 0 || (sc?.helixRoll ?? 0) !== 0) defines.HELIX = "";
+    // Rungs live in the wireframe fragment shader only; setting the define on a solid wave would
+    // key a second, identical program for nothing.
+    if (sc?.theme === "wireframe" && (sc.rungAmount ?? 0) > 0) defines.RUNGS = "";
     // Pointer field (per wave, config-only, so input never triggers a recompile). Ripples nest inside.
     if (sc && wavePointerFxActive(this.config, sc)) {
       defines.POINTER_FX = "";
@@ -784,6 +799,8 @@ export class WaveRenderer {
       u.uLineAmount.value = sc.lineAmount ?? 425;
       u.uLineThickness.value = sc.lineThickness ?? 1;
       u.uLineDerivativePower.value = sc.lineDerivativePower ?? 0.95;
+      u.uRungAmount.value = sc.rungAmount ?? 0;
+      u.uRungThickness.value = sc.rungThickness ?? 1;
       u.uMaxWidth.value = sc.maxWidth ?? 1232;
       hexToLinearVec3(this.config.background, u.uClearColor.value as THREE.Vector3);
       u.uFiberCount.value = sc.fiberCount;
@@ -845,6 +862,10 @@ export class WaveRenderer {
       u.uTwPowX.value = sc.twistPower.x;
       u.uTwPowY.value = sc.twistPower.y;
       u.uTwPowZ.value = sc.twistPower.z;
+      u.uHelixTurns.value = sc.helixTurns ?? 0;
+      u.uHelixRadius.value = sc.helixRadius ?? 0;
+      u.uHelixRoll.value = sc.helixRoll ?? 0;
+      u.uHelixPhase.value = sc.helixPhase ?? 0;
       // Mesh transform — each wave's ABSOLUTE scale / rotation / position, applied via
       // modelMatrix using THREE's Euler XYZ order so the on-screen orientation matches the
       // authored view.

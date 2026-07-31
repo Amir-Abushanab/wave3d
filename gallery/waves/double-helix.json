@@ -19,17 +19,17 @@
       "y": 0,
       "z": 0
     },
-    "cameraZoom": 1.05,
+    "cameraZoom": 0.7,
     "grain": 0.5,
     "blur": 0,
-    "bloomStrength": 0.55,
+    "bloomStrength": 0.5,
     "bloomRadius": 0.6,
     "bloomThreshold": 0.5,
     "waves": [
       {
-        "displaceAmount": 105,
+        "displaceAmount": 25,
         "displaceFrequency": {
-          "x": 0.013,
+          "x": 0.008,
           "y": 0.0004
         },
         "detailAmount": 0,
@@ -44,29 +44,34 @@
           "z": 2
         },
         "twistMotion": false,
+        "helixTurns": 3,
+        "helixRadius": 150,
+        "helixRoll": 0,
+        "helixPhase": 0,
+        "theme": "solid",
         "rotation": {
           "x": 0,
           "y": 0,
           "z": 0
         },
         "scale": {
-          "x": 3.2,
+          "x": 3,
           "y": 3,
-          "z": 0.5
+          "z": 0.9
         },
         "position": {
           "x": 0,
           "y": 0,
           "z": 0
         },
-        "seed": 62,
-        "hueShift": 0,
+        "seed": 0,
+        "speed": 0.12,
         "usePaletteTexture": false,
         "paletteSource": "stops",
         "palette": [
           {
             "color": "#7ee8ff",
-            "pos": 0
+            "pos": 0.0
           },
           {
             "color": "#2f7bff",
@@ -74,7 +79,7 @@
           },
           {
             "color": "#6d3bff",
-            "pos": 1
+            "pos": 1.0
           }
         ],
         "gradientType": "linear",
@@ -82,13 +87,12 @@
         "gradientShift": 0,
         "colorSaturation": 1.25,
         "edgeFade": 0.04,
-        "edgeFeather": 0.1,
-        "speed": 0.12
+        "edgeFeather": 0.1
       },
       {
-        "displaceAmount": 105,
+        "displaceAmount": 25,
         "displaceFrequency": {
-          "x": 0.013,
+          "x": 0.008,
           "y": 0.0004
         },
         "detailAmount": 0,
@@ -103,29 +107,34 @@
           "z": 2
         },
         "twistMotion": false,
+        "helixTurns": 3,
+        "helixRadius": 150,
+        "helixRoll": 0,
+        "helixPhase": 180,
+        "theme": "solid",
         "rotation": {
-          "x": 180,
+          "x": 0,
           "y": 0,
           "z": 0
         },
         "scale": {
-          "x": 3.2,
+          "x": 3,
           "y": 3,
-          "z": 0.5
+          "z": 0.9
         },
         "position": {
           "x": 0,
           "y": 0,
           "z": 0
         },
-        "seed": 62,
-        "hueShift": 0,
+        "seed": 0,
+        "speed": 0.12,
         "usePaletteTexture": false,
         "paletteSource": "stops",
         "palette": [
           {
             "color": "#ff4d9d",
-            "pos": 0
+            "pos": 0.0
           },
           {
             "color": "#ff7a3c",
@@ -133,7 +142,7 @@
           },
           {
             "color": "#ffd166",
-            "pos": 1
+            "pos": 1.0
           }
         ],
         "gradientType": "linear",
@@ -141,8 +150,7 @@
         "gradientShift": 0,
         "colorSaturation": 1.25,
         "edgeFade": 0.04,
-        "edgeFeather": 0.1,
-        "speed": 0.12
+        "edgeFeather": 0.1
       }
     ]
   }
