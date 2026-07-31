@@ -352,6 +352,56 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     c.transparentBackground = false;
     return c;
   },
+  Corkscrew: () => {
+    // The helix mode, shown off on its own: `helixRoll` at 1 rolls the ribbon's cross-section in
+    // step with the sweep, so the flat strip becomes an auger blade winding around its own length
+    // axis, and `helixRadius` lifts that blade off the axis so the turns read as a screw thread
+    // rather than a flat twist. No twist at all — this shape is unreachable with twistFrequency,
+    // whose expStep angle is monotone and can only ramp once (see the helix docs in config/model).
+    const c = PRESETS["Hero"]();
+    const w = c.waves[0];
+    w.helixTurns = 5;
+    w.helixRadius = 45;
+    w.helixRoll = 1;
+    w.helixPhase = 0;
+    w.twistFrequency = { x: 0, y: 0, z: 0 };
+    w.twistPower = { x: 4, y: 4, z: 2 };
+    // A slow swell along the blade so it breathes; the corkscrew itself is static geometry.
+    w.displaceAmount = 16;
+    w.displaceFrequency = { x: 0.006, y: 0.0008 };
+    w.speed = 0.1;
+    w.position = { x: 0, y: 0, z: 0 };
+    w.rotation = { x: 0, y: 0, z: 12 }; // tilt so it climbs across the frame
+    w.scale = { x: 3, y: 3, z: 1.5 };
+    // Mesh gradient: the colour field runs along the blade, so each turn picks up a different part
+    // of the spectrum instead of the one hue a linear stop ramp would give.
+    w.gradientType = "mesh";
+    w.meshGradientPoints = [
+      { color: "#0a84ff", x: 0.06, y: 0.9, influence: 0.68 },
+      { color: "#64d2ff", x: 0.88, y: 0.92, influence: 0.72 },
+      { color: "#bf5af2", x: 0.5, y: 0.64, influence: 0.58 },
+      { color: "#ff375f", x: 0.1, y: 0.14, influence: 0.7 },
+      { color: "#ff9f0a", x: 0.84, y: 0.12, influence: 0.74 },
+      { color: "#30d158", x: 0.94, y: 0.5, influence: 0.54 },
+    ];
+    w.meshGradientSoftness = 0.68;
+    w.blendMode = "normal";
+    w.hueShift = 0;
+    w.colorContrast = 1.06;
+    w.colorSaturation = 1.12;
+    w.fiberStrength = 0.14;
+    c.cameraTarget = { x: 0, y: 0, z: 0 };
+    c.cameraZoom = 0.72;
+    c.grain = 0.3;
+    c.blur = 0.008;
+    c.bloomStrength = 0.35;
+    c.bloomRadius = 0.6;
+    c.bloomThreshold = 0.55;
+    c.background = "#070914";
+    c.backgroundMode = "color";
+    c.transparentBackground = false;
+    return c;
+  },
   Kaleidoscope: () => {
     const c = PRESETS["Wave 3"]();
     const w = c.waves[0];

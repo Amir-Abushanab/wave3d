@@ -2192,8 +2192,9 @@ export class ControlPanel {
       sectionRandom(twF, randomizeTwist);
 
       // --- Helix --- the periodic sweep the three twists can't express (their angle is a monotone
-      // falloff). Collapsed by default: it's off unless radius or roll is dialled up.
-      const hxF = sf.addFolder({ title: "Helix", expanded: false });
+      // falloff). Open like its sibling shape sections, so the coil is discoverable rather than
+      // hidden behind a twirl — it reads as inert until radius or roll is dialled up.
+      const hxF = sf.addFolder({ title: "Helix", expanded: true });
       hxF
         .addBinding(wave, "helixTurns", { min: 0, max: 12, step: 0.05, label: "turns" })
         .on("change", refresh);
@@ -2409,6 +2410,11 @@ export class ControlPanel {
         '<path d="M8 2.4v11.2M2.4 8h11.2M6.3 4.3 8 2.4l1.7 1.9M6.3 11.7 8 13.6l1.7-1.9M4.3 6.3 2.4 8l1.9 1.7M11.7 6.3 13.6 8l-1.9 1.7"/>',
       ),
       Twist: svg('<path d="M13 8a5 5 0 1 1-1.6-3.7"/><path d="M13.2 2.6v3.1h-3.1"/>'),
+      // A coil seen side-on: one wire looping twice down the axis. Two crossing strands (the DNA
+      // glyph) collapse into a figure-8 at 13px, and more than two loops turn to mush — this holds
+      // its shape at the size the panel actually renders. Deliberately unlike the Twist arrow
+      // beside it, since the two sections are otherwise easy to confuse.
+      Helix: svg('<path d="M4.2 3.4C12 4.1 12 7.5 4.2 8.2 12 8.9 12 12.3 4.2 13"/>'),
       Finish: svg('<path d="m8 1.9 1.4 4.1 4.1 1-4.1 1L8 12.1 6.6 8l-4.1-1 4.1-1z"/>'),
       Lights: svg(
         '<circle cx="8" cy="8" r="2.9"/><path d="M8 1.6v1.7M8 12.7v1.7M1.6 8h1.7M12.7 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M3.6 12.4l1.2-1.2M11.2 4.8l1.2-1.2"/>',
