@@ -211,6 +211,27 @@ export const WAVE_APPLIERS = {
       a.u.uIridescence.value = v;
     },
   ),
+  // Helix: phase spins the coil, turns winds/unwinds it, radius opens and closes it. All three are
+  // inert unless the wave already has a helix, so waveDefines compiles HELIX for a wave that binds
+  // one but authors radius/roll at 0 (same reason detailAmount does — see bindsDetail there).
+  helixPhase: waveApplier(
+    (w) => w.helixPhase ?? 0,
+    (v, a) => {
+      a.u.uHelixPhase.value = v;
+    },
+  ),
+  helixTurns: waveApplier(
+    (w) => w.helixTurns ?? 0,
+    (v, a) => {
+      a.u.uHelixTurns.value = v;
+    },
+  ),
+  helixRadius: waveApplier(
+    (w) => w.helixRadius ?? 0,
+    (v, a) => {
+      a.u.uHelixRadius.value = v;
+    },
+  ),
   positionX: waveApplier(
     (w) => w.position.x,
     (v, a) => {

@@ -598,8 +598,13 @@ export class WaveRenderer {
     if ((sc?.depthTint ?? 0) > 0) defines.DEPTH_TINT = "";
     if ((sc?.edgeFeather ?? 0.1) !== 0.1) defines.EDGE_FEATHER = "";
     // Helix: turns/phase alone move nothing — the block only displaces via radius or roll, so those
-    // two are what decide whether it's compiled at all.
-    if ((sc?.helixRadius ?? 0) !== 0 || (sc?.helixRoll ?? 0) !== 0) defines.HELIX = "";
+    // two are what decide whether it's compiled at all. A helix binding counts too: driving
+    // helixRadius up from an authored 0 has to have somewhere to land (as with detailAmount above).
+    const bindsHelix =
+      sc?.interaction?.bindings?.some((b) => b.target.startsWith("helix")) ?? false;
+    if ((sc?.helixRadius ?? 0) !== 0 || (sc?.helixRoll ?? 0) !== 0 || bindsHelix) {
+      defines.HELIX = "";
+    }
     // Rungs live in the wireframe fragment shader only; setting the define on a solid wave would
     // key a second, identical program for nothing.
     if (sc?.theme === "wireframe" && (sc.rungAmount ?? 0) > 0) defines.RUNGS = "";

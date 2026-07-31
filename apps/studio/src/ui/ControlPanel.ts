@@ -221,6 +221,9 @@ const IX_WAVE_TARGETS: Record<string, WaveInteractionTarget> = {
   "Twist freq X": "twistFrequencyX",
   "Twist freq Y": "twistFrequencyY",
   "Twist freq Z": "twistFrequencyZ",
+  "Helix phase": "helixPhase",
+  "Helix turns": "helixTurns",
+  "Helix radius": "helixRadius",
   "Hue shift": "hueShift",
   "Gradient shift": "gradientShift",
   Saturation: "colorSaturation",
@@ -255,6 +258,9 @@ const IX_TARGET_DEFAULT_TO: Record<string, number> = {
   twistFrequencyX: 1.5, // ±2
   twistFrequencyY: 1.5,
   twistFrequencyZ: 1.5,
+  helixPhase: 360, // a full turn — scroll→phase spins the coil exactly once
+  helixTurns: 6, // 0..12
+  helixRadius: 200, // ±300
   hueShift: 180, // ±180°
   gradientShift: 0.6, // 0..0.6
   colorSaturation: 2, // 0..2

@@ -132,8 +132,10 @@ Sources: `scroll`, `hover`, `pointerX` / `pointerY`, `pointerSpeed`, `press`, `s
 `appear`, or a developer-fed `custom:*` (via `handle.setInteractionInput(name, value)` /
 `renderer.setInteractionInput`). Each binding rests at the authored value and moves toward `to` as
 its input rises 0→1 — `{ source: "hover", target: "displaceAmount", to: 12 }` grows the folds on
-hover. Each wave's `hover.smoothing` sets its own cursor-follow lag (vary it across a stack for a
-parallax drag). **Shared inputs** (one cursor + scroll: `radius`, `touch`) and **scene-param
+hover. `helixPhase` / `helixTurns` / `helixRadius` are bindable too, so
+`{ source: "scroll", target: "helixPhase", to: 360 }` spins a helix exactly one turn down the page
+(and the helix path is compiled for a wave that binds one but authors radius/roll at 0). Each wave's
+`hover.smoothing` sets its own cursor-follow lag (vary it across a stack for a parallax drag). **Shared inputs** (one cursor + scroll: `radius`, `touch`) and **scene-param
 bindings** (`timeOffset`, `cameraZoom`, `blur`, `grain` — e.g. `scroll → timeOffset` scrubs the whole
 wave with the page) live on `SceneConfig.interaction`. In React the flat `interaction` prop targets
 the first wave; the studio authors it per wave (Hover / Click & touch / Bindings) plus a global
