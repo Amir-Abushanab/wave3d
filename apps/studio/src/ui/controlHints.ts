@@ -116,6 +116,9 @@ const CONTROL_HINTS: Record<string, string> = {
     "How many strands the ribbon is carved into. They run lengthwise, so this counts them ACROSS the width.",
   "line thickness":
     "Base strand width, before 'line falloff' and 'max width' thicken it where the ribbon folds away.",
+  "rung count":
+    "A second family of lines carved ACROSS the ribbon, crossing the lengthwise strands into a ladder. Roughly count ÷ π rungs. 0 = off, and the cross-wise path isn't even compiled.",
+  "rung thickness": "Rung line width in pixels — screen-space, so it holds at any zoom.",
   "line falloff": "How sharply wireframe lines thicken where the ribbon folds away.",
   "max width": "Master scale for the fold-driven line thickening (wireframe).",
 
@@ -156,6 +159,15 @@ const CONTROL_HINTS: Record<string, string> = {
   "twist power Y": TWIST_POWER_WID,
   "twist power Z": TWIST_POWER_LEN,
   "twist wobble": "Animates the X-twist so it breathes / wobbles over time.",
+
+  // --- Helix --- the periodic sweep the three twists can't reach (their falloff only ramps once).
+  turns:
+    "How many full turns the ribbon makes around its own length axis, end to end. On its own it does nothing — dial up 'radius' or 'roll' to give the turning something to move.",
+  radius:
+    "Swings the whole ribbon out to this distance from the axis, keeping it facing the same way, so a narrow ribbon reads as one coiled STRAND. Two waves set 180° apart in 'phase' make a double helix. 0 = off.",
+  roll: "Rolls the ribbon's own cross-section as it advances, as a fraction of 'turns' (1 = exactly in step, a rigid twisted ribbon). It throws the two long edges onto opposite sides of the axis, so a SINGLE wave becomes a ladder with a strand on each edge — add 'rung count' for the rungs between them. 0 = off.",
+  "phase °":
+    "Where along the turn the ribbon starts. This is the knob that offsets a second wave onto the other side of the same helix (set it to 180).",
 
   // --- Camera ---
   "rig minimap": "Corner minimap showing the wave, camera and lights in 3-D.",
