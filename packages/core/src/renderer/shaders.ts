@@ -314,9 +314,12 @@ void main(){
   twistXFreq = uTwFreqX - twistXNoise * 0.1;
 #endif
 
-  // Three-axis twist: expStep falloff sets how
-  // sharply each rotation concentrates toward an edge. rotA keys off uv.x, rotB/rotC
-  // off uv.y; axes (0.5,0,0.5) and (0,0.5,0.5) are normalised inside rotationMatrix.
+  // Three-axis twist: expStep falloff sets how sharply each rotation concentrates toward an
+  // edge. Note the falloff axis is NOT the one in the uniform's name — rotA (the Y knobs) keys
+  // off uv.x, so it falls off across the WIDTH, while rotB/rotC (the X and Z knobs) key off
+  // uv.y and fall off along the LENGTH. Axes (0.5,0,0.5) and (0,0.5,0.5) are normalised inside
+  // rotationMatrix. twistPower 0 makes expStep a constant 0.5 — a rigid rotation of the whole
+  // mesh by freq/2, useful as a pure phase offset.
   mat4 rotA = rotationMatrix(vec3(0.5, 0.0, 0.5), uTwFreqY * expStep(uv.x, uTwPowY));
   mat4 rotB = rotationMatrix(vec3(0.0, 0.5, 0.5), twistXFreq * expStep(uv.y, uTwPowX));
   mat4 rotC = rotationMatrix(vec3(0.5, 0.0, 0.5), uTwFreqZ * expStep(uv.y, uTwPowZ));
@@ -450,7 +453,7 @@ uniform vec3 uDepthTintColor;
 varying vec4 vClipPosition; // clip-space depth (written by the vertex shader for both programs)
 #endif
 #ifdef EDGE_FEATHER
-uniform float uEdgeFeather; // ribbon long-edge softness (only when it differs from the 0.1 default)
+uniform float uEdgeFeather; // softness of the ribbon's two ENDS (only when it differs from 0.1)
 #endif
 #ifdef POINTER_FX
 uniform float uPointerThin;    // 0..1 local translucency near the cursor
@@ -490,8 +493,10 @@ vec3 surfaceStreaks(vec2 uv, vec3 color, float crease){
     colorAtten = mix(colorAtten, prm.w, blend);
     paraPow = mix(paraPow, uNoiseBandParaPow[i], blend);
   }
-  // The high frequency runs along uv.x (the ribbon's length) so the streaks read as
-  // fine lengthwise fibers; end-weighted by 1 - parabola(uv.x).
+  // The high frequency runs along uv.x (the folded WIDTH — see WaveGeometry's UV AXES note),
+  // packing many thin stripes across the cross-section while uv.y is barely scaled, so each
+  // one stretches out into a fine LENGTHWISE fiber. 1 - parabola(uv.x) then weights them
+  // toward the two long edges and away from the width centreline.
   float p = 1.0 - parabola(uv.x, paraPow);
   float n0 = simplexNoise(vec2(uv.x * 0.1, uv.y * 0.5));
   float n1 = simplexNoise(vec2(uv.x * (freq + freq * 0.5 * n0), uv.y * 4.0 * n0));
@@ -580,7 +585,8 @@ void main(){
 
   if (uTexture > 0.001) col *= 1.0 + (grainHash(vUv * 850.0) - 0.5) * uTexture * 0.25;
 
-  // Soft long edges + optional viewport-edge fade. The edge softness is the hardcoded 0.1 by
+  // Soft ribbon ENDS (it fades on vUv.y, the length) + optional viewport-edge fade. The edge
+  // softness is the hardcoded 0.1 by
   // default (literal branch → byte-identical); EDGE_FEATHER swaps in the uEdgeFeather knob only
   // when it differs, so razor-crisp or vapor-soft edges are both reachable.
 #ifdef EDGE_FEATHER
@@ -618,8 +624,9 @@ void main(){
 
 // ---- Wireframe "thin-line" theme ----
 // The same wave geometry, but instead of a solid surface the colour is carved into fine
-// vertical lines (abs(sin(uv.x * lineAmount))) whose thickness scales with the screen-
-// space uv derivative, then mixed line<->background with a depth fade. Used by the dark
+// LENGTHWISE strands (abs(sin(uv.x * lineAmount)) — uv.x is the folded width, so lineAmount
+// counts strands ACROSS the cross-section and each runs end to end) whose thickness scales
+// with the screen-space uv derivative, then mixed line<->background with a depth fade. Used by the dark
 // hero preset. hueShift takes degrees (radians() here) to match the light shader.
 export const lineFragmentShader = /* glsl */ `
 #define MAX_COLORS ${MAX_COLORS}
@@ -660,7 +667,7 @@ void main(){
   color *= 1.0 + uPointerLighten * vPointerFall;
 #endif
 
-  // Carve into fine vertical lines; thickness from the screen-space uv derivative.
+  // Carve into fine lengthwise strands; thickness from the screen-space uv derivative.
   vec2 dy = dFdy(vUv);
   float lineThickness = uLineThickness * pow(abs(dy.x * uMaxWidth), uLineDerivativePower);
 #ifdef POINTER_FX

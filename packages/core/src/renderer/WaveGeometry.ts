@@ -22,8 +22,8 @@ export const RIBBON_Z_CENTER = (SHIFT - NATIVE / 2 + (SHIFT - FOLD_X)) / 2;
  * Base wave geometry — `folded()`: a flat PlaneGeometry folded into a hairpin
  * (sideways-U) cross-section, then stood up so the fold runs along the wave's length.
  *
- *   - Each vertex gets a half-thickness `r` (per-vertex math below): tight along the
- *     width centreline, flaring toward the long edges.
+ *   - Each vertex gets a half-thickness `r` (per-vertex math below): tight at the middle
+ *     of the wave's length, flaring toward both ends.
  *   - The strip |x| < FOLD_X becomes a semicircular hinge; the plane's two halves bend
  *     around it into parallel arms offset to +r and -r.
  *   - Two −90° rotations (about X then Y) orient the U upright and down its length.
@@ -34,7 +34,26 @@ export const RIBBON_Z_CENTER = (SHIFT - NATIVE / 2 + (SHIFT - FOLD_X)) / 2;
  * faces only, no vertex positions move.
  *
  * All further deformation (displacement, twist, transform) happens in the vertex shader
- * on top of this base. UVs: u along the fold/length, v across the width.
+ * on top of this base.
+ *
+ * UV AXES — the canonical statement, because this is easy to get backwards and the rest of
+ * the codebase reasons in uv. The plane is folded along its local x, which is the COLUMN
+ * direction (uv.x), and the two −90° rotations land world = (plane.y, plane.z, plane.x):
+ *
+ *   uv.y → the ribbon's 400-unit LENGTH (world X — the axis `displaceFrequency.x` drives)
+ *   uv.x → the folded ~188-unit WIDTH, wrapping the hairpin cross-section (world Z)
+ *
+ * So u runs ACROSS the fold and v runs ALONG it. The welding below corroborates it twice:
+ * the end-caps fan across columns at rows v=0 / v=subX, and the seam joins col 0 to col
+ * subX down every row — a join that necessarily runs the full length. Measured on a built
+ * mesh, the correlation of uv.y with world X is exactly 1.0, and of uv.x with world X, 0.
+ * (uv.x vs world Z also reads 0 — the fold's own signature: a monotone mapping would give
+ * ±1, but the hairpin runs out along one arm and back along the other.)
+ *
+ * Consequences that read backwards if you assume otherwise: a `NoiseBand`'s startX/endX
+ * are the SHORT axis; `edgeFeather` softens the two ends, not the long edges; the palette
+ * texture's "edge tint" lands on the ends; `parabolaPower` bunches streaks toward the long
+ * edges; and the twist X/Z falloffs run lengthwise while Y runs across the width.
  */
 export class WaveGeometry {
   readonly geometry: THREE.BufferGeometry;
@@ -49,7 +68,7 @@ export class WaveGeometry {
     if (segments === this.segments) return;
     this.segments = segments;
 
-    // subX along the fold, subY across the width (twice as dense).
+    // subX across the fold (the cross-section), subY along the length (twice as dense).
     const subX = THREE.MathUtils.clamp(Math.round(segments), 48, 200);
     const subY = subX * 2;
 
@@ -61,8 +80,8 @@ export class WaveGeometry {
     for (let i = 0; i < pos.count; i++) {
       v.fromBufferAttribute(pos, i);
       const uy = uv.getY(i);
-      // r: cross-section half-thickness — tight (2) along the width centreline, flaring (4)
-      // toward the long edges. The pow() term is a sharp parabolic bump peaking at uv.y = 0.5.
+      // r: cross-section half-thickness — tight (2) at the middle of the length, flaring (4)
+      // toward both ends. The pow() term is a sharp parabolic bump peaking at uv.y = 0.5.
       const r = 4 - 2 * Math.pow(4 * uy * (1 - uy), 9.5);
 
       if (v.x < -FOLD_X) {

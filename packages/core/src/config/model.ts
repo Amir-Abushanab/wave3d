@@ -75,11 +75,14 @@ export function createLight(
 export const DEFAULT_LIGHT_POSITION: Vec3 = { x: 800, y: 900, z: 1100 };
 
 /**
- * A noise band: inside a rectangular uv region (startX..endX along the length,
- * startY..endY across the width, softened by `feather`), the fiber streaks are
- * overridden — strength, frequency (density), colourAttenuation (how much the local
- * colour suppresses them), and the end-weighting parabolaPower. Lets the fibers vary
+ * A noise band: inside a rectangular uv region, softened by `feather`, the fiber streaks
+ * are overridden — strength, frequency (density), colourAttenuation (how much the local
+ * colour suppresses them), and the edge-weighting parabolaPower. Lets the fibers vary
  * per region instead of uniform.
+ *
+ * Mind the axes, which are the reverse of what the names suggest: the bounds gate on uv,
+ * and uv.x is the folded WIDTH while uv.y is the LENGTH (see WaveGeometry's UV AXES note).
+ * So startX..endX span the SHORT axis and startY..endY run end to end.
  */
 export interface NoiseBand {
   startX: number;
@@ -108,7 +111,8 @@ export function createNoiseBand(): NoiseBand {
   };
 }
 
-/** One gradient stop: a colour at a normalized position (0–1) across the width. */
+/** One gradient stop: a colour at a normalized position (0–1) along the gradient ramp, whose
+ *  direction on the ribbon is set by `gradientType` / `gradientAngle`. */
 export interface ColorStop {
   color: string;
   pos: number;
@@ -186,8 +190,9 @@ export interface WaveConfig {
   /** Thin-film / holographic hue response that shifts with view angle (0 = off). */
   iridescence: number;
   edgeFade: number;
-  /** Softness of the ribbon's long edges (smoothstep width across uv.y). 0.1 = the original
-   *  hardcoded value; smaller = razor-crisp graphic ribbons, larger = soft vapor. */
+  /** Softness of the ribbon's two ENDS — it smoothsteps on uv.y, which is the length, not the
+   *  long edges. 0.1 = the original hardcoded value; smaller = razor-crisp graphic ribbons,
+   *  larger = soft vapor. */
   edgeFeather: number;
   /** Depth tint (solid theme): fade far fragments toward depthTintColor for atmospheric
    *  separation in multi-wave stacks (0 = off). */

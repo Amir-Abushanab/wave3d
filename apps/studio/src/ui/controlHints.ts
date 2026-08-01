@@ -16,20 +16,10 @@
  * Hint wording is grounded in what each control actually does in the shader — a one-line gloss of
  * the visual effect, since even a well-named knob benefits from a plain-language description.
  *
- * UV AXIS MAPPING — several hints below hinge on this, and a few comments elsewhere in the repo
- * state it backwards (`WaveGeometry` "u along the fold/length", the `NoiseBand` doc, and the
- * "uv.x (the ribbon's length)" note in `shaders.ts`). The geometry is the authority:
- * `folded()` builds a PlaneGeometry, folds it along the plane's local x (the COLUMN direction,
- * i.e. uv.x), then rotates it twice so world = (plane.y, plane.z, plane.x). So:
- *
- *   uv.y  → the ribbon's 400-unit LENGTH (world X — the axis `displace freq X (len)` drives)
- *   uv.x  → the folded ~184-unit WIDTH, wrapping the hairpin cross-section (world Z)
- *
- * Corroboration: the end-caps fan across columns at rows v=0 / v=subX ("the two length-ends"),
- * and the weld joins col 0 to col subX down every row — a seam that runs the full length.
- * Consequences worth keeping straight: a noise band's startX/endX are the SHORT axis and its
- * startY/endY the long one; `edge feather` softens the two ends (not the long edges); and the
- * twist X/Z falloffs run along the length while Y runs across the width.
+ * UV AXES — several hints below hinge on uv.y being the ribbon's LENGTH and uv.x its folded
+ * WIDTH, which is the reverse of what a few of the knob names suggest. The derivation and its
+ * corroboration live in the UV AXES note atop `WaveGeometry.ts`; read that before "correcting"
+ * any hint here that mentions a length, a width, an end or a long edge.
  */
 
 /** Shared text for knobs that repeat per axis — the map needs one entry per exact label. */
@@ -94,7 +84,8 @@ const CONTROL_HINTS: Record<string, string> = {
     "Use the baked 2-D palette image (with edge tint) instead of the flat procedural gradient.",
   "mesh softness":
     "How softly the mesh colour points blend — higher is softer and broader. (Mesh type only.)",
-  "edge tint": "Colour blended toward both long edges of the ribbon. (Custom-stops palette only.)",
+  "edge tint":
+    "Colour blended toward the ribbon's two ENDS — it rides the palette's second axis, which samples uv.y. (Custom-stops palette only.)",
   "edge amt": "Strength of the edge tint — 0 leaves a flat 1-D gradient.",
   "color drift X": COLOR_DRIFT,
   "color drift Y": COLOR_DRIFT,
@@ -130,7 +121,7 @@ const CONTROL_HINTS: Record<string, string> = {
 
   // --- Noise Bands ---
   // The names are the reverse of what they suggest: the bounds gate on uv, where uv.x wraps the
-  // folded cross-section (the short axis) and uv.y runs end to end. See the mapping note below.
+  // folded cross-section (the short axis) and uv.y runs end to end. See the UV AXES note above.
   startX:
     "Where the band begins ACROSS the ribbon's WIDTH (0–1). Despite the name, the X pair is the SHORT axis — it wraps the folded cross-section.",
   endX: "Where the band ends across the ribbon's width (0–1).",
@@ -160,7 +151,7 @@ const CONTROL_HINTS: Record<string, string> = {
   "twist freq Y": TWIST_FREQ,
   "twist freq Z": TWIST_FREQ,
   // Which axis each falloff runs along is not the axis in its name: the X and Z rotations key off
-  // uv.y (the length), the Y rotation off uv.x (the folded width). See the mapping note below.
+  // uv.y (the length), the Y rotation off uv.x (the folded width). See the UV AXES note above.
   "twist power X": TWIST_POWER_LEN,
   "twist power Y": TWIST_POWER_WID,
   "twist power Z": TWIST_POWER_LEN,

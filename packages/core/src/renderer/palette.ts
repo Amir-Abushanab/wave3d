@@ -9,15 +9,17 @@ import type {
 } from "../config/model";
 
 /**
- * Bakes the gradient stops into a 2D palette texture, sampled in the shader as
- * `texture2D(u_paletteTexture, vec2(uv.x, uv.y))`. The texture is a real image, so
- * colour can vary independently along BOTH axes:
- *   - X (uv.x, along the length): the gradient stops.
- *   - Y (uv.y, across the width): an "edge tint" blended toward both long edges
+ * Bakes the gradient stops into a 2D palette texture. It's a real image, so colour can vary
+ * independently along BOTH of its axes:
+ *   - X: the gradient ramp. A raw/image palette samples it by uv.x (the folded WIDTH — see
+ *     WaveGeometry's UV AXES note); a stops-generated one samples it by `gradCoord(uv)`, so
+ *     the gradient's own angle/type/warp still apply.
+ *   - Y: an "edge tint". Always sampled by uv.y, which is the ribbon's LENGTH — so the tint
+ *     lands on the wave's two ENDS, not on its long edges.
  */
 
-const TEX_W = 256; // resolution along the gradient (length)
-const TEX_H = 64; // resolution across the width
+const TEX_W = 256; // resolution along the gradient ramp
+const TEX_H = 64; // resolution along the tint axis
 
 function smoothstep(value: number): number {
   return value * value * (3 - 2 * value);
@@ -36,7 +38,7 @@ function hexToRgba(hex: string, alpha: number): string {
 
 export interface PaletteTextureOptions {
   stops: ColorStop[];
-  /** Cross-width edge tint colour (e.g. periwinkle). */
+  /** Edge tint colour (e.g. periwinkle), blended toward the ribbon's two ends. */
   edgeColor: string;
   /** 0 = flat 1-D gradient (no 2nd axis); higher = stronger cool edges. */
   edgeAmount: number;
@@ -61,7 +63,7 @@ export function buildPaletteCanvas(opts: PaletteTextureOptions): HTMLCanvasEleme
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, TEX_W, TEX_H);
 
-  // Y axis: blend the edge colour toward both long edges (V-shaped alpha), 0 in the
+  // Y axis: blend the edge colour toward both ends of the ribbon (V-shaped alpha), 0 in the
   // middle — a genuine second dimension of colour.
   const a = clamp01(opts.edgeAmount);
   if (a > 0.001) {
