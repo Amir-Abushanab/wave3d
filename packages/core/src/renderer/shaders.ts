@@ -190,6 +190,17 @@ uniform float uHelixRoll;   // cross-section roll, as a fraction of the turns (1
 uniform float uHelixPhase;  // degrees
 #endif
 
+// Radial fan (optional). Behind RADIAL so a wave without one compiles the exact same program (same
+// byte-identity contract as HELIX / POINTER_FX above).
+#ifdef RADIAL
+uniform float uRadialAmount; // 0..1 blend (0 = identity)
+uniform float uRadialArc;    // fan spread, degrees
+uniform float uRadialSpread; // length → radius scale
+uniform float uRadialRadius; // source / inner radius
+uniform float uRadialCenter; // base angle, degrees
+uniform vec3  uRadialSource; // fan pivot, local space
+#endif
+
 varying vec2 vUv;
 varying vec3 vWorldPos;
 varying vec3 vViewDir;
@@ -326,6 +337,26 @@ void main(){
   pos = (vec4(pos, 1.0) * rotA).xyz;
   pos = (vec4(pos, 1.0) * rotB).xyz;
   pos = (vec4(pos, 1.0) * rotC).xyz;
+
+#ifdef RADIAL
+  // Radial fan: remap the ribbon to polar around uRadialSource so its LENGTH fans into a plume.
+  // uv.x (the folded WIDTH, monotone 0..1) → fan ANGLE across uRadialArc; uv.y (the LENGTH) → RADIUS.
+  // A constant-uv.x combed fiber (surfaceStreaks) therefore becomes a constant-angle radial spoke —
+  // the plume's strands come free. The displacement height (pos.y) stays as depth relief and the
+  // hairpin thickness (pos.z about its width centre) as a little tangential body. The whole block is
+  // behind RADIAL, and mix(pos, fanned, 0) is identity, so radialAmount 0 is byte-identical.
+  {
+    float rAng = radians(uRadialCenter) + (clamp(uv.x, 0.0, 1.0) - 0.5) * radians(uRadialArc);
+    float rRho = uRadialRadius + uv.y * 400.0 * uRadialSpread; // 400 = native ribbon length
+    vec3 rEr = vec3(cos(rAng), sin(rAng), 0.0);                // radial dir, in local X–Y (screen plane)
+    vec3 rEt = vec3(-sin(rAng), cos(rAng), 0.0);               // tangential
+    vec3 fanned = uRadialSource
+                + rEr * rRho
+                + rEt * (pos.z - ${RIBBON_Z_CENTER.toFixed(1)}) * 0.5
+                + vec3(0.0, 0.0, pos.y);
+    pos = mix(pos, fanned, clamp(uRadialAmount, 0.0, 1.0));
+  }
+#endif
 
 #ifdef POINTER_FX
   // Pointer field: displace along the wave's own (post-twist) up-axis, weighted by a screen-space
@@ -960,5 +991,100 @@ void main(){
   vec3 outc = vec3(1.0) - vec3(dc, 0.0, 0.0) - vec3(0.0, dm, 0.0) - vec3(0.0, 0.0, dy) - vec3(dk);
   outc = clamp(outc, 0.0, 1.0);
   gl_FragColor = vec4(mix(src.rgb, outc, clamp(uHalftoneCmyk, 0.0, 1.0)), src.a);
+}
+`;
+
+// ---------------------------------------------------------------------------------------------
+// Particle field (additive dust / sparkle). A THREE.Points ShaderMaterial: every particle's
+// position + life is a pure function of uTime + baked per-particle attributes (aSeed / aRnd /
+// aEmitter), so the whole field is deterministic (timeOffset scrub / loopSeconds / paused all hold).
+// Two emitter modes here: a RING annulus around the eclipse anchor, and an ambient FIELD across the
+// frame — both placed in the screen plane via the camera basis (uRight / uUp) so they orbit the disc
+// and stay screen-anchored. (Shed-from-edge is a third emitter, added with the shared deform chunk.)
+// ---------------------------------------------------------------------------------------------
+export const particleVertexShader = /* glsl */ `
+attribute float aSeed;
+attribute vec4 aRnd;
+attribute float aEmitter;
+
+uniform float uTime, uLoopSeconds, uLife, uSize, uSizeJitter, uTwinkle, uPixelRatio;
+uniform vec3 uColor, uCenter, uEclipseCenter, uRight, uUp;
+uniform float uHalfW, uHalfH, uRingRadius, uRingWidth, uRingSpin, uFieldDrift;
+
+varying float vAlpha;
+varying vec3 vColor;
+
+const float TAU = 6.28318530718;
+
+void main(){
+  // Deterministic life: age 0..1 from uTime + a per-particle seed. Advances once per loop period when
+  // looping (so the whole field repeats seamlessly), else once per uLife seconds.
+  float rate = (uLoopSeconds > 0.0) ? (uTime / uLoopSeconds) : (uTime / max(uLife, 0.001));
+  float age = fract(rate + aSeed);
+  float fade = sin(3.14159265 * age); // 0 at birth/death, 1 mid-life
+
+  vec3 p;
+  if (aEmitter < 0.5) {
+    // RING: an annulus around the eclipse anchor, in the screen plane. Angle from aRnd.x (+ a slow
+    // spin measured in turns/cycle so it loops), radius jittered by aRnd.y and drifting out with age.
+    float ang = aRnd.x * TAU + rate * uRingSpin * TAU;
+    float rr = uRingRadius + (aRnd.y - 0.5) * uRingWidth + age * uRingWidth * 0.5;
+    p = uEclipseCenter + (cos(ang) * uRight + sin(ang) * uUp) * rr;
+  } else {
+    // FIELD: ambient dust scattered across the frame, drifting slowly and wrapping (fract) so it never
+    // depletes. The drift phase rides rate, so it repeats with the loop too.
+    float fx = fract(aRnd.x + rate * uFieldDrift * (aRnd.z - 0.5)) - 0.5;
+    float fy = fract(aRnd.y + rate * uFieldDrift * (aRnd.w - 0.5)) - 0.5;
+    p = uCenter + uRight * (fx * 2.0 * uHalfW) + uUp * (fy * 2.0 * uHalfH);
+  }
+
+  float tw = 0.5 + 0.5 * sin((age * 9.0 + aSeed) * TAU); // loop-safe flicker (rides age)
+  vAlpha = fade * mix(1.0, tw, clamp(uTwinkle, 0.0, 1.0));
+  vColor = uColor;
+  gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+  // Orthographic camera → point size is constant in device pixels (no perspective depth divide).
+  float jitter = 1.0 + uSizeJitter * (aSeed - 0.5) * 2.0;
+  gl_PointSize = max(uSize * uPixelRatio * jitter * fade, 0.0);
+}
+`;
+
+export const particleFragmentShader = /* glsl */ `
+precision highp float;
+varying float vAlpha;
+varying vec3 vColor;
+void main(){
+  // Soft round sprite: the inscribed disc of the point quad, feathered to nothing at the rim.
+  float d = length(gl_PointCoord - 0.5);
+  float a = smoothstep(0.5, 0.0, d) * vAlpha;
+  if (a <= 0.0) discard;
+  gl_FragColor = vec4(vColor, a); // AdditiveBlending (src = SrcAlpha) → adds vColor·a
+}
+`;
+
+// Eclipse occluder disc. A billboarded circle that draws BEFORE the waves (renderOrder −1) and writes
+// depth, so the transparent waves behind it are depth-culled (the reference's black "moon") while
+// nearer plume + the additive particles composite over it. uSoftness feathers the rim; uOpacity is
+// the eclipse gate (1 = a solid disc).
+export const eclipseVertexShader = /* glsl */ `
+varying vec2 vUv;
+void main(){
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+export const eclipseFragmentShader = /* glsl */ `
+precision highp float;
+uniform vec3 uColor;
+uniform float uOpacity;  // eclipse gate (0..1): disc opacity
+uniform float uSoftness; // 0..1: edge feather
+varying vec2 vUv;
+void main(){
+  // CircleGeometry uv: centre (0.5,0.5), rim at radius 0.5 → r is 0 at the centre, 1 at the rim.
+  float r = length(vUv - 0.5) * 2.0;
+  float edge = 1.0 - smoothstep(1.0 - clamp(uSoftness, 0.0, 1.0), 1.0, r);
+  float a = edge * clamp(uOpacity, 0.0, 1.0);
+  if (a <= 0.0) discard;
+  gl_FragColor = vec4(uColor, a);
 }
 `;

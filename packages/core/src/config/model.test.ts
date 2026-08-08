@@ -175,6 +175,51 @@ describe("ensureStudioConfig repairs configs that used to break the panel", () =
     expect(w.helixPhase).toBe(180);
     expect(w.rungAmount).toBe(94);
   });
+
+  it("backfills radial + eclipse fields to their off values", () => {
+    // Same contract as helix: the renderer keys RADIAL off radialAmount and drops the eclipse mesh at
+    // eclipse 0, so a config predating these must come back inert (and bindable).
+    const c = ensureStudioConfig(hostile({ waves: [{}] }));
+    const w = c.waves[0];
+    expect(w.radialAmount).toBe(0);
+    expect(w.radialArc).toBe(160);
+    expect(w.radialSource).toEqual({ x: 0, y: 0, z: 0 });
+    expect(c.eclipse).toBe(0);
+    expect(c.eclipseCenter).toEqual({ x: 0.5, y: 0.5 });
+    expect(c.eclipseColor).toBe("#000000");
+  });
+
+  it("leaves authored radial + eclipse values alone", () => {
+    const c = ensureStudioConfig(
+      hostile({
+        waves: [{ radialAmount: 0.9, radialArc: 200, radialSource: { x: 1, y: 2, z: 3 } }],
+        eclipse: 0.8,
+        eclipseRadius: 0.3,
+        eclipseCenter: { x: 0.7, y: 0.4 },
+      }),
+    );
+    expect(c.waves[0].radialAmount).toBe(0.9);
+    expect(c.waves[0].radialArc).toBe(200);
+    expect(c.waves[0].radialSource).toEqual({ x: 1, y: 2, z: 3 });
+    expect(c.eclipse).toBe(0.8);
+    expect(c.eclipseCenter).toEqual({ x: 0.7, y: 0.4 });
+  });
+
+  it("leaves particles absent when absent (off = byte-identical), and clamps it when present", () => {
+    // Absent → stays absent: no THREE.Points node, byte-identical scene (the interaction contract).
+    const off = ensureStudioConfig(hostile({ waves: [{}] }));
+    expect(off.particles).toBeUndefined();
+    // Present → repaired in place: required fields backfilled, out-of-range clamped, still bindable.
+    const on = ensureStudioConfig(
+      hostile({ waves: [{}], particles: { count: 99999, size: NaN, ring: { density: 5 } } }),
+    );
+    expect(on.particles).toBeDefined();
+    expect(on.particles?.count).toBe(40000);
+    expect(on.particles?.size).toBe(2);
+    expect(on.particles?.seed).toBe(0);
+    expect(on.particles?.ring?.density).toBe(1);
+    assertBindableLeaves(on.particles);
+  });
 });
 
 describe("normalizing never rewrites a value the config already declares", () => {

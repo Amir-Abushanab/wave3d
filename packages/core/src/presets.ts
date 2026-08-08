@@ -234,6 +234,73 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     c.transparentBackground = false;
     return c;
   },
+  "Solar Plume": () => {
+    // A luminous combed-silk plume that fans radially from a low source, wrapping a black eclipse
+    // disc that a field of golden dust rings. Exercises all three new features: the radial wave mode,
+    // the eclipse occluder, and the particle layer (ring + ambient field).
+    const c = PRESETS["Hero"]();
+    const w = c.waves[0];
+    // Fan the ribbon into a plume — the combed fibers become the radial strands.
+    w.radialAmount = 0.9;
+    w.radialArc = 130;
+    w.radialCenter = 48; // aim the fan up-and-right from the source
+    w.radialRadius = 55;
+    w.radialSpread = 1.45;
+    w.radialSource = { x: 0, y: 0, z: 0 };
+    // Face the fan at the camera (local X–Y = the screen plane) and seat its source low-left.
+    w.rotation = { x: 0, y: 0, z: 0 };
+    w.position = { x: -370, y: -320, z: 0 };
+    w.scale = { x: 1.2, y: 1.2, z: 1.2 };
+    w.opacity = 0.85;
+    // Warm silk: pale gold core → gold → amber along the strand length (uv.y = radius).
+    w.usePaletteTexture = false;
+    w.gradientType = "linear";
+    w.gradientAngle = 0; // run the gradient along the length (radius), not across the fan
+    w.gradientShift = 0.1;
+    w.palette = [
+      { color: "#f7ead2", pos: 0 }, // pale gold core
+      { color: "#f3d9a6", pos: 0.42 }, // warm cream
+      { color: "#e8b26a", pos: 0.72 }, // gold
+      { color: "#c8853a", pos: 1 }, // amber tips
+    ];
+    w.blendMode = "normal";
+    w.hueShift = 0;
+    w.colorContrast = 1.05;
+    w.colorSaturation = 1.15;
+    w.fiberCount = 600;
+    w.fiberStrength = 0.22;
+    w.edgeFeather = 0.28; // soft, vaporous ribbon ends
+    // Scene: a near-black void with gentle bloom on the silk + dust.
+    c.background = "#050404";
+    c.backgroundMode = "color";
+    c.transparentBackground = false;
+    c.grain = 0.25;
+    c.blur = 0;
+    c.bloomStrength = 0.25;
+    c.bloomRadius = 0.55;
+    c.bloomThreshold = 0.7;
+    c.cameraTarget = { x: 0, y: -40, z: 0 };
+    c.cameraZoom = 1;
+    // Eclipse disc, centre-right — a black void the dust rings and the plume can wrap.
+    c.eclipse = 1;
+    c.eclipseRadius = 0.19;
+    c.eclipseCenter = { x: 0.6, y: 0.42 };
+    c.eclipseSoftness = 0.06;
+    c.eclipseColor = "#050404"; // matches the void → reads as a clean hole in the glow
+    // Golden dust: a ring around the eclipse rim + an ambient field across the frame.
+    c.particles = {
+      count: 8000,
+      size: 2,
+      sizeJitter: 0.7,
+      color: "#ffd597",
+      seed: 7,
+      life: 7,
+      twinkle: 0.7,
+      ring: { radius: 0.21, width: 0.13, density: 0.68, spin: 0.04 },
+      field: { density: 0.4, drift: 0.15 },
+    };
+    return c;
+  },
   Holographic: () => {
     // Conic gradient: an iridescent oil-slick sweep. The palette wraps (first ≈ last stop) so
     // the conic seam is invisible.

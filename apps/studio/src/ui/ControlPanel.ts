@@ -1320,6 +1320,127 @@ export class ControlPanel {
     this.renderer.setScrollPreview(scrollPrev.preview); // apply the rest state on (re)build
   }
 
+  /** "Eclipse" folder: the occluder disc. `eclipse` is the gate — 0 removes the mesh entirely
+   *  (byte-identical); the rest only bite once it is > 0. All sliders stay visible, like Post FX. */
+  private buildEclipseFolder(
+    mkFolder: MkFolder,
+    vec: VecRows,
+    cfg: StudioConfig,
+    refresh: () => void,
+  ): void {
+    const f = mkFolder("Eclipse", true);
+    f.addBinding(cfg, "eclipse", { min: 0, max: 1, step: 0.01, label: "eclipse" }).on(
+      "change",
+      refresh,
+    );
+    f.addBinding(cfg, "eclipseRadius", {
+      min: 0.02,
+      max: 0.6,
+      step: 0.005,
+      label: "eclipse radius",
+    }).on("change", refresh);
+    vec(f, cfg.eclipseCenter, "eclipse", { min: 0, max: 1, step: 0.01 });
+    f.addBinding(cfg, "eclipseSoftness", { min: 0, max: 1, step: 0.01, label: "eclipse edge" }).on(
+      "change",
+      refresh,
+    );
+    f.addBinding(cfg, "eclipseColor", { view: "color", label: "eclipse color" }).on(
+      "change",
+      refresh,
+    );
+  }
+
+  /** "Particles" folder: the additive dust field. Bound to a panel-local proxy (never `cfg.particles`
+   *  directly), so `sync()` can write the block only when `count` > 0 and delete it otherwise — absent
+   *  = off, byte-identical. Flattens the nested ring/field to a handful of sliders. */
+  private buildParticlesFolder(mkFolder: MkFolder, cfg: StudioConfig, refresh: () => void): void {
+    const f = mkFolder("Particles", true);
+    const p = cfg.particles;
+    const uiParticles = {
+      count: p?.count ?? 0,
+      size: p?.size ?? 2.4,
+      color: p?.color ?? "#ffd597",
+      twinkle: p?.twinkle ?? 0.6,
+      ringDensity: p?.ring?.density ?? 0.6,
+      ringRadius: p?.ring?.radius ?? 0.22,
+      ringWidth: p?.ring?.width ?? 0.14,
+      ringSpin: p?.ring?.spin ?? 0,
+      fieldDensity: p?.field?.density ?? 0.4,
+      seed: p?.seed ?? 1,
+    };
+    const sync = (): void => {
+      if (uiParticles.count > 0) {
+        cfg.particles = {
+          count: uiParticles.count,
+          size: uiParticles.size,
+          color: uiParticles.color,
+          twinkle: uiParticles.twinkle,
+          seed: uiParticles.seed,
+          ring: {
+            radius: uiParticles.ringRadius,
+            width: uiParticles.ringWidth,
+            density: uiParticles.ringDensity,
+            spin: uiParticles.ringSpin,
+          },
+          field: { density: uiParticles.fieldDensity },
+        };
+      } else {
+        delete cfg.particles;
+      }
+      refresh();
+    };
+    // count + seed rebuild the seeded buffer, so only commit on drag release (the quality idiom).
+    f.addBinding(uiParticles, "count", { min: 0, max: 20000, step: 100, label: "dust count" }).on(
+      "change",
+      (ev) => {
+        if (ev.last) sync();
+      },
+    );
+    f.addBinding(uiParticles, "size", { min: 0.5, max: 10, step: 0.1, label: "dust size" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiParticles, "color", { view: "color", label: "dust color" }).on("change", sync);
+    f.addBinding(uiParticles, "twinkle", { min: 0, max: 1, step: 0.01, label: "twinkle" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiParticles, "ringDensity", {
+      min: 0,
+      max: 1,
+      step: 0.01,
+      label: "ring amount",
+    }).on("change", sync);
+    f.addBinding(uiParticles, "ringRadius", {
+      min: 0,
+      max: 0.6,
+      step: 0.005,
+      label: "ring radius",
+    }).on("change", sync);
+    f.addBinding(uiParticles, "ringWidth", {
+      min: 0,
+      max: 0.4,
+      step: 0.005,
+      label: "ring width",
+    }).on("change", sync);
+    f.addBinding(uiParticles, "ringSpin", { min: -2, max: 2, step: 0.01, label: "ring spin" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiParticles, "fieldDensity", {
+      min: 0,
+      max: 1,
+      step: 0.01,
+      label: "field amount",
+    }).on("change", sync);
+    f.addBinding(uiParticles, "seed", { min: 0, max: 999, step: 1, label: "dust seed" }).on(
+      "change",
+      (ev) => {
+        if (ev.last) sync();
+      },
+    );
+  }
+
   /** Per-wave interaction: how THIS wave reacts — a Hover field, Click & touch, and param Bindings
    *  (each source-selectable, including Scroll). Written to wave.interaction only when in use, so an
    *  untouched wave stays byte-identical. */
@@ -1722,6 +1843,8 @@ export class ControlPanel {
     camFolder = this.buildCameraFolder(mkFolder, cfg);
     this.buildLightsFolder(mkFolder, randomBtn, vec, cfg, refresh);
     this.buildSceneInteractionFolder(mkFolder, cfg, refresh);
+    this.buildEclipseFolder(mkFolder, vec, cfg, refresh);
+    this.buildParticlesFolder(mkFolder, cfg, refresh);
 
     // ---- Waves ----
     // Each WaveConfig is a COMPLETE wave: its own colour/gradient, finish, displacement, twist,
@@ -2207,12 +2330,32 @@ export class ControlPanel {
       hxF
         .addBinding(wave, "helixPhase", { min: -180, max: 180, step: 1, label: "phase °" })
         .on("change", refresh);
+
+      // --- Radial --- fan the ribbon into a plume from a source point; the combed fibers then read
+      // as the individual radial strands. Inert until "fan amount" is dialled up (RADIAL off at 0).
+      const raF = sf.addFolder({ title: "Radial", expanded: true });
+      raF
+        .addBinding(wave, "radialAmount", { min: 0, max: 1, step: 0.01, label: "fan amount" })
+        .on("change", refresh);
+      raF
+        .addBinding(wave, "radialArc", { min: 0, max: 360, step: 1, label: "arc °" })
+        .on("change", refresh);
+      raF
+        .addBinding(wave, "radialSpread", { min: 0, max: 3, step: 0.01, label: "spread" })
+        .on("change", refresh);
+      raF
+        .addBinding(wave, "radialRadius", { min: 0, max: 300, step: 1, label: "inner radius" })
+        .on("change", refresh);
+      raF
+        .addBinding(wave, "radialCenter", { min: -180, max: 180, step: 1, label: "center °" })
+        .on("change", refresh);
+      vec(raF, wave.radialSource, "source", { min: -400, max: 400, step: 1 });
       // Order the sub-sections: appearance (colour, finish) → shape (displacement, twist) → pose
       // (transform) → advanced (noise bands) → interaction (this wave's reactivity, last — mirrors
       // the global Interaction folder sitting last in the panel). DOM move so the blocks stay grouped.
       const waveContent =
         (sf.element.querySelector(":scope > .tp-fldv_c") as HTMLElement | null) ?? sf.element;
-      for (const f of [gradF, finF, dispF, twF, hxF, trF, bandsF, waveIx])
+      for (const f of [gradF, finF, dispF, twF, hxF, raF, trF, bandsF, waveIx])
         waveContent.appendChild(f.element);
     };
 
@@ -2274,6 +2417,8 @@ export class ControlPanel {
       "Camera",
       "Waves",
       "Post FX",
+      "Eclipse",
+      "Particles",
       "Interaction",
       "Lights",
     ];
