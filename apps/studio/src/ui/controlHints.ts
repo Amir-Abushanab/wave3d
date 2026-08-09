@@ -83,6 +83,10 @@ const CONTROL_HINTS: Record<string, string> = {
   "ring width": "Thickness of the dust ring.",
   "ring spin": "Slow ring rotation, in turns per life-cycle (whole numbers loop seamlessly).",
   "field amount": "Share of the dust scattered as an ambient field across the whole frame.",
+  "shed amount":
+    "Share of the dust that peels off a wave's DEFORMED edge — silk dissolving into glitter. Needs a wave with an edge to shed from (a radial plume, a twist).",
+  "shed drift": "How far the shed dust drifts outward from the edge as it ages, in world units.",
+  "shed from wave": "Which wave the dust sheds from (index into the stack).",
   "dust seed": "Reseeds the random particle layout — the same seed reproduces the same field.",
 
   // --- Radial (fan the ribbon into a plume) ---

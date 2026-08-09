@@ -55,6 +55,33 @@ function setLinear(target: THREE.Vector3, hex: string): void {
 
 const DEFAULT_COLOR = "#ffcf8a"; // warm gold
 
+/** Emitter-wave shape uniforms mirrored onto the particle material for the SHED emitter, so the dust
+ *  rides the same deform as the ribbon. Names match the wave material's uniforms 1:1 (copied by value
+ *  each refresh in configureShed). */
+const SHED_SHAPE_UNIFORMS = [
+  "uDispFreqX",
+  "uDispFreqZ",
+  "uDispAmount",
+  "uDetailFreq",
+  "uDetailAmount",
+  "uTwFreqX",
+  "uTwFreqY",
+  "uTwFreqZ",
+  "uTwPowX",
+  "uTwPowY",
+  "uTwPowZ",
+  "uHelixTurns",
+  "uHelixRadius",
+  "uHelixRoll",
+  "uHelixPhase",
+  "uRadialAmount",
+  "uRadialArc",
+  "uRadialSpread",
+  "uRadialRadius",
+  "uRadialCenter",
+  "uRadialSource",
+] as const;
+
 /** Build the seeded per-particle attribute buffers. Pure function of `(count, seed, ringWeight,
  *  fieldWeight)` — exported so a unit test can assert reproducibility without a GPU. */
 export function buildParticleAttributes(
@@ -62,25 +89,44 @@ export function buildParticleAttributes(
   seed: number,
   ringWeight: number,
   fieldWeight: number,
-): { position: Float32Array; aSeed: Float32Array; aRnd: Float32Array; aEmitter: Float32Array } {
+  shedWeight = 0,
+): {
+  position: Float32Array;
+  aSeed: Float32Array;
+  aRnd: Float32Array;
+  aEmitter: Float32Array;
+  aUv: Float32Array;
+} {
   const rand = mulberry32(seed >>> 0 || 1);
   const position = new Float32Array(count * 3); // dummy — the vertex shader computes real positions
   const aSeed = new Float32Array(count);
   const aRnd = new Float32Array(count * 4);
   const aEmitter = new Float32Array(count);
-  const total = ringWeight + fieldWeight;
-  // Route the first `ringCount` particles to the ring, the rest to the ambient field. With no ring
-  // weight at all (total 0) everything falls to the field — a bare `{ count }` block is dust.
+  const aUv = new Float32Array(count * 2);
+  // Route by weight: [0,ring) → ring, [ring,ring+field) → field, the rest → shed. With no weights at
+  // all (total 0) everything falls to the field — a bare `{ count }` block is dust.
+  const total = ringWeight + fieldWeight + shedWeight;
   const ringCount = total > 0 ? Math.round((count * ringWeight) / total) : 0;
+  const fieldCount = total > 0 ? Math.round((count * fieldWeight) / total) : count;
   for (let i = 0; i < count; i++) {
     aSeed[i] = rand();
     aRnd[i * 4 + 0] = rand();
     aRnd[i * 4 + 1] = rand();
     aRnd[i * 4 + 2] = rand();
     aRnd[i * 4 + 3] = rand();
-    aEmitter[i] = i < ringCount ? 0 : 1;
+    aEmitter[i] = i < ringCount ? 0 : i < ringCount + fieldCount ? 1 : 2;
   }
-  return { position, aSeed, aRnd, aEmitter };
+  // Shed uv in a SEPARATE pass so adding it doesn't shift the ring/field RNG sequence — the existing
+  // ring/field layouts stay byte-identical. Ride a ribbon uv biased toward the OUTER half (the plume's
+  // tips / edge, where the silk dissolves into glitter), spread across the full fan width.
+  for (let i = 0; i < count; i++) {
+    aUv[i * 2 + 0] = rand();
+    // Concentrate toward the tip (uv.y → 1, the plume's outer rim where silk meets black), with a
+    // tail inward — rand()² biases most particles to the very edge so the shed reads against the void.
+    const e = rand();
+    aUv[i * 2 + 1] = 1.0 - e * e * 0.45;
+  }
+  return { position, aSeed, aRnd, aEmitter, aUv };
 }
 
 export class ParticleField {
@@ -113,6 +159,34 @@ export class ParticleField {
         uRingWidth: { value: 0 },
         uRingSpin: { value: 0 },
         uFieldDrift: { value: 0 },
+        // Shed emitter (read only under SHED): the emitter wave's shape uniforms + world matrix,
+        // mirrored from that wave in configureShed(). Always present JS-side; three uploads them only
+        // when the compiled program declares them (the byte-identity precedent from the wave material).
+        uDispFreqX: { value: 0 },
+        uDispFreqZ: { value: 0 },
+        uDispAmount: { value: 0 },
+        uDetailFreq: { value: 0 },
+        uDetailAmount: { value: 0 },
+        uTwFreqX: { value: 0 },
+        uTwFreqY: { value: 0 },
+        uTwFreqZ: { value: 0 },
+        uTwPowX: { value: 0 },
+        uTwPowY: { value: 0 },
+        uTwPowZ: { value: 0 },
+        uHelixTurns: { value: 0 },
+        uHelixRadius: { value: 0 },
+        uHelixRoll: { value: 0 },
+        uHelixPhase: { value: 0 },
+        uRadialAmount: { value: 0 },
+        uRadialArc: { value: 0 },
+        uRadialSpread: { value: 0 },
+        uRadialRadius: { value: 0 },
+        uRadialCenter: { value: 0 },
+        uRadialSource: { value: new THREE.Vector3() },
+        uShedModel: { value: new THREE.Matrix4() },
+        uShedSpeed: { value: 0 },
+        uShedSeed: { value: 0 },
+        uShedDrift: { value: 0 },
       },
       vertexShader: particleVertexShader,
       fragmentShader: particleFragmentShader,
@@ -133,19 +207,22 @@ export class ParticleField {
     const count = Math.max(0, Math.floor(cfg.count));
     const ringW = Math.max(0, cfg.ring?.density ?? 0);
     const fieldW = Math.max(0, cfg.field?.density ?? 0);
-    const sig = `${count}|${cfg.seed}|${ringW}|${fieldW}`;
+    const shedW = Math.max(0, cfg.shed?.rate ?? 0);
+    const sig = `${count}|${cfg.seed}|${ringW}|${fieldW}|${shedW}`;
     if (sig !== this.sig) {
       this.sig = sig;
-      const { position, aSeed, aRnd, aEmitter } = buildParticleAttributes(
+      const { position, aSeed, aRnd, aEmitter, aUv } = buildParticleAttributes(
         count,
         cfg.seed,
         ringW,
         fieldW,
+        shedW,
       );
       this.geometry.setAttribute("position", new THREE.BufferAttribute(position, 3));
       this.geometry.setAttribute("aSeed", new THREE.BufferAttribute(aSeed, 1));
       this.geometry.setAttribute("aRnd", new THREE.BufferAttribute(aRnd, 4));
       this.geometry.setAttribute("aEmitter", new THREE.BufferAttribute(aEmitter, 1));
+      this.geometry.setAttribute("aUv", new THREE.BufferAttribute(aUv, 2));
       this.geometry.setDrawRange(0, count);
     }
     const u = this.material.uniforms;
@@ -173,6 +250,45 @@ export class ParticleField {
     const frameH = f.halfH * 2;
     u.uRingRadius.value = (this.cfg?.ring?.radius ?? 0) * frameH;
     u.uRingWidth.value = (this.cfg?.ring?.width ?? 0) * frameH;
+  }
+
+  /** Wire (or clear) the SHED emitter. `shape` null → shed off: clear the SHED define (lean
+   *  recompile). Present → mirror the emitter wave's shape #defines + uniforms + world matrix so the
+   *  dust rides the SAME deform as the ribbon. Called from refresh(); recompiles the point program
+   *  only when the define set changes. */
+  configureShed(
+    shape: {
+      defines: Record<string, string>;
+      uniforms: Record<string, THREE.IUniform>;
+      matrixWorld: THREE.Matrix4;
+      speed: number;
+      seed: number;
+      drift: number;
+      loopSeconds: number;
+    } | null,
+  ): void {
+    const want = shape ? { SHED: "", ...shape.defines } : {};
+    const cur = (this.material.defines ?? {}) as Record<string, string>;
+    if (Object.keys(want).sort().join(",") !== Object.keys(cur).sort().join(",")) {
+      this.material.defines = want;
+      this.material.needsUpdate = true; // define set changed → recompile the point program
+    }
+    if (!shape) return;
+    const u = this.material.uniforms;
+    for (const name of SHED_SHAPE_UNIFORMS) {
+      const src = shape.uniforms[name];
+      if (!src || u[name] === undefined) continue;
+      const dst = u[name].value;
+      if (typeof src.value === "number") u[name].value = src.value;
+      else if (dst && typeof (dst as { copy?: unknown }).copy === "function") {
+        (dst as THREE.Vector3).copy(src.value as THREE.Vector3);
+      }
+    }
+    (u.uShedModel.value as THREE.Matrix4).copy(shape.matrixWorld);
+    u.uShedSpeed.value = shape.speed;
+    u.uShedSeed.value = shape.seed;
+    u.uShedDrift.value = shape.drift;
+    u.uLoopSeconds.value = shape.loopSeconds;
   }
 
   /** Advance the field to scene time `t` (= the same `t` the waves get). */

@@ -172,6 +172,111 @@ vec3 applyColorGrade(vec3 c){
 }
 `;
 
+// The shared wave-shape deform (expStep + rotationMatrix + waveShape), used by BOTH the wave
+// vertex shader and the particle shed emitter, so the ribbon and the dust it sheds ride ONE deform.
+const waveShapeChunk = /* glsl */ `
+// expStep: a falloff from 1 (at x=0) toward 0, sharpness set by n. The
+// max() guards pow(0, n) (= Infinity → NaN) so negative n is safe — negative n
+// just concentrates the twist toward the OTHER end instead.
+float expStep(float x, float n){ return exp2(-exp2(n) * pow(max(x, 1.0e-3), n)); }
+
+// rotationMatrix (mat4), used row-vector style: pos = (vec4(pos,1) * R).xyz
+mat4 rotationMatrix(vec3 axis, float angle){
+  axis = normalize(axis);
+  float s = sin(angle), c = cos(angle), oc = 1.0 - c;
+  return mat4(
+    oc*axis.x*axis.x + c,        oc*axis.x*axis.y - axis.z*s, oc*axis.z*axis.x + axis.y*s, 0.0,
+    oc*axis.x*axis.y + axis.z*s, oc*axis.y*axis.y + c,        oc*axis.y*axis.z - axis.x*s, 0.0,
+    oc*axis.z*axis.x - axis.y*s, oc*axis.y*axis.z + axis.x*s, oc*axis.z*axis.z + c,        0.0,
+    0.0, 0.0, 0.0, 1.0
+  );
+}
+
+// The wave SHAPE deform, shared by the wave vertex shader (below) and the particle SHED emitter
+// (particleVertexShader): a base hairpin position + its uv → the displaced / helixed / twisted /
+// fanned LOCAL position, plus the three twist matrices (the pointer field reads them). Every branch
+// sits behind the SAME #ifdef gates as the code it replaces, so a given compiled program is
+// byte-identical to the former inline version. t / loopOff are the linear / orbit time the
+// caller computed; only the one selected by LOOP_MOTION is read (the other is a dead argument).
+struct WaveShape { vec3 pos; mat4 rotA; mat4 rotB; mat4 rotC; };
+WaveShape waveShape(vec3 position, vec2 uv, float t, vec2 loopOff){
+  // Displacement lifts Y by simplex noise of the (x,z) position.
+  vec3 pos = position;
+#ifdef LOOP_MOTION
+  pos.y += uDispAmount * simplexNoise(vec2(pos.x * uDispFreqX, pos.z * uDispFreqZ) + loopOff);
+#else
+  pos.y += uDispAmount * simplexNoise(vec2(pos.x * uDispFreqX + t, pos.z * uDispFreqZ + t));
+#endif
+#ifdef DETAIL_OCTAVE
+  // A second, finer octave riding on the broad swell (loop-orbit shared so it stays periodic).
+#ifdef LOOP_MOTION
+  pos.y += uDetailAmount * simplexNoise(vec2(pos.x * uDetailFreq, pos.z * uDetailFreq) + loopOff);
+#else
+  pos.y += uDetailAmount * simplexNoise(vec2(pos.x * uDetailFreq + t, pos.z * uDetailFreq + t));
+#endif
+#endif
+
+#ifdef HELIX
+  // Helix — the periodic sweep the three twists (monotone falloffs) can't reach. Runs AFTER the
+  // displacement (so the noise still samples undeformed pos) and BEFORE the twist (so they compose).
+  float hAng = 6.28318530718 * uHelixTurns * uv.y + radians(uHelixPhase);
+  // Roll about the ribbon's width centre, not the origin — see RIBBON_Z_CENTER in WaveGeometry.
+  float rollA = hAng * uHelixRoll;
+  float rollC = cos(rollA), rollS = sin(rollA);
+  vec2 rel = vec2(pos.y, pos.z - ${RIBBON_Z_CENTER.toFixed(1)});
+  pos.y = rel.x * rollC - rel.y * rollS;
+  pos.z = ${RIBBON_Z_CENTER.toFixed(1)} + rel.x * rollS + rel.y * rollC;
+  pos.y += uHelixRadius * cos(hAng);
+  pos.z += uHelixRadius * sin(hAng);
+#endif
+
+  // The X-twist frequency feeding rotB; the TWIST_MOTION variant modulates it with simplex noise
+  // indexed along the ribbon (uv.y) so the twist breathes over time.
+  float twistXFreq = uTwFreqX;
+#ifdef TWIST_MOTION
+#ifdef LOOP_MOTION
+  float twistXNoise = simplexNoise(vec2(uv.y * 2.0, 0.0) + loopOff);
+#else
+  float twistXNoise = simplexNoise(vec2(uv.y * 2.0, t));
+#endif
+  twistXFreq = uTwFreqX - twistXNoise * 0.1;
+#endif
+
+  // Three-axis twist (see the falloff-axis note: rotA keys off uv.x/WIDTH, rotB/rotC off uv.y/LENGTH).
+  mat4 rotA = rotationMatrix(vec3(0.5, 0.0, 0.5), uTwFreqY * expStep(uv.x, uTwPowY));
+  mat4 rotB = rotationMatrix(vec3(0.0, 0.5, 0.5), twistXFreq * expStep(uv.y, uTwPowX));
+  mat4 rotC = rotationMatrix(vec3(0.5, 0.0, 0.5), uTwFreqZ * expStep(uv.y, uTwPowZ));
+  pos = (vec4(pos, 1.0) * rotA).xyz;
+  pos = (vec4(pos, 1.0) * rotB).xyz;
+  pos = (vec4(pos, 1.0) * rotC).xyz;
+
+#ifdef RADIAL
+  // Radial fan: remap the ribbon to polar around uRadialSource so its LENGTH fans into a plume.
+  // uv.x (folded WIDTH) → fan ANGLE across uRadialArc; uv.y (LENGTH) → RADIUS, so a constant-uv.x
+  // combed fiber becomes a constant-angle radial spoke. mix(pos, fanned, 0) is identity → off is
+  // byte-identical.
+  {
+    float rAng = radians(uRadialCenter) + (clamp(uv.x, 0.0, 1.0) - 0.5) * radians(uRadialArc);
+    float rRho = uRadialRadius + uv.y * 400.0 * uRadialSpread; // 400 = native ribbon length
+    vec3 rEr = vec3(cos(rAng), sin(rAng), 0.0);                // radial dir, in local X–Y (screen plane)
+    vec3 rEt = vec3(-sin(rAng), cos(rAng), 0.0);               // tangential
+    vec3 fanned = uRadialSource
+                + rEr * rRho
+                + rEt * (pos.z - ${RIBBON_Z_CENTER.toFixed(1)}) * 0.5
+                + vec3(0.0, 0.0, pos.y);
+    pos = mix(pos, fanned, clamp(uRadialAmount, 0.0, 1.0));
+  }
+#endif
+
+  WaveShape s;
+  s.pos = pos;
+  s.rotA = rotA;
+  s.rotB = rotB;
+  s.rotC = rotC;
+  return s;
+}
+`;
+
 export const vertexShader = /* glsl */ `
 ${simplex2d}
 
@@ -234,27 +339,13 @@ const float RIPPLE_MAX_R = 1.2;       // reach where the crest has fully left th
 #endif
 #endif
 
-// expStep: a falloff from 1 (at x=0) toward 0, sharpness set by n. The
-// max() guards pow(0, n) (= Infinity → NaN) so negative n is safe — negative n
-// just concentrates the twist toward the OTHER end instead.
-float expStep(float x, float n){ return exp2(-exp2(n) * pow(max(x, 1.0e-3), n)); }
-
-// rotationMatrix (mat4), used row-vector style: pos = (vec4(pos,1) * R).xyz
-mat4 rotationMatrix(vec3 axis, float angle){
-  axis = normalize(axis);
-  float s = sin(angle), c = cos(angle), oc = 1.0 - c;
-  return mat4(
-    oc*axis.x*axis.x + c,        oc*axis.x*axis.y - axis.z*s, oc*axis.z*axis.x + axis.y*s, 0.0,
-    oc*axis.x*axis.y + axis.z*s, oc*axis.y*axis.y + c,        oc*axis.y*axis.z - axis.x*s, 0.0,
-    oc*axis.z*axis.x - axis.y*s, oc*axis.y*axis.z + axis.x*s, oc*axis.z*axis.z + c,        0.0,
-    0.0, 0.0, 0.0, 1.0
-  );
-}
+${waveShapeChunk}
 
 void main(){
   vUv = uv;
 #ifndef LOOP_MOTION
   float t = uTime * uSpeed + uSeed;
+  vec2 loopOff = vec2(0.0); // unused under linear time; kept so waveShape's signature is uniform
 #endif
 
 #ifdef LOOP_MOTION
@@ -267,96 +358,14 @@ void main(){
   float loopTheta = uTime * (6.28318530718 / uLoopSeconds) + uSeed;
   float loopR = uSpeed * uLoopSeconds * 0.159154943092; // = uSpeed·uLoopSeconds / (2π)
   vec2 loopOff = loopR * vec2(cos(loopTheta), sin(loopTheta));
+  float t = 0.0; // unused under loop time
 #endif
 
-  // The base geometry is already a baked hairpin fold. On top of it we deform the
-  // vertices: a displacement lifts Y by simplex noise of the (x,z) position, then
-  // three axis-rotations twist the strip.
-  vec3 pos = position;
-#ifdef LOOP_MOTION
-  pos.y += uDispAmount * simplexNoise(vec2(pos.x * uDispFreqX, pos.z * uDispFreqZ) + loopOff);
-#else
-  pos.y += uDispAmount * simplexNoise(vec2(pos.x * uDispFreqX + t, pos.z * uDispFreqZ + t));
-#endif
-#ifdef DETAIL_OCTAVE
-  // A second, finer octave riding on the broad swell — fine ripples on top of the big shape, a
-  // shape vocabulary single-octave displacement can't reach. Shares the loop orbit so it stays
-  // periodic when looping.
-#ifdef LOOP_MOTION
-  pos.y += uDetailAmount * simplexNoise(vec2(pos.x * uDetailFreq, pos.z * uDetailFreq) + loopOff);
-#else
-  pos.y += uDetailAmount * simplexNoise(vec2(pos.x * uDetailFreq + t, pos.z * uDetailFreq + t));
-#endif
-#endif
-
-#ifdef HELIX
-  // Helix — the one shape the three twists below cannot reach. Their angle is freq * expStep(uv),
-  // a MONOTONE falloff, so it can only ramp once; this one is periodic in uv.y (the length), so
-  // uHelixTurns full turns land evenly from end to end. Runs AFTER the displacement so the noise
-  // above still samples the undeformed pos.x/pos.z (byte-identical sampling), and BEFORE the twist
-  // so the two compose.
-  //   roll   rolls the ribbon's own cross-section about the axis in step with the sweep, swinging
-  //          its two long edges onto opposite sides — one wave becomes a ladder whose edges are
-  //          both strands (pair with the wireframe theme's rungs for the rungs between them).
-  //   radius carries the whole ribbon around the axis instead, orientation intact — a narrow ribbon
-  //          then reads as ONE strand, and a second wave at phase+180 is the other.
-  float hAng = 6.28318530718 * uHelixTurns * uv.y + radians(uHelixPhase);
-  // Roll about the ribbon's width centre, not the origin — see RIBBON_Z_CENTER in WaveGeometry.
-  float rollA = hAng * uHelixRoll;
-  float rollC = cos(rollA), rollS = sin(rollA);
-  vec2 rel = vec2(pos.y, pos.z - ${RIBBON_Z_CENTER.toFixed(1)});
-  pos.y = rel.x * rollC - rel.y * rollS;
-  pos.z = ${RIBBON_Z_CENTER.toFixed(1)} + rel.x * rollS + rel.y * rollC;
-  pos.y += uHelixRadius * cos(hAng);
-  pos.z += uHelixRadius * sin(hAng);
-#endif
-
-  // The X-twist frequency feeding rotB. Two modes: by default uTwFreqX is used
-  // directly; the variant (used by the Wave 4 preset) modulates it with
-  // simplex noise indexed along the ribbon (uv.y) so the twist breathes over time.
-  // We gate the wobble with a #define so the compiled program is unchanged when off.
-  float twistXFreq = uTwFreqX;
-#ifdef TWIST_MOTION
-#ifdef LOOP_MOTION
-  float twistXNoise = simplexNoise(vec2(vUv.y * 2.0, 0.0) + loopOff);
-#else
-  float twistXNoise = simplexNoise(vec2(vUv.y * 2.0, t));
-#endif
-  twistXFreq = uTwFreqX - twistXNoise * 0.1;
-#endif
-
-  // Three-axis twist: expStep falloff sets how sharply each rotation concentrates toward an
-  // edge. Note the falloff axis is NOT the one in the uniform's name — rotA (the Y knobs) keys
-  // off uv.x, so it falls off across the WIDTH, while rotB/rotC (the X and Z knobs) key off
-  // uv.y and fall off along the LENGTH. Axes (0.5,0,0.5) and (0,0.5,0.5) are normalised inside
-  // rotationMatrix. twistPower 0 makes expStep a constant 0.5 — a rigid rotation of the whole
-  // mesh by freq/2, useful as a pure phase offset.
-  mat4 rotA = rotationMatrix(vec3(0.5, 0.0, 0.5), uTwFreqY * expStep(uv.x, uTwPowY));
-  mat4 rotB = rotationMatrix(vec3(0.0, 0.5, 0.5), twistXFreq * expStep(uv.y, uTwPowX));
-  mat4 rotC = rotationMatrix(vec3(0.5, 0.0, 0.5), uTwFreqZ * expStep(uv.y, uTwPowZ));
-  pos = (vec4(pos, 1.0) * rotA).xyz;
-  pos = (vec4(pos, 1.0) * rotB).xyz;
-  pos = (vec4(pos, 1.0) * rotC).xyz;
-
-#ifdef RADIAL
-  // Radial fan: remap the ribbon to polar around uRadialSource so its LENGTH fans into a plume.
-  // uv.x (the folded WIDTH, monotone 0..1) → fan ANGLE across uRadialArc; uv.y (the LENGTH) → RADIUS.
-  // A constant-uv.x combed fiber (surfaceStreaks) therefore becomes a constant-angle radial spoke —
-  // the plume's strands come free. The displacement height (pos.y) stays as depth relief and the
-  // hairpin thickness (pos.z about its width centre) as a little tangential body. The whole block is
-  // behind RADIAL, and mix(pos, fanned, 0) is identity, so radialAmount 0 is byte-identical.
-  {
-    float rAng = radians(uRadialCenter) + (clamp(uv.x, 0.0, 1.0) - 0.5) * radians(uRadialArc);
-    float rRho = uRadialRadius + uv.y * 400.0 * uRadialSpread; // 400 = native ribbon length
-    vec3 rEr = vec3(cos(rAng), sin(rAng), 0.0);                // radial dir, in local X–Y (screen plane)
-    vec3 rEt = vec3(-sin(rAng), cos(rAng), 0.0);               // tangential
-    vec3 fanned = uRadialSource
-                + rEr * rRho
-                + rEt * (pos.z - ${RIBBON_Z_CENTER.toFixed(1)}) * 0.5
-                + vec3(0.0, 0.0, pos.y);
-    pos = mix(pos, fanned, clamp(uRadialAmount, 0.0, 1.0));
-  }
-#endif
+  // Deform the baked hairpin via the shared waveShape chunk (displacement + helix + twist + radial),
+  // which also drives the particle shed emitter. It returns the deformed local pos + the twist
+  // matrices the pointer field reads below.
+  WaveShape ws = waveShape(position, uv, t, loopOff);
+  vec3 pos = ws.pos;
 
 #ifdef POINTER_FX
   // Pointer field: displace along the wave's own (post-twist) up-axis, weighted by a screen-space
@@ -379,7 +388,7 @@ void main(){
   // point-projection and no perspective divide. (A true per-pixel uv would need GPU picking — the
   // visible surface is shader-displaced, so a CPU raycast of the base geometry misses.)
   if (uShapeFlow > 0.0) {
-    vec3 tangentLocal = (((vec4(1.0, 0.0, 0.0, 0.0) * rotA) * rotB) * rotC).xyz;
+    vec3 tangentLocal = (((vec4(1.0, 0.0, 0.0, 0.0) * ws.rotA) * ws.rotB) * ws.rotC).xyz;
     vec2 tang = (mvp * vec4(tangentLocal, 0.0)).xy * vec2(uPointerAspect, 1.0);
     float tl = length(tang);
     if (tl > 1.0e-6) {
@@ -392,7 +401,7 @@ void main(){
   vPointerFall = fall * uPointerActive;
   // Displacement axis = local +Y carried through the SAME three twist rotations as pos (row-vector
   // convention). Rotations are linear, so post-twist axis displacement equals pre-twist Y displacement.
-  vec3 dispAxis = (((vec4(0.0, 1.0, 0.0, 0.0) * rotA) * rotB) * rotC).xyz;
+  vec3 dispAxis = (((vec4(0.0, 1.0, 0.0, 0.0) * ws.rotA) * ws.rotB) * ws.rotC).xyz;
   // Agitation: a fast churn octave near the cursor (additive — never rewrites base noise t, which
   // would force restructuring the shared path). Loop-safe under both time variants.
 #ifdef LOOP_MOTION
@@ -1006,10 +1015,31 @@ export const particleVertexShader = /* glsl */ `
 attribute float aSeed;
 attribute vec4 aRnd;
 attribute float aEmitter;
+attribute vec2 aUv; // ribbon uv for shed particles (unused by ring/field)
 
 uniform float uTime, uLoopSeconds, uLife, uSize, uSizeJitter, uTwinkle, uPixelRatio;
 uniform vec3 uColor, uCenter, uEclipseCenter, uRight, uUp;
 uniform float uHalfW, uHalfH, uRingRadius, uRingWidth, uRingSpin, uFieldDrift;
+
+// SHED emitter (optional): particles peeling off a wave's DEFORMED edge. Behind #ifdef SHED so a
+// ring/field-only field compiles NONE of this (no simplex, no shape uniforms, no waveShape). The
+// shape uniforms + gates (HELIX/RADIAL/…) mirror the emitter wave so the dust rides the same deform.
+#ifdef SHED
+${simplex2d}
+uniform float uDispFreqX, uDispFreqZ, uDispAmount;
+uniform float uDetailFreq, uDetailAmount;
+uniform float uTwFreqX, uTwFreqY, uTwFreqZ, uTwPowX, uTwPowY, uTwPowZ;
+#ifdef HELIX
+uniform float uHelixTurns, uHelixRadius, uHelixRoll, uHelixPhase;
+#endif
+#ifdef RADIAL
+uniform float uRadialAmount, uRadialArc, uRadialSpread, uRadialRadius, uRadialCenter;
+uniform vec3 uRadialSource;
+#endif
+uniform mat4 uShedModel;              // emitter wave's matrixWorld (deformed LOCAL → world)
+uniform float uShedSpeed, uShedSeed, uShedDrift;
+${waveShapeChunk}
+#endif
 
 varying float vAlpha;
 varying vec3 vColor;
@@ -1030,12 +1060,33 @@ void main(){
     float ang = aRnd.x * TAU + rate * uRingSpin * TAU;
     float rr = uRingRadius + (aRnd.y - 0.5) * uRingWidth + age * uRingWidth * 0.5;
     p = uEclipseCenter + (cos(ang) * uRight + sin(ang) * uUp) * rr;
-  } else {
+  } else if (aEmitter < 1.5) {
     // FIELD: ambient dust scattered across the frame, drifting slowly and wrapping (fract) so it never
     // depletes. The drift phase rides rate, so it repeats with the loop too.
     float fx = fract(aRnd.x + rate * uFieldDrift * (aRnd.z - 0.5)) - 0.5;
     float fy = fract(aRnd.y + rate * uFieldDrift * (aRnd.w - 0.5)) - 0.5;
     p = uCenter + uRight * (fx * 2.0 * uHalfW) + uUp * (fy * 2.0 * uHalfH);
+  } else {
+    // SHED: sit on the emitter wave's DEFORMED edge at aUv (via the shared waveShape), then peel
+    // outward from the composition centre as the particle ages — silk dissolving into glitter.
+#ifdef SHED
+    float ts = uTime * uShedSpeed + uShedSeed;
+    vec2 loopOffS = vec2(0.0);
+#ifdef LOOP_MOTION
+    float loopThetaS = uTime * (6.28318530718 / uLoopSeconds) + uShedSeed;
+    float loopRS = uShedSpeed * uLoopSeconds * 0.159154943092;
+    loopOffS = loopRS * vec2(cos(loopThetaS), sin(loopThetaS));
+    ts = 0.0;
+#endif
+    // Approximate the base hairpin point for this uv (length from uv.y; width centre), then deform it
+    // exactly as the wave does. Good enough for dust — the fan / displacement dominate.
+    vec3 base = vec3((aUv.y - 0.5) * 400.0, 0.0, ${RIBBON_Z_CENTER.toFixed(1)});
+    vec3 edge = (uShedModel * vec4(waveShape(base, aUv, ts, loopOffS).pos, 1.0)).xyz;
+    vec3 outward = normalize(edge - uCenter + vec3(1e-4));
+    p = edge + outward * age * uShedDrift + (aRnd.xyz - 0.5) * age * uShedDrift * 0.35;
+#else
+    p = uCenter; // shed compiled out — no shed particles are assigned when SHED is off
+#endif
   }
 
   float tw = 0.5 + 0.5 * sin((age * 9.0 + aSeed) * TAU); // loop-safe flicker (rides age)

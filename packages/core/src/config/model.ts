@@ -436,7 +436,7 @@ export interface ParticlesConfig {
   twinkle?: number; // 0..1 brightness flicker
   ring?: { radius: number; width: number; density: number; spin?: number };
   field?: { density: number; drift?: number };
-  shed?: { rate: number; drift: number; fade: number; fromWave?: number };
+  shed?: { rate: number; drift: number; fromWave?: number };
 }
 
 /**
@@ -1152,7 +1152,6 @@ export function normalizeParticles(config: StudioConfig): void {
   if (p.shed) {
     p.shed.rate = clampNumber(p.shed.rate, 0, 1, 0);
     p.shed.drift = num(p.shed.drift, 0);
-    p.shed.fade = num(p.shed.fade, 1);
     if (p.shed.fromWave !== undefined) {
       p.shed.fromWave = Math.round(clampNumber(p.shed.fromWave, 0, MAX_WAVES - 1, 0));
     }

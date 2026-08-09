@@ -1366,6 +1366,9 @@ export class ControlPanel {
       ringWidth: p?.ring?.width ?? 0.14,
       ringSpin: p?.ring?.spin ?? 0,
       fieldDensity: p?.field?.density ?? 0.4,
+      shedRate: p?.shed?.rate ?? 0,
+      shedDrift: p?.shed?.drift ?? 300,
+      shedFromWave: p?.shed?.fromWave ?? 0,
       seed: p?.seed ?? 1,
     };
     const sync = (): void => {
@@ -1384,6 +1387,13 @@ export class ControlPanel {
           },
           field: { density: uiParticles.fieldDensity },
         };
+        if (uiParticles.shedRate > 0) {
+          cfg.particles.shed = {
+            rate: uiParticles.shedRate,
+            drift: uiParticles.shedDrift,
+            fromWave: uiParticles.shedFromWave,
+          };
+        }
       } else {
         delete cfg.particles;
       }
@@ -1433,6 +1443,26 @@ export class ControlPanel {
       step: 0.01,
       label: "field amount",
     }).on("change", sync);
+    // Shed: dust peeling off a wave's DEFORMED edge (needs a wave whose shape has an edge — a radial
+    // plume, a twist). rate rebuilds the buffer, so commit on release (the quality idiom).
+    f.addBinding(uiParticles, "shedRate", { min: 0, max: 1, step: 0.01, label: "shed amount" }).on(
+      "change",
+      (ev) => {
+        if (ev.last) sync();
+      },
+    );
+    f.addBinding(uiParticles, "shedDrift", { min: 0, max: 800, step: 5, label: "shed drift" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiParticles, "shedFromWave", {
+      min: 0,
+      max: MAX_WAVES - 1,
+      step: 1,
+      label: "shed from wave",
+    }).on("change", (ev) => {
+      if (ev.last) sync();
+    });
     f.addBinding(uiParticles, "seed", { min: 0, max: 999, step: 1, label: "dust seed" }).on(
       "change",
       (ev) => {

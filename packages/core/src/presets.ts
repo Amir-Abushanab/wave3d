@@ -287,17 +287,19 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     c.eclipseCenter = { x: 0.6, y: 0.42 };
     c.eclipseSoftness = 0.06;
     c.eclipseColor = "#050404"; // matches the void → reads as a clean hole in the glow
-    // Golden dust: a ring around the eclipse rim + an ambient field across the frame.
+    // Golden dust: a ring around the eclipse rim, an ambient field across the frame, and dust SHED
+    // off the plume's deformed edge (silk dissolving into glitter — the reference's signature).
     c.particles = {
-      count: 8000,
+      count: 11000,
       size: 2,
       sizeJitter: 0.7,
       color: "#ffd597",
       seed: 7,
       life: 7,
       twinkle: 0.7,
-      ring: { radius: 0.21, width: 0.13, density: 0.68, spin: 0.04 },
-      field: { density: 0.4, drift: 0.15 },
+      ring: { radius: 0.21, width: 0.13, density: 0.4, spin: 0.04 },
+      field: { density: 0.3, drift: 0.15 },
+      shed: { rate: 0.4, drift: 320, fromWave: 0 },
     };
     return c;
   },

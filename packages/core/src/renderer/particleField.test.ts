@@ -13,6 +13,7 @@ describe("particle attributes are deterministic", () => {
     expect(Array.from(a.aSeed)).toEqual(Array.from(b.aSeed));
     expect(Array.from(a.aRnd)).toEqual(Array.from(b.aRnd));
     expect(Array.from(a.aEmitter)).toEqual(Array.from(b.aEmitter));
+    expect(Array.from(a.aUv)).toEqual(Array.from(b.aUv));
   });
 
   it("different seeds diverge", () => {
@@ -26,18 +27,22 @@ describe("particle attributes are deterministic", () => {
     expect(Array.from(ring.aEmitter).every((e) => e === 0)).toBe(true);
     const field = buildParticleAttributes(100, 1, 0, 1);
     expect(Array.from(field.aEmitter).every((e) => e === 1)).toBe(true);
-    const split = buildParticleAttributes(100, 1, 3, 1); // 75% ring by weight
+    const split = buildParticleAttributes(100, 1, 3, 1); // 75% ring by weight (shed 0)
     expect(Array.from(split.aEmitter).filter((e) => e === 0).length).toBe(75);
+    // shed as a third route (emitter 2): 25% ring / 25% field / 50% shed.
+    const shed = buildParticleAttributes(100, 1, 1, 1, 2);
+    expect(Array.from(shed.aEmitter).filter((e) => e === 2).length).toBe(50);
     // no weights at all → everything falls to the ambient field (a bare `{ count }` block is dust).
     const bare = buildParticleAttributes(10, 1, 0, 0);
     expect(Array.from(bare.aEmitter).every((e) => e === 1)).toBe(true);
   });
 
   it("buffer lengths match the count", () => {
-    const a = buildParticleAttributes(42, 3, 1, 1);
+    const a = buildParticleAttributes(42, 3, 1, 1, 1);
     expect(a.position.length).toBe(42 * 3);
     expect(a.aSeed.length).toBe(42);
     expect(a.aRnd.length).toBe(42 * 4);
     expect(a.aEmitter.length).toBe(42);
+    expect(a.aUv.length).toBe(42 * 2);
   });
 });

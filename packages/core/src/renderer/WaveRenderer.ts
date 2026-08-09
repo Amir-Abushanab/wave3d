@@ -1817,7 +1817,40 @@ export class WaveRenderer {
         halfH: FRAME_H / 2,
       };
       this.particleField.frame(frame, this.renderer.getPixelRatio());
+      // Shed emitter: mirror the designated wave's shape (#defines + uniforms + world matrix) onto the
+      // particle material so the dust rides the SAME deform. Runs here (not applyParticles) because the
+      // wave's uniforms/transform are only current AFTER refresh()'s per-wave loop. Cleared when shed is
+      // off or there are no waves — configureShed recompiles only when the define set changes.
+      const shed = this.config.particles?.shed;
+      if ((shed?.rate ?? 0) > 0 && this.waves.length > 0) {
+        const idx = Math.min(Math.max(0, Math.floor(shed?.fromWave ?? 0)), this.waves.length - 1);
+        const wave = this.waves[idx];
+        const sc = this.config.waves[idx] ?? this.config.waves[this.config.waves.length - 1];
+        wave.mesh.updateWorldMatrix(true, false);
+        this.particleField.configureShed({
+          defines: this.shapeDefines(sc),
+          uniforms: wave.material.uniforms,
+          matrixWorld: wave.mesh.matrixWorld,
+          speed: sc.speed,
+          seed: sc.seed,
+          drift: shed?.drift ?? 0,
+          loopSeconds: this.config.loopSeconds ?? 0,
+        });
+      } else {
+        this.particleField.configureShed(null);
+      }
     }
+  }
+
+  /** The shape-affecting subset of waveDefines() (what the shared waveShape reads) — used to compile
+   *  the particle SHED shader to match its emitter wave. */
+  private shapeDefines(sc: WaveConfig): Record<string, string> {
+    const all = this.waveDefines(sc);
+    const out: Record<string, string> = {};
+    for (const k of ["LOOP_MOTION", "DETAIL_OCTAVE", "HELIX", "TWIST_MOTION", "RADIAL"]) {
+      if (k in all) out[k] = "";
+    }
+    return out;
   }
 
   /** Create/dispose the interaction controller as config toggles interaction on/off. Called from
