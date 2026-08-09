@@ -1335,6 +1335,7 @@ export class ControlPanel {
       shedRate: p?.shed?.rate ?? 0,
       shedDrift: p?.shed?.drift ?? 300,
       shedFromWave: p?.shed?.fromWave ?? 0,
+      shedBias: p?.shed?.bias ?? 0,
       seed: p?.seed ?? 1,
     };
     const sync = (): void => {
@@ -1352,6 +1353,7 @@ export class ControlPanel {
             rate: uiParticles.shedRate,
             drift: uiParticles.shedDrift,
             fromWave: uiParticles.shedFromWave,
+            bias: uiParticles.shedBias,
           };
         }
       } else {
@@ -1401,6 +1403,14 @@ export class ControlPanel {
     }).on("change", (ev) => {
       if (ev.last) sync();
     });
+    // Skew the spray toward one flank of the rim (−1 → one side, +1 → the other, 0 → even).
+    // Rebuilds the seeded buffer, so commit on release (the quality idiom).
+    f.addBinding(uiParticles, "shedBias", { min: -1, max: 1, step: 0.05, label: "shed bias" }).on(
+      "change",
+      (ev) => {
+        if (ev.last) sync();
+      },
+    );
     f.addBinding(uiParticles, "seed", { min: 0, max: 999, step: 1, label: "dust seed" }).on(
       "change",
       (ev) => {

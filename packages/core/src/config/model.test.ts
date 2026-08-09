@@ -203,13 +203,23 @@ describe("ensureStudioConfig repairs configs that used to break the panel", () =
     expect(off.particles).toBeUndefined();
     // Present → repaired in place: required fields backfilled, out-of-range clamped, still bindable.
     const on = ensureStudioConfig(
-      hostile({ waves: [{}], particles: { count: 99999, size: NaN, field: { density: 5 } } }),
+      hostile({
+        waves: [{}],
+        particles: {
+          count: 99999,
+          size: NaN,
+          field: { density: 5 },
+          shed: { rate: 2, drift: 100, bias: 9 },
+        },
+      }),
     );
     expect(on.particles).toBeDefined();
     expect(on.particles?.count).toBe(40000);
     expect(on.particles?.size).toBe(2);
     expect(on.particles?.seed).toBe(0);
     expect(on.particles?.field?.density).toBe(1);
+    expect(on.particles?.shed?.rate).toBe(1); // clamped 0..1
+    expect(on.particles?.shed?.bias).toBe(1); // clamped −1..1
     assertBindableLeaves(on.particles);
   });
 });

@@ -78,6 +78,8 @@ const CONTROL_HINTS: Record<string, string> = {
     "Share of the dust that peels off a wave's DEFORMED edge — silk dissolving into glitter. Needs a wave with an edge to shed from (a radial plume, a twist).",
   "shed drift": "How far the shed dust drifts outward from the edge as it ages, in world units.",
   "shed from wave": "Which wave the dust sheds from (index into the stack).",
+  "shed bias":
+    "Skews the spray toward one flank of the edge instead of haloing the whole rim — one side at −1, the other at +1, even at 0.",
   "dust seed": "Reseeds the random particle layout — the same seed reproduces the same field.",
 
   // --- Radial (fan the ribbon into a plume) ---

@@ -79,13 +79,14 @@ const SHED_SHAPE_UNIFORMS = [
   "uRadialSource",
 ] as const;
 
-/** Build the seeded per-particle attribute buffers. Pure function of `(count, seed, ringWeight,
- *  fieldWeight)` — exported so a unit test can assert reproducibility without a GPU. */
+/** Build the seeded per-particle attribute buffers. Pure function of `(count, seed, fieldWeight,
+ *  shedWeight, shedBias)` — exported so a unit test can assert reproducibility without a GPU. */
 export function buildParticleAttributes(
   count: number,
   seed: number,
   fieldWeight: number,
   shedWeight = 0,
+  shedBias = 0,
 ): {
   position: Float32Array;
   aSeed: Float32Array;
@@ -113,9 +114,14 @@ export function buildParticleAttributes(
   }
   // Shed uv in a SEPARATE pass so adding it doesn't shift the ring/field RNG sequence — the existing
   // ring/field layouts stay byte-identical. Ride a ribbon uv biased toward the OUTER half (the plume's
-  // tips / edge, where the silk dissolves into glitter), spread across the full fan width.
+  // tips / edge, where the silk dissolves into glitter). `shedBias` skews the width draw toward one
+  // flank so the spray can cluster off a single side (the reference's one-sided glitter) instead of
+  // haloing the whole rim: `u^p` with p<1 (bias>0) crowds uv.x→1, p>1 (bias<0) crowds uv.x→0; p=1
+  // (bias 0) leaves the draw untouched → byte-identical.
+  const p = shedBias === 0 ? 1 : Math.exp(-shedBias * 2);
   for (let i = 0; i < count; i++) {
-    aUv[i * 2 + 0] = rand();
+    const ux = rand();
+    aUv[i * 2 + 0] = shedBias === 0 ? ux : Math.pow(ux, p);
     // Concentrate toward the tip (uv.y → 1, the plume's outer rim where silk meets black), with a
     // tail inward — rand()² biases most particles to the very edge so the shed reads against the void.
     const e = rand();
@@ -196,7 +202,8 @@ export class ParticleField {
     const count = Math.max(0, Math.floor(cfg.count));
     const fieldW = Math.max(0, cfg.field?.density ?? 0);
     const shedW = Math.max(0, cfg.shed?.rate ?? 0);
-    const sig = `${count}|${cfg.seed}|${fieldW}|${shedW}`;
+    const shedBias = cfg.shed?.bias ?? 0;
+    const sig = `${count}|${cfg.seed}|${fieldW}|${shedW}|${shedBias}`;
     if (sig !== this.sig) {
       this.sig = sig;
       const { position, aSeed, aRnd, aEmitter, aUv } = buildParticleAttributes(
@@ -204,6 +211,7 @@ export class ParticleField {
         cfg.seed,
         fieldW,
         shedW,
+        shedBias,
       );
       this.geometry.setAttribute("position", new THREE.BufferAttribute(position, 3));
       this.geometry.setAttribute("aSeed", new THREE.BufferAttribute(aSeed, 1));

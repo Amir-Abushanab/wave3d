@@ -6,6 +6,14 @@
 import { describe, expect, it } from "vitest";
 import { buildParticleAttributes } from "./particleField";
 
+/** Mean of the shed width coordinate (aUv.x) across the buffer — 0.5 when unbiased. */
+function meanUvX(b: ReturnType<typeof buildParticleAttributes>): number {
+  let s = 0;
+  const n = b.aUv.length / 2;
+  for (let i = 0; i < n; i++) s += b.aUv[i * 2];
+  return s / n;
+}
+
 describe("particle attributes are deterministic", () => {
   it("same (count, seed, mix) → byte-identical buffers", () => {
     const a = buildParticleAttributes(500, 7, 0.5, 0.5);
@@ -33,6 +41,18 @@ describe("particle attributes are deterministic", () => {
     // no weights at all → everything falls to the ambient field (a bare `{ count }` block is dust).
     const bare = buildParticleAttributes(10, 1, 0, 0);
     expect(Array.from(bare.aEmitter).every((e) => e === 0)).toBe(true);
+  });
+
+  it("shed bias 0 leaves the width draw untouched (byte-identical), and skews it otherwise", () => {
+    // default (no bias arg) === explicit 0 → the aUv.x draw is unchanged.
+    const implicit = buildParticleAttributes(500, 7, 0, 1);
+    const explicitZero = buildParticleAttributes(500, 7, 0, 1, 0);
+    expect(Array.from(implicit.aUv)).toEqual(Array.from(explicitZero.aUv));
+    // negative crowds uv.x→0, positive crowds uv.x→1.
+    const neg = buildParticleAttributes(3000, 7, 0, 1, -0.8);
+    const pos = buildParticleAttributes(3000, 7, 0, 1, 0.8);
+    expect(meanUvX(neg)).toBeLessThan(meanUvX(explicitZero));
+    expect(meanUvX(pos)).toBeGreaterThan(meanUvX(explicitZero));
   });
 
   it("buffer lengths match the count", () => {

@@ -300,7 +300,7 @@ export const PRESETS: Record<string, () => StudioConfig> = {
       life: 7,
       twinkle: 0.8,
       field: { density: 0.03, drift: 0.12 },
-      shed: { rate: 0.97, drift: 490, fromWave: 0 },
+      shed: { rate: 0.97, drift: 490, fromWave: 0, bias: -0.6 }, // cluster the spray off the right flank
     };
     return c;
   },

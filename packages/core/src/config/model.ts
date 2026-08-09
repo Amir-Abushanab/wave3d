@@ -434,7 +434,9 @@ export interface ParticlesConfig {
   life?: number; // seconds per birth→death cycle
   twinkle?: number; // 0..1 brightness flicker
   field?: { density: number; drift?: number };
-  shed?: { rate: number; drift: number; fromWave?: number };
+  // `bias` skews the shed spray along the fan/edge width toward one flank: −1 → the uv.x=0 side,
+  // +1 → the uv.x=1 side, 0 (default) → even across the whole rim.
+  shed?: { rate: number; drift: number; fromWave?: number; bias?: number };
 }
 
 /**
@@ -1124,6 +1126,7 @@ export function normalizeParticles(config: StudioConfig): void {
     if (p.shed.fromWave !== undefined) {
       p.shed.fromWave = Math.round(clampNumber(p.shed.fromWave, 0, MAX_WAVES - 1, 0));
     }
+    if (p.shed.bias !== undefined) p.shed.bias = clampNumber(p.shed.bias, -1, 1, 0);
   }
 }
 
