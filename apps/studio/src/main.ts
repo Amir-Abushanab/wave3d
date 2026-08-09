@@ -65,13 +65,25 @@ function showError(title: string, detail: string): void {
 const firstBoot = !import.meta.hot?.data.booted;
 if (import.meta.hot) import.meta.hot.data.booted = true;
 
+// Browser extensions (MetaMask + other wallets, etc.) inject scripts into EVERY page and throw their
+// own errors/rejections — e.g. MetaMask's "Failed to connect to MetaMask" out of its inpage.js. Those
+// aren't the studio's problem, so don't flash the error overlay for them: skip anything whose source
+// / stack points at a `*-extension://` URL.
+function isExtensionNoise(...sources: (string | undefined)[]): boolean {
+  return sources.some((s) => typeof s === "string" && /-extension:\/\//.test(s));
+}
+
 if (firstBoot) {
-  window.addEventListener("error", (e) =>
-    showError(e.message, (e.error as Error)?.stack || `${e.filename}:${e.lineno}`),
-  );
-  window.addEventListener("unhandledrejection", (e) =>
-    showError("Unhandled promise rejection", (e.reason as Error)?.stack || String(e.reason)),
-  );
+  window.addEventListener("error", (e) => {
+    const stack = (e.error as Error)?.stack;
+    if (isExtensionNoise(e.filename, stack)) return;
+    showError(e.message, stack || `${e.filename}:${e.lineno}`);
+  });
+  window.addEventListener("unhandledrejection", (e) => {
+    const detail = (e.reason as Error)?.stack || String(e.reason);
+    if (isExtensionNoise(detail)) return;
+    showError("Unhandled promise rejection", detail);
+  });
 }
 
 // Keep the export frame clean: the dimensions bar (#capture-size) and the four resize handles stay
