@@ -422,9 +422,8 @@ export interface SceneInteractionConfig {
  * A field of additive GPU sprites (dust / sparkle). ABSENT ⇒ off: no THREE.Points node is created
  * and the scene render is byte-identical; present ⇒ {@link normalizeParticles} clamps it. Every
  * particle's motion is a pure function of `uTime` + a per-particle seed baked from `seed`, so it is
- * deterministic (timeOffset scrub / loopSeconds / paused all hold). Three emitter modes stack, each
- * weighted by its own density/rate: a `ring` annulus around the eclipse, an ambient `field`, and
- * (PR2) `shed` — particles peeling off a wave's DEFORMED edge.
+ * deterministic (timeOffset scrub / loopSeconds / paused all hold). Two emitter modes stack: an
+ * ambient `field`, and `shed` — particles peeling off a wave's DEFORMED edge.
  */
 export interface ParticlesConfig {
   count: number; // total sprites (clamped in normalizeParticles)
@@ -434,7 +433,6 @@ export interface ParticlesConfig {
   color?: string; // sprite colour (warm gold default)
   life?: number; // seconds per birth→death cycle
   twinkle?: number; // 0..1 brightness flicker
-  ring?: { radius: number; width: number; density: number; spin?: number };
   field?: { density: number; drift?: number };
   shed?: { rate: number; drift: number; fromWave?: number };
 }
@@ -532,15 +530,6 @@ export interface SceneConfig {
   /** CMYK halftone (four rotated dot screens). 0 removes the pass; cell = dot size px. */
   halftoneCmyk?: number;
   halftoneCmykCell?: number;
-  /** Eclipse occluder: an opaque disc composited into the scene that HIDES the waves behind it (the
-   *  reference's black "moon") while nearer plume + the particle field draw over it. 0 removes the
-   *  mesh entirely (byte-identical); radius/center/softness/color only bite once eclipse > 0.
-   *  `eclipseCenter` is frame-space (0..1); `eclipseRadius` is a fraction of the frame height. */
-  eclipse?: number; // 0..1 opacity / gate
-  eclipseRadius?: number; // fraction of frame height
-  eclipseCenter: Vec2; // frame-space 0..1 (backfilled, like backgroundImagePosition)
-  eclipseSoftness?: number; // 0..1 edge feather
-  eclipseColor?: string; // disc colour (default black)
   /** Additive particle / dust field. ABSENT ⇒ off (no THREE.Points, byte-identical). See
    *  {@link ParticlesConfig}. */
   particles?: ParticlesConfig;
@@ -745,12 +734,7 @@ export function createDefaultConfig(): StudioConfig {
     paperTextureScale: 2,
     halftoneCmyk: 0,
     halftoneCmykCell: 6,
-    // Eclipse off (no disc mesh). particles is deliberately absent (off = byte-identical).
-    eclipse: 0,
-    eclipseRadius: 0.18,
-    eclipseCenter: { x: 0.5, y: 0.5 },
-    eclipseSoftness: 0,
-    eclipseColor: "#000000",
+    // particles is deliberately absent (off = byte-identical).
     ambient: 0.45,
     lights: [], // hero has no lights — colour is the palette + the SrcColor² blend
     mirrorH: false,
@@ -973,15 +957,6 @@ export function ensureSceneDefaults(config: StudioConfig): void {
   if (!Number.isFinite(config.paperTextureScale)) config.paperTextureScale = 2;
   if (!Number.isFinite(config.halftoneCmyk)) config.halftoneCmyk = 0;
   if (!Number.isFinite(config.halftoneCmykCell)) config.halftoneCmykCell = 6;
-  if (!Number.isFinite(config.eclipse)) config.eclipse = 0;
-  if (!Number.isFinite(config.eclipseRadius)) config.eclipseRadius = 0.18;
-  if (!config.eclipseCenter) config.eclipseCenter = { x: 0.5, y: 0.5 };
-  else {
-    config.eclipseCenter.x = num(config.eclipseCenter.x, 0.5);
-    config.eclipseCenter.y = num(config.eclipseCenter.y, 0.5);
-  }
-  if (!Number.isFinite(config.eclipseSoftness)) config.eclipseSoftness = 0;
-  if (typeof config.eclipseColor !== "string") config.eclipseColor = "#000000";
   // particles is present-only (like interaction): NOT backfilled here — absence is off.
   if (typeof config.showCameraRig !== "boolean") config.showCameraRig = false;
   if (typeof config.paused !== "boolean") config.paused = false;
@@ -1139,12 +1114,6 @@ export function normalizeParticles(config: StudioConfig): void {
   if (p.color !== undefined && typeof p.color !== "string") p.color = "#ffcf8a";
   if (p.life !== undefined) p.life = clampNumber(p.life, 0.1, 60, 6);
   if (p.twinkle !== undefined) p.twinkle = clampNumber(p.twinkle, 0, 1, 0);
-  if (p.ring) {
-    p.ring.radius = num(p.ring.radius, 0.22);
-    p.ring.width = num(p.ring.width, 0.12);
-    p.ring.density = clampNumber(p.ring.density, 0, 1, 0.5);
-    if (p.ring.spin !== undefined) p.ring.spin = num(p.ring.spin, 0);
-  }
   if (p.field) {
     p.field.density = clampNumber(p.field.density, 0, 1, 0.5);
     if (p.field.drift !== undefined) p.field.drift = num(p.field.drift, 0);

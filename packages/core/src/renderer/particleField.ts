@@ -12,16 +12,13 @@ import { particleFragmentShader, particleVertexShader } from "./shaders";
  * `config.particles.count > 0` and disposes it when the block returns to absent/0, so "off" adds no
  * scene node and is byte-identical.
  *
- * Two emitter modes for now (a third, shed-from-edge, arrives with the shared deform chunk):
- *   0 — RING: an annulus around the eclipse anchor (the reference's rim spray).
- *   1 — FIELD: ambient dust scattered across the frame.
- * Both are placed in the screen plane via the camera basis pushed each frame in {@link frame}.
+ * Two emitter modes:
+ *   0 — FIELD: ambient dust scattered across the frame (screen plane, via the camera basis in {@link frame}).
+ *   1 — SHED: particles peeling off the emitter wave's DEFORMED edge (via the shared waveShape chunk).
  */
 export interface ParticleFrame {
   /** Composition centre (the field centre), world space. */
   center: THREE.Vector3;
-  /** Ring anchor (the eclipse centre, or the composition centre when no eclipse), world space. */
-  eclipseCenter: THREE.Vector3;
   /** Screen-right, world-space unit vector. */
   right: THREE.Vector3;
   /** Screen-up, world-space unit vector. */
@@ -87,7 +84,6 @@ const SHED_SHAPE_UNIFORMS = [
 export function buildParticleAttributes(
   count: number,
   seed: number,
-  ringWeight: number,
   fieldWeight: number,
   shedWeight = 0,
 ): {
@@ -103,10 +99,9 @@ export function buildParticleAttributes(
   const aRnd = new Float32Array(count * 4);
   const aEmitter = new Float32Array(count);
   const aUv = new Float32Array(count * 2);
-  // Route by weight: [0,ring) → ring, [ring,ring+field) → field, the rest → shed. With no weights at
-  // all (total 0) everything falls to the field — a bare `{ count }` block is dust.
-  const total = ringWeight + fieldWeight + shedWeight;
-  const ringCount = total > 0 ? Math.round((count * ringWeight) / total) : 0;
+  // Route by weight: [0,field) → ambient field, the rest → shed. With no weights at all (total 0)
+  // everything falls to the field — a bare `{ count }` block is dust.
+  const total = fieldWeight + shedWeight;
   const fieldCount = total > 0 ? Math.round((count * fieldWeight) / total) : count;
   for (let i = 0; i < count; i++) {
     aSeed[i] = rand();
@@ -114,7 +109,7 @@ export function buildParticleAttributes(
     aRnd[i * 4 + 1] = rand();
     aRnd[i * 4 + 2] = rand();
     aRnd[i * 4 + 3] = rand();
-    aEmitter[i] = i < ringCount ? 0 : i < ringCount + fieldCount ? 1 : 2;
+    aEmitter[i] = i < fieldCount ? 0 : 1;
   }
   // Shed uv in a SEPARATE pass so adding it doesn't shift the ring/field RNG sequence — the existing
   // ring/field layouts stay byte-identical. Ride a ribbon uv biased toward the OUTER half (the plume's
@@ -136,7 +131,6 @@ export class ParticleField {
   /** Layout signature — only (count, seed, emitter mix) trigger an attribute rebuild; the rest are
    *  live uniforms. */
   private sig = "";
-  private cfg?: ParticlesConfig;
 
   constructor() {
     this.material = new THREE.ShaderMaterial({
@@ -150,14 +144,10 @@ export class ParticleField {
         uPixelRatio: { value: 1 },
         uColor: { value: new THREE.Vector3(1, 0.81, 0.54) },
         uCenter: { value: new THREE.Vector3() },
-        uEclipseCenter: { value: new THREE.Vector3() },
         uRight: { value: new THREE.Vector3(1, 0, 0) },
         uUp: { value: new THREE.Vector3(0, 1, 0) },
         uHalfW: { value: 1 },
         uHalfH: { value: 1 },
-        uRingRadius: { value: 0 },
-        uRingWidth: { value: 0 },
-        uRingSpin: { value: 0 },
         uFieldDrift: { value: 0 },
         // Shed emitter (read only under SHED): the emitter wave's shape uniforms + world matrix,
         // mirrored from that wave in configureShed(). Always present JS-side; three uploads them only
@@ -203,18 +193,15 @@ export class ParticleField {
   /** Reconcile to `cfg`: rebuild the seeded buffers if the layout signature changed, then push the
    *  frame-independent uniforms. `loopSeconds` is scene-level (passed in). Called from refresh(). */
   sync(cfg: ParticlesConfig, loopSeconds: number): void {
-    this.cfg = cfg;
     const count = Math.max(0, Math.floor(cfg.count));
-    const ringW = Math.max(0, cfg.ring?.density ?? 0);
     const fieldW = Math.max(0, cfg.field?.density ?? 0);
     const shedW = Math.max(0, cfg.shed?.rate ?? 0);
-    const sig = `${count}|${cfg.seed}|${ringW}|${fieldW}|${shedW}`;
+    const sig = `${count}|${cfg.seed}|${fieldW}|${shedW}`;
     if (sig !== this.sig) {
       this.sig = sig;
       const { position, aSeed, aRnd, aEmitter, aUv } = buildParticleAttributes(
         count,
         cfg.seed,
-        ringW,
         fieldW,
         shedW,
       );
@@ -231,25 +218,19 @@ export class ParticleField {
     u.uSize.value = cfg.size;
     u.uSizeJitter.value = cfg.sizeJitter ?? 0;
     u.uTwinkle.value = cfg.twinkle ?? 0;
-    u.uRingSpin.value = cfg.ring?.spin ?? 0;
     u.uFieldDrift.value = cfg.field?.drift ?? 0;
     setLinear(u.uColor.value as THREE.Vector3, cfg.color ?? DEFAULT_COLOR);
   }
 
-  /** Push the per-frame frame basis (the camera can move, so this runs every frame). The ring
-   *  radius/width are authored as a fraction of the frame HEIGHT, converted to world units here. */
+  /** Push the per-frame frame basis (the camera can move, so this runs every frame). */
   frame(f: ParticleFrame, pixelRatio: number): void {
     const u = this.material.uniforms;
     (u.uCenter.value as THREE.Vector3).copy(f.center);
-    (u.uEclipseCenter.value as THREE.Vector3).copy(f.eclipseCenter);
     (u.uRight.value as THREE.Vector3).copy(f.right);
     (u.uUp.value as THREE.Vector3).copy(f.up);
     u.uHalfW.value = f.halfW;
     u.uHalfH.value = f.halfH;
     u.uPixelRatio.value = pixelRatio;
-    const frameH = f.halfH * 2;
-    u.uRingRadius.value = (this.cfg?.ring?.radius ?? 0) * frameH;
-    u.uRingWidth.value = (this.cfg?.ring?.width ?? 0) * frameH;
   }
 
   /** Wire (or clear) the SHED emitter. `shape` null → shed off: clear the SHED define (lean

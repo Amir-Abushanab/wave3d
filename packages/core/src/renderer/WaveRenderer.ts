@@ -16,8 +16,6 @@ import {
   heatmapFragmentShader,
   paperTextureFragmentShader,
   halftoneCmykFragmentShader,
-  eclipseVertexShader,
-  eclipseFragmentShader,
 } from "./shaders";
 import { WaveGeometry } from "./WaveGeometry";
 import { ParticleField, type ParticleFrame } from "./particleField";
@@ -64,11 +62,6 @@ const BASE_SEGMENTS = 220; // base segment count along the ribbon; denser = smoo
  *  a canvas of a different aspect is reconciled against it. */
 export const FRAME_W = 1333;
 export const FRAME_H = 750;
-
-/** Depth (world units) the eclipse disc is pushed toward the camera along the view axis so it
- *  reliably occludes the plume behind it. The camera is orthographic, so this shifts DEPTH only —
- *  the disc's on-screen position and size are unchanged. */
-const ECLIPSE_DEPTH_BIAS = 300;
 
 /**
  * The responsive base zoom: how many device pixels one world unit occupies so the FRAME_W × FRAME_H
@@ -290,19 +283,11 @@ export class WaveRenderer {
   private halftoneCmykPass?: ShaderPass;
   /** Optional particle / dust field — created when particles.count first goes >0, disposed at 0. */
   private particleField?: ParticleField;
-  /** Optional eclipse occluder disc — created when eclipse first goes >0, disposed at 0. */
-  private eclipse?: {
-    mesh: THREE.Mesh;
-    material: THREE.ShaderMaterial;
-    geometry: THREE.CircleGeometry;
-  };
-  // Reused scratch for the per-frame eclipse/particle placement (updateSceneFx) — no allocation.
+  // Reused scratch for the per-frame particle placement (updateSceneFx) — no allocation.
   private readonly fxCenter = new THREE.Vector3();
   private readonly fxRight = new THREE.Vector3();
   private readonly fxUp = new THREE.Vector3();
-  private readonly fxEclipsePos = new THREE.Vector3();
-  private readonly fxTmp = new THREE.Vector3();
-  private fxActive = false; // eclipse || particles this frame; consumed by updateClipPlanes
+  private fxActive = false; // particles this frame; consumed by updateClipPlanes
   protected readonly container: HTMLElement;
   private readonly respectReducedMotion: boolean;
   private readonly skipIntroRamp: boolean;
@@ -764,7 +749,6 @@ export class WaveRenderer {
   refresh(): void {
     this.applyBackground();
     this.applyPost();
-    this.applyEclipse();
     this.applyParticles();
     this.syncInteraction(); // create/dispose the interaction controller as config toggles it
     // Once an external driver (orbit / edit gizmo) owns the camera, don't fight it here; the shell
@@ -1559,18 +1543,12 @@ export class WaveRenderer {
 
   private onContextRestored = (): void => {
     this.disposeWaves(); // old GPU resources are invalid on a fresh context (per-wave palettes too)
-    // The particle Points + eclipse disc also hold GPU buffers; drop them so refresh() (via buildWaves
-    // → applyParticles/applyEclipse) rebuilds them on the fresh context.
+    // The particle Points also hold GPU buffers; drop them so refresh() (via buildWaves →
+    // applyParticles) rebuilds them on the fresh context.
     if (this.particleField) {
       this.scene.remove(this.particleField.points);
       this.particleField.dispose();
       this.particleField = undefined;
-    }
-    if (this.eclipse) {
-      this.scene.remove(this.eclipse.mesh);
-      this.eclipse.material.dispose();
-      this.eclipse.geometry.dispose();
-      this.eclipse = undefined;
     }
     this.backgroundTexture?.dispose();
     this.backgroundTexture = undefined;
@@ -1714,7 +1692,7 @@ export class WaveRenderer {
     this.updateBackgroundVideoFrame();
     this.updateTime();
     this.applyInteraction(); // write pointer + binding uniforms (no-op when off / capturing)
-    this.updateSceneFx(); // place the eclipse disc + feed the particle field (before clip fitting)
+    this.updateSceneFx(); // feed the particle field (before clip fitting)
     this.updateClipPlanes(); // keep near/far bracketing the scene so no camera angle clips the wave
     this.composer.render();
     // Editor overlays (gizmo/helpers + camera-rig minimap) draw on top of the composed frame —
@@ -1740,77 +1718,20 @@ export class WaveRenderer {
     }
   }
 
-  /** Insert / tune / remove the eclipse occluder disc — lazy like applyBloom. eclipse 0 removes the
-   *  mesh entirely (byte-identical). The disc is placed / oriented / scaled each frame in
-   *  updateSceneFx; here we only create it and push its colour / opacity / softness uniforms. */
-  private applyEclipse(): void {
-    if ((this.config.eclipse ?? 0) > 0) {
-      if (!this.eclipse) {
-        const geometry = new THREE.CircleGeometry(1, 96);
-        const material = new THREE.ShaderMaterial({
-          uniforms: {
-            uColor: { value: new THREE.Vector3() },
-            uOpacity: { value: 1 },
-            uSoftness: { value: 0 },
-          },
-          vertexShader: eclipseVertexShader,
-          fragmentShader: eclipseFragmentShader,
-          transparent: true,
-          depthTest: true,
-          depthWrite: true, // lay down depth so the transparent waves behind the disc are occluded
-          side: THREE.DoubleSide,
-        });
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.frustumCulled = false;
-        mesh.renderOrder = -1; // draw before the waves (0..) so its depth is written first
-        this.scene.add(mesh);
-        this.eclipse = { mesh, material, geometry };
-      }
-      const u = this.eclipse.material.uniforms;
-      hexToLinearVec3(this.config.eclipseColor ?? "#000000", u.uColor.value as THREE.Vector3);
-      u.uOpacity.value = this.config.eclipse ?? 0;
-      u.uSoftness.value = this.config.eclipseSoftness ?? 0;
-    } else if (this.eclipse) {
-      this.scene.remove(this.eclipse.mesh);
-      this.eclipse.material.dispose();
-      this.eclipse.geometry.dispose();
-      this.eclipse = undefined;
-    }
-  }
-
-  /** Per-frame placement for the eclipse disc + particle field: derive the camera's screen basis and
-   *  the composition centre (world), billboard the disc so it stays a circle under orbit, and feed the
-   *  same frame to the particle ring. Anchored to the authored FRAME_W×FRAME_H reference so sizes are
-   *  screen-size-independent. No allocation (reused scratch); a full no-op when both are off. */
+  /** Per-frame placement for the particle field: derive the camera's screen basis + the composition
+   *  centre (world) and feed them to the field. Anchored to the authored FRAME_W×FRAME_H reference so
+   *  sizes are screen-size-independent. No allocation (reused scratch); a no-op when off. */
   private updateSceneFx(): void {
-    this.fxActive = !!this.eclipse || !!this.particleField;
+    this.fxActive = !!this.particleField;
     if (!this.fxActive) return;
     this.camera.updateMatrixWorld();
     this.fxRight.setFromMatrixColumn(this.camera.matrixWorld, 0).normalize();
     this.fxUp.setFromMatrixColumn(this.camera.matrixWorld, 1).normalize();
     const tgt = this.config.cameraTarget;
     this.fxCenter.set(tgt.x, tgt.y, tgt.z);
-    const ec = this.config.eclipseCenter ?? { x: 0.5, y: 0.5 };
-    // eclipseCenter is frame space (0..1, y down); map it into the screen plane at the target depth.
-    this.fxEclipsePos
-      .copy(this.fxCenter)
-      .addScaledVector(this.fxRight, (ec.x - 0.5) * FRAME_W)
-      .addScaledVector(this.fxUp, (0.5 - ec.y) * FRAME_H);
-    if (this.eclipse) {
-      const worldRadius = Math.max((this.config.eclipseRadius ?? 0.18) * FRAME_H, 1e-3);
-      // Push the disc toward the camera along the view axis so it reliably occludes the plume behind
-      // it (ortho → depth-only shift; screen position/size unchanged).
-      this.fxTmp.copy(this.camera.position).sub(this.fxEclipsePos).normalize();
-      this.eclipse.mesh.position
-        .copy(this.fxEclipsePos)
-        .addScaledVector(this.fxTmp, ECLIPSE_DEPTH_BIAS);
-      this.eclipse.mesh.quaternion.copy(this.camera.quaternion); // billboard → stays a circle
-      this.eclipse.mesh.scale.setScalar(worldRadius);
-    }
     if (this.particleField) {
       const frame: ParticleFrame = {
         center: this.fxCenter,
-        eclipseCenter: this.fxEclipsePos,
         right: this.fxRight,
         up: this.fxUp,
         halfW: FRAME_W / 2,
@@ -2126,11 +2047,10 @@ export class WaveRenderer {
       this.clipBox.expandByPoint(this.clipTmpB.copy(center).addScalar(radius));
       this.clipBox.expandByPoint(this.clipTmpB.copy(center).addScalar(-radius));
     }
-    // Include the eclipse disc + particle field (this loop fits to this.waves only). Both sit around
-    // the composition centre in the screen plane, spanning ~the authored frame, so a cube of
-    // ±max(FRAME_W,FRAME_H)/2 about fxCenter bounds them. Skipped when both off → byte-identical.
+    // Include the particle field (this loop fits to this.waves only). It sits around the composition
+    // centre in the screen plane spanning ~the authored frame, so a cube of ±max(FRAME_W,FRAME_H)
+    // about fxCenter bounds it. Skipped when off → byte-identical.
     if (this.fxActive) {
-      // Generous cube (frame span + the disc's camera-ward bias + a frame-edge disc's own radius).
       const r = Math.max(FRAME_W, FRAME_H);
       this.clipBox.expandByPoint(this.clipTmpB.copy(this.fxCenter).addScalar(r));
       this.clipBox.expandByPoint(this.clipTmpB.copy(this.fxCenter).addScalar(-r));
@@ -2259,8 +2179,6 @@ export class WaveRenderer {
       s.palette.dispose();
     }
     this.particleField?.dispose();
-    this.eclipse?.material.dispose();
-    this.eclipse?.geometry.dispose();
     this.bloomPass?.dispose();
     this.ditherPass?.dispose();
     this.innerLightPass?.dispose();

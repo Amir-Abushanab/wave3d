@@ -24,7 +24,6 @@ const CONFIG_RECEIVERS: Record<string, (c: StudioConfig) => unknown> = {
   cfg: (c) => c,
   "this.config": (c) => c,
   "cfg.backgroundImagePosition": (c) => c.backgroundImagePosition,
-  "cfg.eclipseCenter": (c) => c.eclipseCenter,
   wave: (c) => c.waves[0],
   "wave.paletteTextureScale": (c) => c.waves[0].paletteTextureScale,
   "wave.paletteTextureOffset": (c) => c.waves[0].paletteTextureOffset,

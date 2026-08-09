@@ -1320,36 +1320,6 @@ export class ControlPanel {
     this.renderer.setScrollPreview(scrollPrev.preview); // apply the rest state on (re)build
   }
 
-  /** "Eclipse" folder: the occluder disc. `eclipse` is the gate — 0 removes the mesh entirely
-   *  (byte-identical); the rest only bite once it is > 0. All sliders stay visible, like Post FX. */
-  private buildEclipseFolder(
-    mkFolder: MkFolder,
-    vec: VecRows,
-    cfg: StudioConfig,
-    refresh: () => void,
-  ): void {
-    const f = mkFolder("Eclipse", true);
-    f.addBinding(cfg, "eclipse", { min: 0, max: 1, step: 0.01, label: "eclipse" }).on(
-      "change",
-      refresh,
-    );
-    f.addBinding(cfg, "eclipseRadius", {
-      min: 0.02,
-      max: 0.6,
-      step: 0.005,
-      label: "eclipse radius",
-    }).on("change", refresh);
-    vec(f, cfg.eclipseCenter, "eclipse", { min: 0, max: 1, step: 0.01 });
-    f.addBinding(cfg, "eclipseSoftness", { min: 0, max: 1, step: 0.01, label: "eclipse edge" }).on(
-      "change",
-      refresh,
-    );
-    f.addBinding(cfg, "eclipseColor", { view: "color", label: "eclipse color" }).on(
-      "change",
-      refresh,
-    );
-  }
-
   /** "Particles" folder: the additive dust field. Bound to a panel-local proxy (never `cfg.particles`
    *  directly), so `sync()` can write the block only when `count` > 0 and delete it otherwise — absent
    *  = off, byte-identical. Flattens the nested ring/field to a handful of sliders. */
@@ -1361,10 +1331,6 @@ export class ControlPanel {
       size: p?.size ?? 2.4,
       color: p?.color ?? "#ffd597",
       twinkle: p?.twinkle ?? 0.6,
-      ringDensity: p?.ring?.density ?? 0.6,
-      ringRadius: p?.ring?.radius ?? 0.22,
-      ringWidth: p?.ring?.width ?? 0.14,
-      ringSpin: p?.ring?.spin ?? 0,
       fieldDensity: p?.field?.density ?? 0.4,
       shedRate: p?.shed?.rate ?? 0,
       shedDrift: p?.shed?.drift ?? 300,
@@ -1379,12 +1345,6 @@ export class ControlPanel {
           color: uiParticles.color,
           twinkle: uiParticles.twinkle,
           seed: uiParticles.seed,
-          ring: {
-            radius: uiParticles.ringRadius,
-            width: uiParticles.ringWidth,
-            density: uiParticles.ringDensity,
-            spin: uiParticles.ringSpin,
-          },
           field: { density: uiParticles.fieldDensity },
         };
         if (uiParticles.shedRate > 0) {
@@ -1412,28 +1372,6 @@ export class ControlPanel {
     );
     f.addBinding(uiParticles, "color", { view: "color", label: "dust color" }).on("change", sync);
     f.addBinding(uiParticles, "twinkle", { min: 0, max: 1, step: 0.01, label: "twinkle" }).on(
-      "change",
-      sync,
-    );
-    f.addBinding(uiParticles, "ringDensity", {
-      min: 0,
-      max: 1,
-      step: 0.01,
-      label: "ring amount",
-    }).on("change", sync);
-    f.addBinding(uiParticles, "ringRadius", {
-      min: 0,
-      max: 0.6,
-      step: 0.005,
-      label: "ring radius",
-    }).on("change", sync);
-    f.addBinding(uiParticles, "ringWidth", {
-      min: 0,
-      max: 0.4,
-      step: 0.005,
-      label: "ring width",
-    }).on("change", sync);
-    f.addBinding(uiParticles, "ringSpin", { min: -2, max: 2, step: 0.01, label: "ring spin" }).on(
       "change",
       sync,
     );
@@ -1873,7 +1811,6 @@ export class ControlPanel {
     camFolder = this.buildCameraFolder(mkFolder, cfg);
     this.buildLightsFolder(mkFolder, randomBtn, vec, cfg, refresh);
     this.buildSceneInteractionFolder(mkFolder, cfg, refresh);
-    this.buildEclipseFolder(mkFolder, vec, cfg, refresh);
     this.buildParticlesFolder(mkFolder, cfg, refresh);
 
     // ---- Waves ----
@@ -2447,7 +2384,6 @@ export class ControlPanel {
       "Camera",
       "Waves",
       "Post FX",
-      "Eclipse",
       "Particles",
       "Interaction",
       "Lights",

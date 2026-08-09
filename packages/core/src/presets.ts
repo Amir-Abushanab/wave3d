@@ -281,14 +281,9 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     c.bloomThreshold = 0.7;
     c.cameraTarget = { x: 0, y: -40, z: 0 };
     c.cameraZoom = 1;
-    // Eclipse disc, centre-right — a black void the dust rings and the plume can wrap.
-    c.eclipse = 1;
-    c.eclipseRadius = 0.19;
-    c.eclipseCenter = { x: 0.6, y: 0.42 };
-    c.eclipseSoftness = 0.06;
-    c.eclipseColor = "#050404"; // matches the void → reads as a clean hole in the glow
-    // Golden dust: a ring around the eclipse rim, an ambient field across the frame, and dust SHED
-    // off the plume's deformed edge (silk dissolving into glitter — the reference's signature).
+    // Golden dust — just the wave + particles, no extra elements: an ambient field across the frame
+    // plus dust SHED off the plume's deformed edge (silk dissolving into glitter, the reference's
+    // signature). The dark negative space is the wave's own shape against the void, not an object.
     c.particles = {
       count: 11000,
       size: 2,
@@ -297,9 +292,8 @@ export const PRESETS: Record<string, () => StudioConfig> = {
       seed: 7,
       life: 7,
       twinkle: 0.7,
-      ring: { radius: 0.21, width: 0.13, density: 0.4, spin: 0.04 },
-      field: { density: 0.3, drift: 0.15 },
-      shed: { rate: 0.4, drift: 320, fromWave: 0 },
+      field: { density: 0.45, drift: 0.15 },
+      shed: { rate: 0.55, drift: 320, fromWave: 0 },
     };
     return c;
   },

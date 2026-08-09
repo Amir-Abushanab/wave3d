@@ -1018,8 +1018,8 @@ attribute float aEmitter;
 attribute vec2 aUv; // ribbon uv for shed particles (unused by ring/field)
 
 uniform float uTime, uLoopSeconds, uLife, uSize, uSizeJitter, uTwinkle, uPixelRatio;
-uniform vec3 uColor, uCenter, uEclipseCenter, uRight, uUp;
-uniform float uHalfW, uHalfH, uRingRadius, uRingWidth, uRingSpin, uFieldDrift;
+uniform vec3 uColor, uCenter, uRight, uUp;
+uniform float uHalfW, uHalfH, uFieldDrift;
 
 // SHED emitter (optional): particles peeling off a wave's DEFORMED edge. Behind #ifdef SHED so a
 // ring/field-only field compiles NONE of this (no simplex, no shape uniforms, no waveShape). The
@@ -1055,12 +1055,6 @@ void main(){
 
   vec3 p;
   if (aEmitter < 0.5) {
-    // RING: an annulus around the eclipse anchor, in the screen plane. Angle from aRnd.x (+ a slow
-    // spin measured in turns/cycle so it loops), radius jittered by aRnd.y and drifting out with age.
-    float ang = aRnd.x * TAU + rate * uRingSpin * TAU;
-    float rr = uRingRadius + (aRnd.y - 0.5) * uRingWidth + age * uRingWidth * 0.5;
-    p = uEclipseCenter + (cos(ang) * uRight + sin(ang) * uUp) * rr;
-  } else if (aEmitter < 1.5) {
     // FIELD: ambient dust scattered across the frame, drifting slowly and wrapping (fract) so it never
     // depletes. The drift phase rides rate, so it repeats with the loop too.
     float fx = fract(aRnd.x + rate * uFieldDrift * (aRnd.z - 0.5)) - 0.5;
@@ -1109,33 +1103,5 @@ void main(){
   float a = smoothstep(0.5, 0.0, d) * vAlpha;
   if (a <= 0.0) discard;
   gl_FragColor = vec4(vColor, a); // AdditiveBlending (src = SrcAlpha) → adds vColor·a
-}
-`;
-
-// Eclipse occluder disc. A billboarded circle that draws BEFORE the waves (renderOrder −1) and writes
-// depth, so the transparent waves behind it are depth-culled (the reference's black "moon") while
-// nearer plume + the additive particles composite over it. uSoftness feathers the rim; uOpacity is
-// the eclipse gate (1 = a solid disc).
-export const eclipseVertexShader = /* glsl */ `
-varying vec2 vUv;
-void main(){
-  vUv = uv;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-}
-`;
-
-export const eclipseFragmentShader = /* glsl */ `
-precision highp float;
-uniform vec3 uColor;
-uniform float uOpacity;  // eclipse gate (0..1): disc opacity
-uniform float uSoftness; // 0..1: edge feather
-varying vec2 vUv;
-void main(){
-  // CircleGeometry uv: centre (0.5,0.5), rim at radius 0.5 → r is 0 at the centre, 1 at the rim.
-  float r = length(vUv - 0.5) * 2.0;
-  float edge = 1.0 - smoothstep(1.0 - clamp(uSoftness, 0.0, 1.0), 1.0, r);
-  float a = edge * clamp(uOpacity, 0.0, 1.0);
-  if (a <= 0.0) discard;
-  gl_FragColor = vec4(uColor, a);
 }
 `;

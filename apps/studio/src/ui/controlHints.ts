@@ -69,19 +69,10 @@ const CONTROL_HINTS: Record<string, string> = {
   "light x": "Horizontal position of the god-ray light point (0 = left edge, 1 = right).",
   "light y": "Vertical position of the god-ray light point (0 = bottom edge, 1 = top).",
 
-  // --- Eclipse (occluder disc) + Particles (dust field) ---
-  eclipse:
-    "Opacity of the black occluder disc: 0 removes it entirely; 1 is a solid disc that hides the wave behind it — a clean hole in the glow. The plume + dust ring can wrap it.",
-  "eclipse radius": "Disc size, as a fraction of the frame height.",
-  "eclipse edge": "Softens the disc's rim from a crisp circle (0) to a feathered fade.",
-  "eclipse color": "Disc colour — match the background to read as a pure void.",
+  // --- Particles (dust field) ---
   "dust count": "Number of sparkle particles. 0 removes the field entirely (no cost).",
   "dust size": "Base sprite size in pixels (each particle also varies a little).",
   twinkle: "How much each particle flickers in brightness over its life (0 = steady).",
-  "ring amount": "Share of the dust routed into a ring around the eclipse (the rim spray).",
-  "ring radius": "Ring radius around the eclipse centre, as a fraction of the frame height.",
-  "ring width": "Thickness of the dust ring.",
-  "ring spin": "Slow ring rotation, in turns per life-cycle (whole numbers loop seamlessly).",
   "field amount": "Share of the dust scattered as an ambient field across the whole frame.",
   "shed amount":
     "Share of the dust that peels off a wave's DEFORMED edge — silk dissolving into glitter. Needs a wave with an edge to shed from (a radial plume, a twist).",
