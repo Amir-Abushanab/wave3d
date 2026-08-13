@@ -251,17 +251,16 @@ WaveShape waveShape(vec3 position, vec2 uv, float t, vec2 loopOff){
   pos = (vec4(pos, 1.0) * rotC).xyz;
 
 #ifdef RADIAL
-  // Radial fan: remap the ribbon to polar around uRadialSource so its LENGTH fans into a plume.
+  // Radial fan: remap the ribbon to polar around the LOCAL origin so its LENGTH fans into a plume.
   // uv.x (folded WIDTH) → fan ANGLE across uRadialArc; uv.y (LENGTH) → RADIUS, so a constant-uv.x
   // combed fiber becomes a constant-angle radial spoke. mix(pos, fanned, 0) is identity → off is
-  // byte-identical.
+  // byte-identical. (Placement is the wave's position transform — the fan has no separate pivot.)
   {
     float rAng = radians(uRadialCenter) + (clamp(uv.x, 0.0, 1.0) - 0.5) * radians(uRadialArc);
     float rRho = uRadialRadius + uv.y * 400.0 * uRadialSpread; // 400 = native ribbon length
     vec3 rEr = vec3(cos(rAng), sin(rAng), 0.0);                // radial dir, in local X–Y (screen plane)
     vec3 rEt = vec3(-sin(rAng), cos(rAng), 0.0);               // tangential
-    vec3 fanned = uRadialSource
-                + rEr * rRho
+    vec3 fanned = rEr * rRho
                 + rEt * (pos.z - ${RIBBON_Z_CENTER.toFixed(1)}) * 0.5
                 + vec3(0.0, 0.0, pos.y);
     pos = mix(pos, fanned, clamp(uRadialAmount, 0.0, 1.0));
@@ -303,7 +302,6 @@ uniform float uRadialArc;    // fan spread, degrees
 uniform float uRadialSpread; // length → radius scale
 uniform float uRadialRadius; // source / inner radius
 uniform float uRadialCenter; // base angle, degrees
-uniform vec3  uRadialSource; // fan pivot, local space
 #endif
 
 varying vec2 vUv;
@@ -1034,7 +1032,6 @@ uniform float uHelixTurns, uHelixRadius, uHelixRoll, uHelixPhase;
 #endif
 #ifdef RADIAL
 uniform float uRadialAmount, uRadialArc, uRadialSpread, uRadialRadius, uRadialCenter;
-uniform vec3 uRadialSource;
 #endif
 uniform mat4 uShedModel;              // emitter wave's matrixWorld (deformed LOCAL → world)
 uniform float uShedSpeed, uShedSeed, uShedDrift;

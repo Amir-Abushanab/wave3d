@@ -577,7 +577,6 @@ export class WaveRenderer {
       uRadialSpread: { value: 1 },
       uRadialRadius: { value: 40 },
       uRadialCenter: { value: 0 },
-      uRadialSource: { value: new THREE.Vector3() },
       uRungAmount: { value: 0 },
       uRungThickness: { value: 1 },
       uPointer: { value: new THREE.Vector2(0, 0) }, // smoothed pointer NDC
@@ -896,11 +895,6 @@ export class WaveRenderer {
       u.uRadialSpread.value = sc.radialSpread ?? 1;
       u.uRadialRadius.value = sc.radialRadius ?? 40;
       u.uRadialCenter.value = sc.radialCenter ?? 0;
-      (u.uRadialSource.value as THREE.Vector3).set(
-        sc.radialSource?.x ?? 0,
-        sc.radialSource?.y ?? 0,
-        sc.radialSource?.z ?? 0,
-      );
       // Mesh transform — each wave's ABSOLUTE scale / rotation / position, applied via
       // modelMatrix using THREE's Euler XYZ order so the on-screen orientation matches the
       // authored view.

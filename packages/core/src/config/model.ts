@@ -225,17 +225,16 @@ export interface WaveConfig {
   /** Phase offset in degrees — where along the turn the ribbon starts. The per-wave knob that puts
    *  a second wave on the opposite side of the same helix (180). */
   helixPhase?: number;
-  /** Radial fan (optional): sweep the ribbon's length into a plume/peacock spread around a source
-   *  point. The three twists and the helix can't reach it — this maps the ribbon to polar around
-   *  `radialSource`, so the combed fibers ({@link fiberCount}) read as the individual radial strands.
-   *  Runs AFTER displace/helix/twist, behind `#ifdef RADIAL`, so `radialAmount` 0 leaves the block
-   *  uncompiled and the wave byte-identical. */
+  /** Radial fan (optional): sweep the ribbon's length into a plume/peacock spread from the local
+   *  origin. The three twists and the helix can't reach it — this maps the ribbon to polar so the
+   *  combed fibers ({@link fiberCount}) read as the individual radial strands. Placement is the wave's
+   *  `position` transform (there is no separate pivot). Runs AFTER displace/helix/twist, behind
+   *  `#ifdef RADIAL`, so `radialAmount` 0 leaves the block uncompiled and the wave byte-identical. */
   radialAmount?: number; // 0..1 gate + blend (0 = off / identity)
   radialArc?: number; // fan spread, degrees
   radialSpread?: number; // along-length → radius scale
   radialRadius?: number; // source / inner radius (world units, pre-scale)
   radialCenter?: number; // base angle, degrees
-  radialSource: Vec3; // fan pivot in local space (backfilled, like the other Vec fields)
   // Material ("solid" surface vs "wireframe" line shader)
   theme?: "solid" | "wireframe";
   lineAmount?: number;
@@ -646,7 +645,6 @@ function defaultWave(): WaveConfig {
     radialSpread: 1,
     radialRadius: 40,
     radialCenter: 0,
-    radialSource: { x: 0, y: 0, z: 0 },
     theme: "solid",
     lineAmount: 425, // wireframe-theme line params (defaults)
     lineThickness: 1,
@@ -905,12 +903,6 @@ export function normalizeWave(s: WaveConfig): void {
   if (!Number.isFinite(s.radialSpread)) s.radialSpread = 1;
   if (!Number.isFinite(s.radialRadius)) s.radialRadius = 40;
   if (!Number.isFinite(s.radialCenter)) s.radialCenter = 0;
-  if (!s.radialSource) s.radialSource = { x: 0, y: 0, z: 0 };
-  else {
-    s.radialSource.x = num(s.radialSource.x, 0);
-    s.radialSource.y = num(s.radialSource.y, 0);
-    s.radialSource.z = num(s.radialSource.z, 0);
-  }
   if (typeof s.theme !== "string") s.theme = "solid";
   if (!Number.isFinite(s.lineAmount)) s.lineAmount = 425;
   if (!Number.isFinite(s.lineThickness)) s.lineThickness = 1;

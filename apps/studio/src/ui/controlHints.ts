@@ -84,7 +84,7 @@ const CONTROL_HINTS: Record<string, string> = {
 
   // --- Radial (fan the ribbon into a plume) ---
   "fan amount":
-    "Fans the ribbon's length radially from its source into a plume; the combed fibers become the radial strands. 0 = off (the ribbon's normal shape).",
+    "Fans the ribbon's length radially into a plume; the combed fibers become the radial strands. Place it with the wave's position transform. 0 = off (the ribbon's normal shape).",
   "arc °": "How wide the fan spreads, in degrees.",
   spread: "How far the strands reach outward — scales the plume's length into its radius.",
   "inner radius": "Radius of the plume's source (a bigger hole at the centre).",

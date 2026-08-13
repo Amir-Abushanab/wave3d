@@ -247,7 +247,6 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     w.radialCenter = 82; // fan opens upward
     w.radialRadius = 52;
     w.radialSpread = 1.5;
-    w.radialSource = { x: 0, y: 0, z: 0 };
     // Face the fan at the camera (local X–Y = the screen plane) and seat its source low, left of centre.
     w.rotation = { x: 0, y: 0, z: 0 };
     w.position = { x: -280, y: -320, z: 0 };

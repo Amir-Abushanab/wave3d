@@ -33,7 +33,6 @@ const CONFIG_RECEIVERS: Record<string, (c: StudioConfig) => unknown> = {
   "wave.position": (c) => c.waves[0].position,
   "wave.rotation": (c) => c.waves[0].rotation,
   "wave.scale": (c) => c.waves[0].scale,
-  "wave.radialSource": (c) => c.waves[0].radialSource,
   light: (c) => c.lights[0],
   "light.position": (c) => c.lights[0].position,
   band: (c) => c.waves[0].noiseBands[0],

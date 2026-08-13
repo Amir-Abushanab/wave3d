@@ -76,7 +76,6 @@ const SHED_SHAPE_UNIFORMS = [
   "uRadialSpread",
   "uRadialRadius",
   "uRadialCenter",
-  "uRadialSource",
 ] as const;
 
 /** Build the seeded per-particle attribute buffers. Pure function of `(count, seed, fieldWeight,
@@ -178,7 +177,6 @@ export class ParticleField {
         uRadialSpread: { value: 0 },
         uRadialRadius: { value: 0 },
         uRadialCenter: { value: 0 },
-        uRadialSource: { value: new THREE.Vector3() },
         uShedModel: { value: new THREE.Matrix4() },
         uShedSpeed: { value: 0 },
         uShedSeed: { value: 0 },

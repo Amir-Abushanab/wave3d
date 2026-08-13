@@ -183,18 +183,18 @@ describe("ensureStudioConfig repairs configs that used to break the panel", () =
     const w = c.waves[0];
     expect(w.radialAmount).toBe(0);
     expect(w.radialArc).toBe(160);
-    expect(w.radialSource).toEqual({ x: 0, y: 0, z: 0 });
+    expect(w.radialRadius).toBe(40);
   });
 
   it("leaves authored radial values alone", () => {
     const c = ensureStudioConfig(
       hostile({
-        waves: [{ radialAmount: 0.9, radialArc: 200, radialSource: { x: 1, y: 2, z: 3 } }],
+        waves: [{ radialAmount: 0.9, radialArc: 200, radialCenter: -160 }],
       }),
     );
     expect(c.waves[0].radialAmount).toBe(0.9);
     expect(c.waves[0].radialArc).toBe(200);
-    expect(c.waves[0].radialSource).toEqual({ x: 1, y: 2, z: 3 });
+    expect(c.waves[0].radialCenter).toBe(-160);
   });
 
   it("leaves particles absent when absent (off = byte-identical), and clamps it when present", () => {

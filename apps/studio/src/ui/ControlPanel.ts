@@ -2321,12 +2321,11 @@ export class ControlPanel {
         .addBinding(wave, "radialSpread", { min: 0, max: 3, step: 0.01, label: "spread" })
         .on("change", refresh);
       raF
-        .addBinding(wave, "radialRadius", { min: 0, max: 300, step: 1, label: "inner radius" })
+        .addBinding(wave, "radialRadius", { min: 0, max: 500, step: 1, label: "inner radius" })
         .on("change", refresh);
       raF
         .addBinding(wave, "radialCenter", { min: -180, max: 180, step: 1, label: "center °" })
         .on("change", refresh);
-      vec(raF, wave.radialSource, "source", { min: -400, max: 400, step: 1 });
       // Order the sub-sections: appearance (colour, finish) → shape (displacement, twist) → pose
       // (transform) → advanced (noise bands) → interaction (this wave's reactivity, last — mirrors
       // the global Interaction folder sitting last in the panel). DOM move so the blocks stay grouped.
@@ -2536,6 +2535,10 @@ export class ControlPanel {
       // its shape at the size the panel actually renders. Deliberately unlike the Twist arrow
       // beside it, since the two sections are otherwise easy to confuse.
       Helix: svg('<path d="M4.2 3.4C12 4.1 12 7.5 4.2 8.2 12 8.9 12 12.3 4.2 13"/>'),
+      // A plume of spokes fanning up from one point — the radial sweep.
+      Radial: svg(
+        '<path d="M8 13.6 3.2 6M8 13.6 5.4 4.4M8 13.6 8 3.4M8 13.6 10.6 4.4M8 13.6 12.8 6"/>',
+      ),
       Finish: svg('<path d="m8 1.9 1.4 4.1 4.1 1-4.1 1L8 12.1 6.6 8l-4.1-1 4.1-1z"/>'),
       Lights: svg(
         '<circle cx="8" cy="8" r="2.9"/><path d="M8 1.6v1.7M8 12.7v1.7M1.6 8h1.7M12.7 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M3.6 12.4l1.2-1.2M11.2 4.8l1.2-1.2"/>',
@@ -2547,6 +2550,10 @@ export class ControlPanel {
       ),
       // A mouse-cursor — the interaction (pointer / scroll / touch reactivity) layer.
       Interaction: svg('<path d="M2.8 2.4 2.8 11.4 5.3 9.1 7.1 13.2 8.9 12.4 7.1 8.4 10.6 8.4Z"/>'),
+      // A scatter of dust motes — the particle layer.
+      Particles: svg(
+        '<circle cx="4" cy="5.4" r=".95" fill="currentColor" stroke="none"/><circle cx="8.4" cy="3.4" r=".95" fill="currentColor" stroke="none"/><circle cx="12" cy="6.2" r=".95" fill="currentColor" stroke="none"/><circle cx="5.8" cy="9.4" r=".95" fill="currentColor" stroke="none"/><circle cx="11.2" cy="10.8" r=".95" fill="currentColor" stroke="none"/><circle cx="3.4" cy="12.4" r=".95" fill="currentColor" stroke="none"/>',
+      ),
     };
     this.container.querySelectorAll(".tp-fldv_t").forEach((el) => {
       const txt = (el.textContent ?? "").trim();
