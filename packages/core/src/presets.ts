@@ -234,47 +234,64 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     c.transparentBackground = false;
     return c;
   },
-  "Solar Plume": () => {
-    // A luminous combed-silk plume that fans radially from a low warm source into a cool-cream spray,
-    // dissolving at its rim into a field of golden dust against a black void. Exercises the radial wave
-    // mode + the particle layer (ambient field + shed-from-edge); the "eclipse" on the right is just
-    // the wave's own negative space, not a separate object.
+  "Latte Ring": () => {
+    // A warm cream-and-gold ring of combed silk curling around a dark void — the crema swirl on a
+    // latte. The camera ORBITS a wide radial fan (arc 286°) so its combed length sweeps across the
+    // frame as a flowing arc instead of a head-on fan; a mesh gradient warms it gold→cream with an
+    // orange edge, and a noise band frays the fibers finer toward the tips. Exercises the radial wave
+    // mode + the particle layer (ambient field + shed-from-edge dust into the void).
     const c = PRESETS["Hero"]();
     const w = c.waves[0];
-    // Fan the ribbon into a plume rising from a low source — the combed fibers become radial strands.
-    w.radialAmount = 0.9;
-    w.radialArc = 100;
-    w.radialCenter = 82; // fan opens upward
-    w.radialRadius = 52;
-    w.radialSpread = 1.5;
-    // Face the fan at the camera (local X–Y = the screen plane) and seat its source low, left of centre.
+    // A wide radial fan (fans the ribbon's length); the orbiting camera below crops it to a ring.
+    w.radialAmount = 0.72;
+    w.radialArc = 286;
+    w.radialCenter = -160;
+    w.radialRadius = 300;
+    w.radialSpread = 1.47;
     w.rotation = { x: 0, y: 0, z: 0 };
     w.position = { x: -280, y: -320, z: 0 };
     w.scale = { x: 1.12, y: 1.12, z: 1.12 };
-    w.opacity = 0.5; // translucent — the silk layers read through each other
-    // FEW, BOLD fibers comb the sheet into distinct radial silk blades (not a smooth wash); a low
-    // crease-light keeps those blades legible across the bright body instead of blowing out to white.
-    w.fiberCount = 64;
-    w.fiberStrength = 1;
+    w.opacity = 0.5;
+    // Fine combed fibers; the noise band overrides them finer + wispier over the OUTER half (uv.y>0.5)
+    // for organic variation instead of a uniform comb. (Bands override fiber params per uv region.)
+    w.fiberCount = 110;
+    w.fiberStrength = 0.95;
     w.creaseLight = 0.55;
-    w.edgeFeather = 0.34; // soft, vaporous ribbon ends
-    // Warm silk: a hot white-gold core at the base → gold → cool cream at the tips, along the strand
-    // length (uv.y = radius), so the source reads warm and the fanned fronds cool (as in the reference).
+    w.edgeFeather = 0.34;
+    w.noiseBands = [
+      {
+        startX: 0,
+        endX: 1,
+        startY: 0.5,
+        endY: 1,
+        feather: 0.4,
+        strength: 1,
+        frequency: 300,
+        colorAttenuation: 0.85,
+        parabolaPower: 2.5,
+      },
+    ];
+    // Mesh gradient: gold + cream dominant with an orange accent — the latte's crema tones. A 2D
+    // colour field (not a length-wise ramp) so the warmth pools within the fibers.
     w.usePaletteTexture = false;
-    w.gradientType = "linear";
-    w.gradientAngle = 0; // run the gradient along the length (radius), not across the fan
-    w.gradientShift = 0.1;
-    w.palette = [
-      { color: "#f6dca4", pos: 0 }, // hot white-gold base core
-      { color: "#ecab52", pos: 0.16 }, // warm gold
-      { color: "#eecd91", pos: 0.42 }, // gold
-      { color: "#efe3cb", pos: 0.7 }, // warm cream
-      { color: "#ece6d6", pos: 1 }, // soft cream tips
+    w.gradientType = "mesh";
+    w.meshGradientSoftness = 0.7;
+    w.meshGradientPoints = [
+      { color: "#f3c06a", x: 0.5, y: 0.1, influence: 0.7 }, // warm gold
+      { color: "#f9edd4", x: 0.34, y: 0.36, influence: 0.62 }, // hot cream
+      { color: "#e6923a", x: 0.15, y: 0.55, influence: 0.5 }, // orange accent
+      { color: "#f1d49a", x: 0.82, y: 0.42, influence: 0.55 }, // gold
+      { color: "#ece7d8", x: 0.58, y: 0.88, influence: 0.72 }, // cool cream
     ];
     w.blendMode = "normal";
     w.hueShift = 0;
     w.colorContrast = 1.05;
     w.colorSaturation = 1.15;
+    // Orbit the camera around the fan so its length reads as a sweeping arc wrapping the void.
+    c.cameraDistance = 600;
+    c.cameraPosition = { x: -854.327, y: 135.331, z: 478.048 };
+    c.cameraTarget = { x: -720.043, y: 10.575, z: -93.27 };
+    c.cameraZoom = 1.222;
     // Scene: a near-black void with gentle bloom on the silk + dust.
     c.background = "#050404";
     c.backgroundMode = "color";
@@ -284,22 +301,15 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     c.bloomStrength = 0.18;
     c.bloomRadius = 0.55;
     c.bloomThreshold = 0.72;
-    c.cameraTarget = { x: 0, y: -40, z: 0 };
-    c.cameraZoom = 1;
-    // Golden dust — just the wave + particles, no extra elements: a thin ambient field plus a dense
-    // spray SHED off the plume's deformed rim (silk dissolving into glitter, the reference's signature),
-    // which clusters off the bright right flank into the void. The dark negative space is the wave's
-    // own shape against the black, not an object.
+    // Golden dust shed off the ring's edge into the void (biased to one flank).
     c.particles = {
-      count: 22000,
+      count: 20000,
       size: 2.9,
-      sizeJitter: 0.9,
       color: "#ffdca8",
       seed: 7,
-      life: 7,
       twinkle: 0.8,
-      field: { density: 0.03, drift: 0.12 },
-      shed: { rate: 0.97, drift: 490, fromWave: 0, bias: -0.6 }, // cluster the spray off the right flank
+      field: { density: 0.03 },
+      shed: { rate: 0.97, drift: 490, fromWave: 0, bias: -0.6 },
     };
     return c;
   },
