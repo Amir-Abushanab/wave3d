@@ -252,6 +252,13 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     w.position = { x: -280, y: -320, z: 0 };
     w.scale = { x: 1.12, y: 1.12, z: 1.12 };
     w.opacity = 0.5;
+    // A big broad swell (amount 101.73) with a fine second octave riding on it, so the ring's silk
+    // ripples and folds as it turns; `speed` sets the swell's drift rate.
+    w.displaceFrequency = { x: 0.0026, y: 0.0048 };
+    w.displaceAmount = 101.73;
+    w.detailAmount = 6;
+    w.detailFrequency = 0.1;
+    w.speed = 0.21;
     // Fine combed fibers; the noise band overrides them finer + wispier over the OUTER half (uv.y>0.5)
     // for organic variation instead of a uniform comb. (Bands override fiber params per uv region.)
     w.fiberCount = 110;
