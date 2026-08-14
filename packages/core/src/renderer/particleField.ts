@@ -45,6 +45,9 @@ function setLinear(target: THREE.Vector3, hex: string): void {
 
 const DEFAULT_COLOR = "#ffcf8a"; // warm gold
 
+/** Sprite-shape name → the int the fragment shader branches on (see particleFragmentShader). */
+const SHAPE_INDEX: Record<string, number> = { glitter: 0, soft: 1, ring: 2, star: 3, streak: 4 };
+
 /** The owning wave's shape uniforms mirrored onto the particle material so the dust rides the same
  *  deform as the ribbon. Names match the wave material's uniforms 1:1 (copied by value in configure). */
 const SHAPE_UNIFORMS = [
@@ -130,10 +133,15 @@ export class ParticleField {
         uTwinkle: { value: 0 },
         uPixelRatio: { value: 1 },
         uColor: { value: new THREE.Vector3(1, 0.81, 0.54) },
+        uColor2: { value: new THREE.Vector3(1, 0.81, 0.54) },
         uCenter: { value: new THREE.Vector3() },
         uRight: { value: new THREE.Vector3(1, 0, 0) },
         uUp: { value: new THREE.Vector3(0, 1, 0) },
         uDrift: { value: 0 },
+        uRise: { value: 0 },
+        uSwirl: { value: 0 },
+        uWander: { value: 0 },
+        uShape: { value: 0 },
         // The owning wave's shape uniforms + world matrix, mirrored in configure() so the dust rides
         // the same deform as the ribbon. The nested HELIX/RADIAL uniforms are only declared (and
         // uploaded) when the matching #define is set — the byte-identity precedent from the wave material.
@@ -201,7 +209,12 @@ export class ParticleField {
     u.uSizeJitter.value = cfg.sizeJitter ?? 0;
     u.uTwinkle.value = cfg.twinkle ?? 0;
     u.uDrift.value = cfg.drift ?? 0;
+    u.uRise.value = cfg.rise ?? 0;
+    u.uSwirl.value = cfg.swirl ?? 0;
+    u.uWander.value = cfg.wander ?? 0;
+    u.uShape.value = SHAPE_INDEX[cfg.shape ?? "glitter"] ?? 0;
     setLinear(u.uColor.value as THREE.Vector3, cfg.color ?? DEFAULT_COLOR);
+    setLinear(u.uColor2.value as THREE.Vector3, cfg.color2 ?? cfg.color ?? DEFAULT_COLOR);
   }
 
   /** Push the per-frame frame basis (the camera can move, so this runs every frame). */

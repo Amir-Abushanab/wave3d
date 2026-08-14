@@ -428,12 +428,24 @@ export interface SceneInteractionConfig {
  * scrub / loopSeconds / paused all hold). Particles spawn on the OWNING wave's DEFORMED surface / edge
  * (via the shared waveShape) and drift outward from the wave centre.
  */
+/** How each particle sprite is drawn (a per-field render style, not per-particle). */
+export type ParticleShape = "glitter" | "soft" | "ring" | "star" | "streak";
+export const PARTICLE_SHAPES: readonly ParticleShape[] = [
+  "glitter",
+  "soft",
+  "ring",
+  "star",
+  "streak",
+];
+
 export interface ParticlesConfig {
   count: number; // total sprites (clamped in normalizeParticles)
   size: number; // base sprite size, px
   seed: number; // PRNG seed → reproducible layout
   sizeJitter?: number; // 0..1 per-particle size variance
   color?: string; // sprite colour (warm gold default)
+  /** Second sprite colour — particles interpolate between `color` and this by their seed (two-tone dust). */
+  color2?: string;
   life?: number; // seconds per birth→death cycle
   twinkle?: number; // 0..1 brightness flicker
   /** Where on the wave particles spawn: 0 = across the whole SURFACE, 1 = the outer rim / EDGE only. */
@@ -442,6 +454,14 @@ export interface ParticlesConfig {
   drift?: number;
   /** −1..1 skew of the spawn along the edge width toward one flank (0 = even, −1 → one side, +1 → other). */
   bias?: number;
+  /** Screen-vertical buoyancy over a lifetime, world units: + rises (embers), − falls (snow / ash). */
+  rise?: number;
+  /** Orbit around the wave centre in the screen plane, turns per lifetime (swirls the dust). */
+  swirl?: number;
+  /** Curl-noise turbulence: particles meander (fireflies / motes) instead of moving in straight lines. */
+  wander?: number;
+  /** Sprite render style. Default "glitter" (the soft round additive disc). */
+  shape?: ParticleShape;
 }
 
 /**
@@ -1112,9 +1132,14 @@ export function normalizeParticles(wave: WaveConfig): void {
   if (p.color !== undefined && typeof p.color !== "string") p.color = "#ffcf8a";
   if (p.life !== undefined) p.life = clampNumber(p.life, 0.1, 60, 6);
   if (p.twinkle !== undefined) p.twinkle = clampNumber(p.twinkle, 0, 1, 0);
+  if (p.color2 !== undefined && typeof p.color2 !== "string") p.color2 = "#ffcf8a";
   if (p.edgeBias !== undefined) p.edgeBias = clampNumber(p.edgeBias, 0, 1, 1);
   if (p.drift !== undefined) p.drift = num(p.drift, 0);
   if (p.bias !== undefined) p.bias = clampNumber(p.bias, -1, 1, 0);
+  if (p.rise !== undefined) p.rise = num(p.rise, 0);
+  if (p.swirl !== undefined) p.swirl = num(p.swirl, 0);
+  if (p.wander !== undefined) p.wander = num(p.wander, 0);
+  if (p.shape !== undefined && !PARTICLE_SHAPES.includes(p.shape)) p.shape = "glitter";
 }
 
 /** Normalize an ingested config to the wave model: backfill the scene + every wave, and drop in

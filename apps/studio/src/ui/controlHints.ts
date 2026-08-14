@@ -77,7 +77,16 @@ const CONTROL_HINTS: Record<string, string> = {
   twinkle: "How much each particle flickers in brightness over its life (0 = steady).",
   "edge bias":
     "Where the dust spawns on the wave: 0 = across the whole SURFACE, 1 = the outer rim / EDGE only (silk dissolving into glitter).",
+  "dust color 2":
+    "A second dust colour — each particle picks a blend between this and 'dust color', so the field reads two-tone.",
+  shape:
+    "How each sprite is drawn: glitter (soft dot), soft (diffuse blob), ring (bubble), star (sparkle), or streak (a comet along its motion).",
   drift: "How far the dust drifts outward from the wave as it ages, in world units.",
+  "rise / fall":
+    "Buoyancy: positive floats the dust UP the screen (embers), negative sinks it DOWN (snow / ash). 0 = no vertical drift.",
+  swirl: "Orbits the dust around the wave as it ages — positive one way, negative the other.",
+  wander:
+    "Curl-noise turbulence: particles meander on wavy paths (fireflies, floating motes) instead of straight lines.",
   "flank bias":
     "Skews the spawn toward one flank of the edge instead of the whole rim — one side at −1, the other at +1, even at 0.",
   "dust seed": "Reseeds the random particle layout — the same seed reproduces the same field.",

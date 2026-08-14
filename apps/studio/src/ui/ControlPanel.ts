@@ -18,6 +18,7 @@ import {
   MAX_WAVES,
 } from "@wave3d/core";
 import type {
+  ParticleShape,
   StudioConfig,
   WaveConfig,
   WaveInteractionConfig,
@@ -1335,10 +1336,15 @@ export class ControlPanel {
       count: p?.count ?? 0,
       size: p?.size ?? 2.4,
       color: p?.color ?? "#ffd597",
+      color2: p?.color2 ?? p?.color ?? "#ffd597",
+      shape: (p?.shape ?? "glitter") as ParticleShape,
       twinkle: p?.twinkle ?? 0.6,
       edgeBias: p?.edgeBias ?? 1,
       drift: p?.drift ?? 300,
       bias: p?.bias ?? 0,
+      rise: p?.rise ?? 0,
+      swirl: p?.swirl ?? 0,
+      wander: p?.wander ?? 0,
       seed: p?.seed ?? 1,
     };
     const sync = (): void => {
@@ -1347,11 +1353,16 @@ export class ControlPanel {
           count: uiParticles.count,
           size: uiParticles.size,
           color: uiParticles.color,
+          color2: uiParticles.color2,
+          shape: uiParticles.shape,
           twinkle: uiParticles.twinkle,
           seed: uiParticles.seed,
           edgeBias: uiParticles.edgeBias,
           drift: uiParticles.drift,
           bias: uiParticles.bias,
+          rise: uiParticles.rise,
+          swirl: uiParticles.swirl,
+          wander: uiParticles.wander,
         };
       } else {
         delete wave.particles;
@@ -1370,6 +1381,14 @@ export class ControlPanel {
       sync,
     );
     f.addBinding(uiParticles, "color", { view: "color", label: "dust color" }).on("change", sync);
+    f.addBinding(uiParticles, "color2", { view: "color", label: "dust color 2" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiParticles, "shape", {
+      label: "shape",
+      options: { glitter: "glitter", soft: "soft", ring: "ring", star: "star", streak: "streak" },
+    }).on("change", sync);
     f.addBinding(uiParticles, "twinkle", { min: 0, max: 1, step: 0.01, label: "twinkle" }).on(
       "change",
       sync,
@@ -1380,6 +1399,19 @@ export class ControlPanel {
       onRelease,
     );
     f.addBinding(uiParticles, "drift", { min: 0, max: 800, step: 5, label: "drift" }).on(
+      "change",
+      sync,
+    );
+    // Motion: buoyant rise/fall (embers/snow), swirl around the wave, curl-noise wander (fireflies).
+    f.addBinding(uiParticles, "rise", { min: -600, max: 600, step: 5, label: "rise / fall" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiParticles, "swirl", { min: -3, max: 3, step: 0.05, label: "swirl" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiParticles, "wander", { min: 0, max: 300, step: 5, label: "wander" }).on(
       "change",
       sync,
     );

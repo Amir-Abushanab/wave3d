@@ -322,6 +322,40 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     };
     return c;
   },
+  Embers: () => {
+    // The particle-variety showcase: a warm ring throwing off a slow drift of glowing EMBERS — dust
+    // that lifts off the wave's WHOLE surface (low edgeBias), floats UP the screen (rise) and meanders
+    // on curl-noise (wander), drawn as soft two-tone sprites. Built on Latte Ring's ring + orbit.
+    const c = PRESETS["Latte Ring"]();
+    const w = c.waves[0];
+    // A fierier gradient so the ring reads as embering coals, not cream silk.
+    w.meshGradientPoints = [
+      { color: "#ff7a1e", x: 0.5, y: 0.1, influence: 0.72 }, // hot orange
+      { color: "#ffd27a", x: 0.34, y: 0.36, influence: 0.6 }, // amber highlight
+      { color: "#c23a12", x: 0.15, y: 0.55, influence: 0.55 }, // deep ember-red
+      { color: "#ffb04a", x: 0.82, y: 0.42, influence: 0.55 }, // gold
+      { color: "#5a1608", x: 0.58, y: 0.9, influence: 0.7 }, // charred edge
+    ];
+    w.colorSaturation = 1.25;
+    c.bloomStrength = 0.28;
+    c.bloomThreshold = 0.62;
+    // Embers off the WHOLE surface, rising + meandering, soft warm two-tone sprites.
+    w.particles = {
+      count: 16000,
+      size: 3.6,
+      seed: 7,
+      color: "#ff8a2c",
+      color2: "#ffe19a",
+      shape: "soft",
+      edgeBias: 0.15,
+      drift: 40,
+      rise: 320,
+      wander: 120,
+      twinkle: 0.85,
+      life: 6,
+    };
+    return c;
+  },
   Holographic: () => {
     // Conic gradient: an iridescent oil-slick sweep. The palette wraps (first ≈ last stop) so
     // the conic seam is invisible.

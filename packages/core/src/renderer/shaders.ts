@@ -1015,8 +1015,8 @@ attribute vec4 aRnd;
 attribute vec2 aUv; // where this particle spawns on the ribbon (x = flank, y = along length; edge-biased at build)
 
 uniform float uTime, uLoopSeconds, uLife, uSize, uSizeJitter, uTwinkle, uPixelRatio;
-uniform vec3 uColor, uCenter;
-uniform float uDrift;
+uniform vec3 uColor, uColor2, uCenter, uRight, uUp;
+uniform float uDrift, uRise, uSwirl, uWander;
 
 // The owning wave's shape, mirrored in configure() so the dust rides the SAME deform as the ribbon.
 // The HELIX/RADIAL uniform blocks are declared only when the matching #define is set.
@@ -1036,6 +1036,7 @@ ${waveShapeChunk}
 
 varying float vAlpha;
 varying vec3 vColor;
+varying vec2 vDir; // screen-space motion direction (for the streak sprite)
 
 const float TAU = 6.28318530718;
 
@@ -1063,9 +1064,28 @@ void main(){
   vec3 outward = normalize(origin - uCenter + vec3(1e-4));
   vec3 p = origin + outward * age * uDrift + (aRnd.xyz - 0.5) * age * uDrift * 0.35;
 
+  // Motion styles, each 0 = off, all riding age so they stay loop-safe (the age wrap is hidden by
+  // fade→0 at birth/death). rise = screen-vertical buoyancy (embers up / snow down); swirl = orbit
+  // around the wave centre in the screen plane; wander = curl-noise turbulence (fireflies / motes).
+  p += uUp * age * uRise;
+  if (uSwirl != 0.0) {
+    vec3 nrm = cross(uRight, uUp);
+    vec3 rel = p - uCenter;
+    float rx = dot(rel, uRight), ry = dot(rel, uUp), rz = dot(rel, nrm);
+    float a = age * uSwirl * TAU;
+    float ca = cos(a), sa = sin(a);
+    p = uCenter + uRight * (rx * ca - ry * sa) + uUp * (rx * sa + ry * ca) + nrm * rz;
+  }
+  if (uWander != 0.0) {
+    vec2 wan = vec2(simplexNoise(vec2(aSeed * 17.0, age * 3.0)),
+                    simplexNoise(vec2(age * 3.0, aSeed * 23.0)));
+    p += (uRight * wan.x + uUp * wan.y) * uWander;
+  }
+
   float tw = 0.5 + 0.5 * sin((age * 9.0 + aSeed) * TAU); // loop-safe flicker (rides age)
   vAlpha = fade * mix(1.0, tw, clamp(uTwinkle, 0.0, 1.0));
-  vColor = uColor;
+  vColor = mix(uColor, uColor2, aRnd.w); // two-tone dust: per-particle blend of the two colours
+  vDir = normalize(vec2(dot(outward, uRight), dot(outward, uUp)) + vec2(1e-4)); // outward, in screen space
   gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
   // Orthographic camera → point size is constant in device pixels (no perspective depth divide).
   float jitter = 1.0 + uSizeJitter * (aSeed - 0.5) * 2.0;
@@ -1075,12 +1095,31 @@ void main(){
 
 export const particleFragmentShader = /* glsl */ `
 precision highp float;
+uniform float uShape; // 0 glitter · 1 soft · 2 ring · 3 star · 4 streak
 varying float vAlpha;
 varying vec3 vColor;
+varying vec2 vDir;
 void main(){
-  // Soft round sprite: the inscribed disc of the point quad, feathered to nothing at the rim.
-  float d = length(gl_PointCoord - 0.5);
-  float a = smoothstep(0.5, 0.0, d) * vAlpha;
+  vec2 pc = gl_PointCoord - 0.5;
+  float d = length(pc);
+  int s = int(uShape + 0.5);
+  float a;
+  if (s == 1) {                    // soft: a diffuse gaussian blob (motes / pollen)
+    a = exp(-d * d * 7.0);
+  } else if (s == 2) {             // ring: a hollow band (bubbles)
+    a = smoothstep(0.09, 0.0, abs(d - 0.34));
+  } else if (s == 3) {             // star: a 4-point sparkle
+    float ang = atan(pc.y, pc.x);
+    float spike = pow(abs(cos(ang * 2.0)), 6.0);
+    a = smoothstep(1.0, 0.0, d / (0.14 + 0.5 * spike));
+  } else if (s == 4) {             // streak: an elongated comet along the motion direction
+    float along = dot(pc, vDir);
+    float perp = dot(pc, vec2(-vDir.y, vDir.x));
+    a = smoothstep(0.5, 0.0, length(vec2(along * 0.42, perp * 2.2)));
+  } else {                         // glitter (0): the soft round additive disc
+    a = smoothstep(0.5, 0.0, d);
+  }
+  a *= vAlpha;
   if (a <= 0.0) discard;
   gl_FragColor = vec4(vColor, a); // AdditiveBlending (src = SrcAlpha) → adds vColor·a
 }

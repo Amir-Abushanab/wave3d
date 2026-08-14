@@ -16,6 +16,7 @@ export const PRESETS: Record<string, () => StudioConfig> = {
   "Mesh Gradient": CORE["Mesh Gradient"],
   "Solar Bloom": CORE["Solar Bloom"],
   "Latte Ring": CORE["Latte Ring"],
+  Embers: CORE["Embers"],
   Holographic: CORE["Holographic"],
   Aurora: CORE["Aurora"],
   Palestine: CORE["Palestine"],
