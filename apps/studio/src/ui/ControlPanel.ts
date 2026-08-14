@@ -43,6 +43,7 @@ import {
 import type { StudioWaveRenderer } from "@wave3d/core/studio";
 import { PALETTE_MAPS, buildPaletteCanvas, paletteMapCanvas } from "@wave3d/core/renderer";
 import { buildHeroPaletteCanvas } from "@wave3d/core/renderer";
+import { PARTICLE_PRESETS } from "@wave3d/core/presets";
 import { GradientEditor } from "./GradientEditor";
 import { MeshGradientEditor } from "./MeshGradientEditor";
 import { PaletteDropdown } from "./PaletteDropdown";
@@ -1330,15 +1331,18 @@ export class ControlPanel {
     wave: WaveConfig,
     refresh: () => void,
   ): FolderApi {
-    const f = sf.addFolder({ title: "Particles", expanded: false });
+    const f = sf.addFolder({ title: "Particles", expanded: true });
     const p = wave.particles;
     const uiParticles = {
+      style: "—",
       count: p?.count ?? 0,
       size: p?.size ?? 2.4,
+      sizeJitter: p?.sizeJitter ?? 0,
       color: p?.color ?? "#ffd597",
       color2: p?.color2 ?? p?.color ?? "#ffd597",
       shape: (p?.shape ?? "glitter") as ParticleShape,
       twinkle: p?.twinkle ?? 0.6,
+      life: p?.life ?? 6,
       edgeBias: p?.edgeBias ?? 1,
       drift: p?.drift ?? 300,
       bias: p?.bias ?? 0,
@@ -1352,10 +1356,12 @@ export class ControlPanel {
         wave.particles = {
           count: uiParticles.count,
           size: uiParticles.size,
+          sizeJitter: uiParticles.sizeJitter,
           color: uiParticles.color,
           color2: uiParticles.color2,
           shape: uiParticles.shape,
           twinkle: uiParticles.twinkle,
+          life: uiParticles.life,
           seed: uiParticles.seed,
           edgeBias: uiParticles.edgeBias,
           drift: uiParticles.drift,
@@ -1372,14 +1378,51 @@ export class ControlPanel {
     const onRelease = (ev: { last: boolean }): void => {
       if (ev.last) sync(); // count / seed / edgeBias / bias rebuild the seeded buffer (quality idiom)
     };
+    // Style picker: load a named particle LOOK (PARTICLE_PRESETS — embers / snow / sparks / …) into
+    // this wave's dust and reflect it in the sliders. The choice isn't persisted (no `style` on the
+    // config) — it just seeds the knobs, which stay fully editable afterward.
+    const styleOptions: Record<string, string> = { "—": "—" };
+    for (const name of Object.keys(PARTICLE_PRESETS)) styleOptions[name] = name;
+    f.addBinding(uiParticles, "style", { label: "style", options: styleOptions }).on(
+      "change",
+      (ev) => {
+        const preset = PARTICLE_PRESETS[String(ev.value)];
+        if (!preset) return;
+        Object.assign(uiParticles, {
+          count: preset.count,
+          size: preset.size,
+          sizeJitter: preset.sizeJitter ?? 0,
+          color: preset.color ?? "#ffd597",
+          color2: preset.color2 ?? preset.color ?? "#ffd597",
+          shape: preset.shape ?? "glitter",
+          twinkle: preset.twinkle ?? 0,
+          life: preset.life ?? 6,
+          edgeBias: preset.edgeBias ?? 1,
+          drift: preset.drift ?? 0,
+          bias: preset.bias ?? 0,
+          rise: preset.rise ?? 0,
+          swirl: preset.swirl ?? 0,
+          wander: preset.wander ?? 0,
+          seed: preset.seed,
+        });
+        sync();
+        f.refresh(); // reflect the loaded values in the sliders
+      },
+    );
     f.addBinding(uiParticles, "count", { min: 0, max: 20000, step: 100, label: "dust count" }).on(
       "change",
       onRelease,
     );
-    f.addBinding(uiParticles, "size", { min: 0.5, max: 10, step: 0.1, label: "dust size" }).on(
+    f.addBinding(uiParticles, "size", { min: 0.5, max: 40, step: 0.5, label: "dust size" }).on(
       "change",
       sync,
     );
+    f.addBinding(uiParticles, "sizeJitter", {
+      min: 0,
+      max: 1,
+      step: 0.01,
+      label: "size jitter",
+    }).on("change", sync);
     f.addBinding(uiParticles, "color", { view: "color", label: "dust color" }).on("change", sync);
     f.addBinding(uiParticles, "color2", { view: "color", label: "dust color 2" }).on(
       "change",
@@ -1390,6 +1433,10 @@ export class ControlPanel {
       options: { glitter: "glitter", soft: "soft", ring: "ring", star: "star", streak: "streak" },
     }).on("change", sync);
     f.addBinding(uiParticles, "twinkle", { min: 0, max: 1, step: 0.01, label: "twinkle" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiParticles, "life", { min: 0.5, max: 30, step: 0.5, label: "life (s)" }).on(
       "change",
       sync,
     );

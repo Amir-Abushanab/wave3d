@@ -4,9 +4,100 @@
  * "Stripe *" display names) on top; see apps/studio/src/presets.ts.
  */
 import { createDefaultConfig, makeStops, makeWaveSpread } from "./config/model";
-import type { StudioConfig, NoiseBand } from "./config/model";
+import type { ParticlesConfig, StudioConfig, NoiseBand } from "./config/model";
 
 const RAD = 180 / Math.PI;
+
+/**
+ * Reusable particle STYLES applied to a wave's `particles` block. Surfaced in the studio's per-wave
+ * Particles folder (the "style" picker) and used by the "Particle Zoo" showcase preset. Each is a dust
+ * look independent of the wave it rides — clone before mutating (`structuredClone`).
+ */
+export const PARTICLE_PRESETS: Record<string, ParticlesConfig> = {
+  Glitter: {
+    count: 16000,
+    size: 2.6,
+    seed: 7,
+    color: "#ffdca8",
+    shape: "glitter",
+    edgeBias: 1,
+    drift: 300,
+    bias: -0.6,
+    twinkle: 0.8,
+  },
+  Embers: {
+    count: 16000,
+    size: 3.6,
+    seed: 7,
+    color: "#ff8a2c",
+    color2: "#ffe19a",
+    shape: "soft",
+    edgeBias: 0.15,
+    drift: 40,
+    rise: 320,
+    wander: 120,
+    twinkle: 0.85,
+    life: 6,
+  },
+  Snow: {
+    count: 12000,
+    size: 3,
+    seed: 4,
+    color: "#eef4ff",
+    color2: "#bcd0ee",
+    shape: "soft",
+    edgeBias: 0.1,
+    drift: 20,
+    rise: -260,
+    wander: 80,
+    twinkle: 0.5,
+    life: 8,
+  },
+  Sparks: {
+    count: 9000,
+    size: 5,
+    seed: 9,
+    color: "#ffd27a",
+    color2: "#fff4d0",
+    shape: "streak",
+    edgeBias: 1,
+    drift: 620,
+    rise: 90,
+    wander: 20,
+    bias: -0.4,
+    twinkle: 0.9,
+    life: 2.5,
+  },
+  Fireflies: {
+    count: 2200,
+    size: 5,
+    seed: 11,
+    color: "#dfff9a",
+    color2: "#8fd94a",
+    shape: "star",
+    edgeBias: 0.1,
+    drift: 25,
+    swirl: 0.3,
+    wander: 170,
+    twinkle: 1,
+    life: 5,
+  },
+  Bubbles: {
+    count: 3000,
+    size: 7,
+    sizeJitter: 0.9,
+    seed: 6,
+    color: "#cdeefb",
+    color2: "#8fd0e6",
+    shape: "ring",
+    edgeBias: 0.2,
+    drift: 30,
+    rise: 240,
+    wander: 60,
+    twinkle: 0.3,
+    life: 7,
+  },
+};
 
 /** Build a preset from a set of wave parameters. rotation/hue are given in RADIANS and
  *  converted to degrees. All presets are solid-theme, so they reuse the hero palette +
@@ -322,181 +413,49 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     };
     return c;
   },
-  Embers: () => {
-    // The particle-variety showcase: a warm ring throwing off a slow drift of glowing EMBERS — dust
-    // that lifts off the wave's WHOLE surface (low edgeBias), floats UP the screen (rise) and meanders
-    // on curl-noise (wander), drawn as soft two-tone sprites. Built on Latte Ring's ring + orbit.
-    const c = PRESETS["Latte Ring"]();
-    const w = c.waves[0];
-    // A fierier gradient so the ring reads as embering coals, not cream silk.
-    w.meshGradientPoints = [
-      { color: "#ff7a1e", x: 0.5, y: 0.1, influence: 0.72 }, // hot orange
-      { color: "#ffd27a", x: 0.34, y: 0.36, influence: 0.6 }, // amber highlight
-      { color: "#c23a12", x: 0.15, y: 0.55, influence: 0.55 }, // deep ember-red
-      { color: "#ffb04a", x: 0.82, y: 0.42, influence: 0.55 }, // gold
-      { color: "#5a1608", x: 0.58, y: 0.9, influence: 0.7 }, // charred edge
+  "Particle Zoo": () => {
+    // One scene demoing every particle STYLE — a row of small waves, each shedding a different kind of
+    // dust off its own surface (embers / snow / sparks / fireflies / bubbles). The showcase for the
+    // per-wave particle system; the styles come from PARTICLE_PRESETS (also the studio "style" picker).
+    const c = createDefaultConfig();
+    c.background = "#05070d";
+    c.backgroundMode = "color";
+    c.transparentBackground = false;
+    c.grain = 0.28;
+    c.blur = 0;
+    c.bloomStrength = 0.34;
+    c.bloomThreshold = 0.55;
+    c.cameraPosition = { x: 100, y: 0, z: 5000 };
+    c.cameraTarget = { x: 0, y: 0, z: 0 };
+    c.cameraZoom = 0.5;
+    const zoo: Array<[string, string[]]> = [
+      ["Embers", ["#ff7a1e", "#ffd27a", "#c23a12"]],
+      ["Snow", ["#8fb8e8", "#e8f1fb", "#aeb9d6"]],
+      ["Sparks", ["#ffd27a", "#fff4d0", "#c8853a"]],
+      ["Fireflies", ["#3d5a24", "#7bd23a", "#40521f"]],
+      ["Bubbles", ["#2e8fb0", "#7fd4e8", "#1a5a6e"]],
     ];
-    w.colorSaturation = 1.25;
-    c.bloomStrength = 0.28;
-    c.bloomThreshold = 0.62;
-    // Embers off the WHOLE surface, rising + meandering, soft warm two-tone sprites.
-    w.particles = {
-      count: 16000,
-      size: 3.6,
-      seed: 7,
-      color: "#ff8a2c",
-      color2: "#ffe19a",
-      shape: "soft",
-      edgeBias: 0.15,
-      drift: 40,
-      rise: 320,
-      wander: 120,
-      twinkle: 0.85,
-      life: 6,
-    };
-    return c;
-  },
-  Snow: () => {
-    // The other end of the motion range from Embers: soft snow drifting DOWN off a calm cool wave
-    // (rise negative), a gentle sideways wander, and a long life so the flakes fall slowly.
-    const c = PRESETS["Hero"]();
-    const w = c.waves[0];
-    // A cool, dim ribbon so the white snow reads against it.
-    w.usePaletteTexture = false;
-    w.gradientType = "linear";
-    w.gradientAngle = 0;
-    w.palette = makeStops(["#8fb8e8", "#c9dcf2", "#e8f1fb", "#aeb9d6"]);
-    w.blendMode = "normal";
-    w.hueShift = 0;
-    w.colorContrast = 1;
-    w.colorSaturation = 0.9;
-    w.opacity = 0.72;
-    c.background = "#060912"; // deep night sky
-    c.backgroundMode = "color";
-    c.transparentBackground = false;
-    c.grain = 0.3;
-    c.blur = 0.008;
-    c.bloomStrength = 0.14;
-    c.bloomThreshold = 0.72;
-    // Snow off the whole surface, falling with a slow sway; soft white two-tone flakes.
-    w.particles = {
-      count: 12000,
-      size: 3,
-      seed: 4,
-      color: "#eef4ff",
-      color2: "#bcd0ee",
-      shape: "soft",
-      edgeBias: 0.1,
-      drift: 20,
-      rise: -260,
-      wander: 80,
-      twinkle: 0.5,
-      life: 8,
-    };
-    return c;
-  },
-  Sparks: () => {
-    // The fast, bright end of the range: sparks flying off the ring's EDGE as streaks — high outward
-    // drift, a slight rise, and a short life so they zip out and fade. Built on Latte Ring's ring.
-    const c = PRESETS["Latte Ring"]();
-    const w = c.waves[0];
-    w.colorSaturation = 1.15;
-    c.bloomStrength = 0.35;
-    c.bloomThreshold = 0.5;
-    // Streak sprites peeling off one flank, fast and short-lived.
-    w.particles = {
-      count: 9000,
-      size: 5,
-      seed: 9,
-      color: "#ffd27a",
-      color2: "#fff4d0",
-      shape: "streak",
-      edgeBias: 1,
-      drift: 620,
-      rise: 90,
-      wander: 20,
-      bias: -0.4,
-      twinkle: 0.9,
-      life: 2.5,
-    };
-    return c;
-  },
-  Fireflies: () => {
-    // Warm sparks of light wandering + flickering in the dusk: few, large STAR sprites with heavy
-    // wander, a slow swirl, low drift and full twinkle. Showcases the organic-wander motion.
-    const c = PRESETS["Hero"]();
-    const w = c.waves[0];
-    // A dim warm-green ribbon so the fireflies are the star, not the wave.
-    w.usePaletteTexture = false;
-    w.gradientType = "linear";
-    w.gradientAngle = 0;
-    w.palette = makeStops(["#1f3a1a", "#3d5a24", "#6b7a2e", "#40521f"]);
-    w.blendMode = "normal";
-    w.hueShift = 0;
-    w.colorContrast = 1;
-    w.colorSaturation = 1;
-    w.opacity = 0.5;
-    c.background = "#05080a"; // deep dusk
-    c.backgroundMode = "color";
-    c.transparentBackground = false;
-    c.grain = 0.3;
-    c.bloomStrength = 0.4; // let the fireflies glow
-    c.bloomThreshold = 0.5;
-    w.particles = {
-      count: 2200,
-      size: 5,
-      seed: 11,
-      color: "#dfff9a",
-      color2: "#8fd94a",
-      shape: "star",
-      edgeBias: 0.1,
-      drift: 25,
-      swirl: 0.3,
-      wander: 170,
-      twinkle: 1,
-      life: 5,
-    };
-    return c;
-  },
-  Bubbles: () => {
-    // Translucent bubbles rising off the wave: RING sprites floating UP (rise positive) with a gentle
-    // sway and varied sizes, on a deep-water ground. Showcases the ring shape + buoyant rise.
-    const c = PRESETS["Hero"]();
-    const w = c.waves[0];
-    // A cool aqua ribbon on a deep-teal underwater ground.
-    w.usePaletteTexture = false;
-    w.gradientType = "linear";
-    w.gradientAngle = 0;
-    w.palette = makeStops(["#1a5a6e", "#2e8fb0", "#7fd4e8", "#bff0f7"]);
-    w.blendMode = "normal";
-    w.hueShift = 0;
-    w.colorContrast = 1.05;
-    w.colorSaturation = 1.1;
-    w.opacity = 0.7;
-    c.background = "#04121a";
-    c.backgroundMode = "gradient";
-    c.backgroundGradientType = "linear";
-    c.backgroundGradientAngle = 90;
-    c.backgroundGradientSource = "stops";
-    c.backgroundPalette = makeStops(["#0a2c3a", "#02080c"]);
-    c.transparentBackground = false;
-    c.grain = 0.25;
-    c.bloomStrength = 0.2;
-    w.particles = {
-      count: 3000,
-      size: 7,
-      sizeJitter: 0.9, // varied bubble sizes
-      seed: 6,
-      color: "#cdeefb",
-      color2: "#8fd0e6",
-      shape: "ring",
-      edgeBias: 0.2,
-      drift: 30,
-      rise: 240,
-      wander: 60,
-      twinkle: 0.3,
-      life: 7,
-    };
+    const base = c.waves[0];
+    c.waves = zoo.map(([style, palette], i) => {
+      const w = structuredClone(base);
+      w.usePaletteTexture = false;
+      w.gradientType = "linear";
+      w.gradientAngle = 0;
+      w.palette = makeStops(palette);
+      w.blendMode = "normal";
+      w.hueShift = 0;
+      w.colorContrast = 1;
+      w.colorSaturation = 1.05;
+      w.opacity = 0.6;
+      w.scale = { x: 2, y: 2.4, z: 1.6 };
+      w.rotation = { x: 0, y: 0, z: 0 };
+      w.position = { x: -880 + i * 440, y: 0, z: 0 }; // spread across the frame, one style each
+      w.seed = i * 7;
+      w.speed = 0.05;
+      w.particles = structuredClone(PARTICLE_PRESETS[style]);
+      return w;
+    });
+    c.waveCount = c.waves.length;
     return c;
   },
   Holographic: () => {

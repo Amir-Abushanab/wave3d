@@ -70,9 +70,14 @@ const CONTROL_HINTS: Record<string, string> = {
   "light y": "Vertical position of the god-ray light point (0 = bottom edge, 1 = top).",
 
   // --- Particles (this wave's dust field) ---
+  style:
+    "Load a ready-made dust look onto this wave (embers, snow, sparks, fireflies, bubbles, glitter) — then tweak any knob from there.",
   "dust count":
     "Number of sparkle particles shed off THIS wave. 0 removes the field entirely (no cost).",
   "dust size": "Base sprite size in pixels (each particle also varies a little).",
+  "size jitter": "How much each particle's size varies from the base — 0 = all the same size.",
+  "life (s)":
+    "Seconds each particle takes to fade in, drift, and fade out over one birth→death cycle.",
   "dust color": "Colour of the dust sprites (additive, so it glows on a dark background).",
   twinkle: "How much each particle flickers in brightness over its life (0 = steady).",
   "edge bias":
