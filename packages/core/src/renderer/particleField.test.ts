@@ -6,61 +6,58 @@
 import { describe, expect, it } from "vitest";
 import { buildParticleAttributes } from "./particleField";
 
-/** Mean of the shed width coordinate (aUv.x) across the buffer — 0.5 when unbiased. */
-function meanUvX(b: ReturnType<typeof buildParticleAttributes>): number {
+/** Mean of one interleaved component of an attribute array. */
+function mean(a: Float32Array, stride: number, offset: number): number {
   let s = 0;
-  const n = b.aUv.length / 2;
-  for (let i = 0; i < n; i++) s += b.aUv[i * 2];
+  const n = a.length / stride;
+  for (let i = 0; i < n; i++) s += a[i * stride + offset];
   return s / n;
 }
 
 describe("particle attributes are deterministic", () => {
-  it("same (count, seed, mix) → byte-identical buffers", () => {
-    const a = buildParticleAttributes(500, 7, 0.5, 0.5);
-    const b = buildParticleAttributes(500, 7, 0.5, 0.5);
+  it("same (count, seed, edgeBias, bias) → byte-identical buffers", () => {
+    const a = buildParticleAttributes(500, 7, 0.5, 0.3);
+    const b = buildParticleAttributes(500, 7, 0.5, 0.3);
     expect(Array.from(a.aSeed)).toEqual(Array.from(b.aSeed));
     expect(Array.from(a.aRnd)).toEqual(Array.from(b.aRnd));
-    expect(Array.from(a.aEmitter)).toEqual(Array.from(b.aEmitter));
     expect(Array.from(a.aUv)).toEqual(Array.from(b.aUv));
   });
 
   it("different seeds diverge", () => {
-    const a = buildParticleAttributes(500, 7, 0.5, 0.5);
-    const b = buildParticleAttributes(500, 8, 0.5, 0.5);
+    const a = buildParticleAttributes(500, 7);
+    const b = buildParticleAttributes(500, 8);
     expect(Array.from(a.aSeed)).not.toEqual(Array.from(b.aSeed));
   });
 
-  it("routes the emitter mix by weight", () => {
-    // (count, seed, fieldWeight, shedWeight) → emitter 0 = field, 1 = shed.
-    const field = buildParticleAttributes(100, 1, 1, 0);
-    expect(Array.from(field.aEmitter).every((e) => e === 0)).toBe(true);
-    const shed = buildParticleAttributes(100, 1, 0, 1);
-    expect(Array.from(shed.aEmitter).every((e) => e === 1)).toBe(true);
-    const split = buildParticleAttributes(100, 1, 3, 1); // 75% field / 25% shed by weight
-    expect(Array.from(split.aEmitter).filter((e) => e === 0).length).toBe(75);
-    // no weights at all → everything falls to the ambient field (a bare `{ count }` block is dust).
-    const bare = buildParticleAttributes(10, 1, 0, 0);
-    expect(Array.from(bare.aEmitter).every((e) => e === 0)).toBe(true);
+  it("edgeBias / bias only touch aUv — the aSeed/aRnd draw is unchanged (separate-pass invariant)", () => {
+    const base = buildParticleAttributes(400, 5, 1, 0);
+    const other = buildParticleAttributes(400, 5, 0, 0.7);
+    expect(Array.from(other.aSeed)).toEqual(Array.from(base.aSeed));
+    expect(Array.from(other.aRnd)).toEqual(Array.from(base.aRnd));
+    expect(Array.from(other.aUv)).not.toEqual(Array.from(base.aUv));
   });
 
-  it("shed bias 0 leaves the width draw untouched (byte-identical), and skews it otherwise", () => {
-    // default (no bias arg) === explicit 0 → the aUv.x draw is unchanged.
-    const implicit = buildParticleAttributes(500, 7, 0, 1);
-    const explicitZero = buildParticleAttributes(500, 7, 0, 1, 0);
+  it("edgeBias moves the spawn from the whole surface (0) toward the outer rim (1)", () => {
+    const surface = buildParticleAttributes(4000, 7, 0, 0); // aUv.y ~ uniform, mean ~0.5
+    const edge = buildParticleAttributes(4000, 7, 1, 0); // aUv.y crowded to the rim, mean ~0.85
+    expect(mean(edge.aUv, 2, 1)).toBeGreaterThan(mean(surface.aUv, 2, 1));
+  });
+
+  it("bias 0 leaves the width draw untouched, and skews it otherwise", () => {
+    const implicit = buildParticleAttributes(500, 7, 1); // bias defaults to 0
+    const explicitZero = buildParticleAttributes(500, 7, 1, 0);
     expect(Array.from(implicit.aUv)).toEqual(Array.from(explicitZero.aUv));
-    // negative crowds uv.x→0, positive crowds uv.x→1.
-    const neg = buildParticleAttributes(3000, 7, 0, 1, -0.8);
-    const pos = buildParticleAttributes(3000, 7, 0, 1, 0.8);
-    expect(meanUvX(neg)).toBeLessThan(meanUvX(explicitZero));
-    expect(meanUvX(pos)).toBeGreaterThan(meanUvX(explicitZero));
+    const neg = buildParticleAttributes(3000, 7, 1, -0.8); // crowds aUv.x → 0
+    const pos = buildParticleAttributes(3000, 7, 1, 0.8); // crowds aUv.x → 1
+    expect(mean(neg.aUv, 2, 0)).toBeLessThan(mean(explicitZero.aUv, 2, 0));
+    expect(mean(pos.aUv, 2, 0)).toBeGreaterThan(mean(explicitZero.aUv, 2, 0));
   });
 
   it("buffer lengths match the count", () => {
-    const a = buildParticleAttributes(42, 3, 1, 1);
+    const a = buildParticleAttributes(42, 3, 0.5, 0.2);
     expect(a.position.length).toBe(42 * 3);
     expect(a.aSeed.length).toBe(42);
     expect(a.aRnd.length).toBe(42 * 4);
-    expect(a.aEmitter.length).toBe(42);
     expect(a.aUv.length).toBe(42 * 2);
   });
 });

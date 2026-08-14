@@ -197,30 +197,24 @@ describe("ensureStudioConfig repairs configs that used to break the panel", () =
     expect(c.waves[0].radialCenter).toBe(-160);
   });
 
-  it("leaves particles absent when absent (off = byte-identical), and clamps it when present", () => {
-    // Absent → stays absent: no THREE.Points node, byte-identical scene (the interaction contract).
+  it("leaves a wave's particles absent when absent (off = byte-identical), and clamps it when present", () => {
+    // Absent → stays absent: no THREE.Points for the wave, byte-identical (the interaction contract).
     const off = ensureStudioConfig(hostile({ waves: [{}] }));
-    expect(off.particles).toBeUndefined();
-    // Present → repaired in place: required fields backfilled, out-of-range clamped, still bindable.
+    expect(off.waves[0].particles).toBeUndefined();
+    // Present on the wave → repaired in place: required fields backfilled, out-of-range clamped, bindable.
     const on = ensureStudioConfig(
       hostile({
-        waves: [{}],
-        particles: {
-          count: 99999,
-          size: NaN,
-          field: { density: 5 },
-          shed: { rate: 2, drift: 100, bias: 9 },
-        },
+        waves: [{ particles: { count: 99999, size: NaN, edgeBias: 5, bias: 9, drift: 100 } }],
       }),
     );
-    expect(on.particles).toBeDefined();
-    expect(on.particles?.count).toBe(40000);
-    expect(on.particles?.size).toBe(2);
-    expect(on.particles?.seed).toBe(0);
-    expect(on.particles?.field?.density).toBe(1);
-    expect(on.particles?.shed?.rate).toBe(1); // clamped 0..1
-    expect(on.particles?.shed?.bias).toBe(1); // clamped −1..1
-    assertBindableLeaves(on.particles);
+    const p = on.waves[0].particles;
+    expect(p).toBeDefined();
+    expect(p?.count).toBe(40000);
+    expect(p?.size).toBe(2);
+    expect(p?.seed).toBe(0);
+    expect(p?.edgeBias).toBe(1); // clamped 0..1
+    expect(p?.bias).toBe(1); // clamped −1..1
+    assertBindableLeaves(p);
   });
 });
 

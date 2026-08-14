@@ -3,29 +3,22 @@ import type { ParticlesConfig } from "../config/model";
 import { particleFragmentShader, particleVertexShader } from "./shaders";
 
 /**
- * The additive particle / dust field: a single {@link THREE.Points} whose every particle is placed
- * and animated ENTIRELY in the vertex shader from `uTime` + baked per-particle attributes, so the
- * field is deterministic — the same `(count, seed)` yields byte-identical buffers, and all motion is
- * a pure function of the scene time `t` (so timeOffset scrub / loopSeconds / paused reproduce).
+ * A WAVE's additive particle / dust field: a single {@link THREE.Points} whose every particle is placed
+ * and animated ENTIRELY in the vertex shader from `uTime` + baked per-particle attributes, so the field
+ * is deterministic — the same `(count, seed, edgeBias, bias)` yields byte-identical buffers, and all
+ * motion is a pure function of the scene time `t` (so timeOffset scrub / loopSeconds / paused reproduce).
  *
- * Ownership mirrors the lazy post passes on {@link WaveRenderer}: the renderer creates this when
- * `config.particles.count > 0` and disposes it when the block returns to absent/0, so "off" adds no
- * scene node and is byte-identical.
- *
- * Two emitter modes:
- *   0 — FIELD: ambient dust scattered across the frame (screen plane, via the camera basis in {@link frame}).
- *   1 — SHED: particles peeling off the emitter wave's DEFORMED edge (via the shared waveShape chunk).
+ * One field belongs to ONE wave (created/disposed alongside it, like {@link WavePalette}). Every particle
+ * spawns on that wave's DEFORMED surface / edge (via the shared waveShape chunk, riding the exact deform
+ * the ribbon uses) and drifts outward from the wave centre. Byte-identical when off: absent
+ * `wave.particles` ⇒ the renderer never creates a field.
  */
 export interface ParticleFrame {
-  /** Composition centre (the field centre), world space. */
+  /** The owning wave's world-space centre — drift radiates from here. */
   center: THREE.Vector3;
-  /** Screen-right, world-space unit vector. */
+  /** Screen-right / screen-up unit vectors (world space) for screen-relative motion. */
   right: THREE.Vector3;
-  /** Screen-up, world-space unit vector. */
   up: THREE.Vector3;
-  /** Half the frame width / height, world units. */
-  halfW: number;
-  halfH: number;
 }
 
 /** Deterministic PRNG (mulberry32): a pure function of the seed, so a `(count, seed)` layout
@@ -52,10 +45,9 @@ function setLinear(target: THREE.Vector3, hex: string): void {
 
 const DEFAULT_COLOR = "#ffcf8a"; // warm gold
 
-/** Emitter-wave shape uniforms mirrored onto the particle material for the SHED emitter, so the dust
- *  rides the same deform as the ribbon. Names match the wave material's uniforms 1:1 (copied by value
- *  each refresh in configureShed). */
-const SHED_SHAPE_UNIFORMS = [
+/** The owning wave's shape uniforms mirrored onto the particle material so the dust rides the same
+ *  deform as the ribbon. Names match the wave material's uniforms 1:1 (copied by value in configure). */
+const SHAPE_UNIFORMS = [
   "uDispFreqX",
   "uDispFreqZ",
   "uDispAmount",
@@ -78,63 +70,53 @@ const SHED_SHAPE_UNIFORMS = [
   "uRadialCenter",
 ] as const;
 
-/** Build the seeded per-particle attribute buffers. Pure function of `(count, seed, fieldWeight,
- *  shedWeight, shedBias)` — exported so a unit test can assert reproducibility without a GPU. */
+/** Build the seeded per-particle attribute buffers. Pure function of `(count, seed, edgeBias, bias)` —
+ *  exported so a unit test can assert reproducibility without a GPU. */
 export function buildParticleAttributes(
   count: number,
   seed: number,
-  fieldWeight: number,
-  shedWeight = 0,
-  shedBias = 0,
+  edgeBias = 1,
+  bias = 0,
 ): {
   position: Float32Array;
   aSeed: Float32Array;
   aRnd: Float32Array;
-  aEmitter: Float32Array;
   aUv: Float32Array;
 } {
   const rand = mulberry32(seed >>> 0 || 1);
   const position = new Float32Array(count * 3); // dummy — the vertex shader computes real positions
   const aSeed = new Float32Array(count);
   const aRnd = new Float32Array(count * 4);
-  const aEmitter = new Float32Array(count);
   const aUv = new Float32Array(count * 2);
-  // Route by weight: [0,field) → ambient field, the rest → shed. With no weights at all (total 0)
-  // everything falls to the field — a bare `{ count }` block is dust.
-  const total = fieldWeight + shedWeight;
-  const fieldCount = total > 0 ? Math.round((count * fieldWeight) / total) : count;
   for (let i = 0; i < count; i++) {
     aSeed[i] = rand();
     aRnd[i * 4 + 0] = rand();
     aRnd[i * 4 + 1] = rand();
     aRnd[i * 4 + 2] = rand();
     aRnd[i * 4 + 3] = rand();
-    aEmitter[i] = i < fieldCount ? 0 : 1;
   }
-  // Shed uv in a SEPARATE pass so adding it doesn't shift the ring/field RNG sequence — the existing
-  // ring/field layouts stay byte-identical. Ride a ribbon uv biased toward the OUTER half (the plume's
-  // tips / edge, where the silk dissolves into glitter). `shedBias` skews the width draw toward one
-  // flank so the spray can cluster off a single side (the reference's one-sided glitter) instead of
-  // haloing the whole rim: `u^p` with p<1 (bias>0) crowds uv.x→1, p>1 (bias<0) crowds uv.x→0; p=1
-  // (bias 0) leaves the draw untouched → byte-identical.
-  const p = shedBias === 0 ? 1 : Math.exp(-shedBias * 2);
+  // aUv in a SEPARATE pass so adding/changing it never shifts the aSeed/aRnd RNG sequence above. aUv.x
+  // = the flank position across the ribbon width; `bias` skews it toward one side (`u^p`, p<1 crowds
+  // →1, p>1 crowds →0; p=1 / bias 0 leaves it untouched). aUv.y = WHERE ALONG the ribbon the particle
+  // spawns, interpolated by `edgeBias`: 0 → uniform across the whole SURFACE, 1 → crowded to the outer
+  // rim/EDGE (`1 − rand²·0.45`, the silk-dissolving-into-glitter look).
+  const pexp = bias === 0 ? 1 : Math.exp(-bias * 2);
+  const eb = Math.min(Math.max(edgeBias, 0), 1);
   for (let i = 0; i < count; i++) {
     const ux = rand();
-    aUv[i * 2 + 0] = shedBias === 0 ? ux : Math.pow(ux, p);
-    // Concentrate toward the tip (uv.y → 1, the plume's outer rim where silk meets black), with a
-    // tail inward — rand()² biases most particles to the very edge so the shed reads against the void.
+    aUv[i * 2 + 0] = bias === 0 ? ux : Math.pow(ux, pexp);
     const e = rand();
-    aUv[i * 2 + 1] = 1.0 - e * e * 0.45;
+    const rim = 1.0 - e * e * 0.45; // outer-rim biased
+    aUv[i * 2 + 1] = e + (rim - e) * eb; // mix(surface, edge) by edgeBias
   }
-  return { position, aSeed, aRnd, aEmitter, aUv };
+  return { position, aSeed, aRnd, aUv };
 }
 
 export class ParticleField {
   readonly points: THREE.Points;
   private readonly geometry = new THREE.BufferGeometry();
   private readonly material: THREE.ShaderMaterial;
-  /** Layout signature — only (count, seed, emitter mix) trigger an attribute rebuild; the rest are
-   *  live uniforms. */
+  /** Layout signature — only these rebuild the seeded buffers; the rest are live uniforms. */
   private sig = "";
 
   constructor() {
@@ -151,12 +133,10 @@ export class ParticleField {
         uCenter: { value: new THREE.Vector3() },
         uRight: { value: new THREE.Vector3(1, 0, 0) },
         uUp: { value: new THREE.Vector3(0, 1, 0) },
-        uHalfW: { value: 1 },
-        uHalfH: { value: 1 },
-        uFieldDrift: { value: 0 },
-        // Shed emitter (read only under SHED): the emitter wave's shape uniforms + world matrix,
-        // mirrored from that wave in configureShed(). Always present JS-side; three uploads them only
-        // when the compiled program declares them (the byte-identity precedent from the wave material).
+        uDrift: { value: 0 },
+        // The owning wave's shape uniforms + world matrix, mirrored in configure() so the dust rides
+        // the same deform as the ribbon. The nested HELIX/RADIAL uniforms are only declared (and
+        // uploaded) when the matching #define is set — the byte-identity precedent from the wave material.
         uDispFreqX: { value: 0 },
         uDispFreqZ: { value: 0 },
         uDispAmount: { value: 0 },
@@ -180,41 +160,37 @@ export class ParticleField {
         uShedModel: { value: new THREE.Matrix4() },
         uShedSpeed: { value: 0 },
         uShedSeed: { value: 0 },
-        uShedDrift: { value: 0 },
       },
       vertexShader: particleVertexShader,
       fragmentShader: particleFragmentShader,
       transparent: true,
-      depthTest: false, // always composite OVER the eclipse disc + waves...
+      depthTest: false, // always composite OVER the waves...
       depthWrite: false, // ...and never occlude anything (additive glints)
       blending: THREE.AdditiveBlending,
     });
     this.points = new THREE.Points(this.geometry, this.material);
     this.points.frustumCulled = false; // positions are shader-computed; the base geometry is dummy
-    this.points.renderOrder = 10; // after the waves (0..5) and the eclipse disc
+    this.points.renderOrder = 10; // after the waves (0..5)
   }
 
   /** Reconcile to `cfg`: rebuild the seeded buffers if the layout signature changed, then push the
    *  frame-independent uniforms. `loopSeconds` is scene-level (passed in). Called from refresh(). */
   sync(cfg: ParticlesConfig, loopSeconds: number): void {
     const count = Math.max(0, Math.floor(cfg.count));
-    const fieldW = Math.max(0, cfg.field?.density ?? 0);
-    const shedW = Math.max(0, cfg.shed?.rate ?? 0);
-    const shedBias = cfg.shed?.bias ?? 0;
-    const sig = `${count}|${cfg.seed}|${fieldW}|${shedW}|${shedBias}`;
+    const edgeBias = cfg.edgeBias ?? 1;
+    const bias = cfg.bias ?? 0;
+    const sig = `${count}|${cfg.seed}|${edgeBias}|${bias}`;
     if (sig !== this.sig) {
       this.sig = sig;
-      const { position, aSeed, aRnd, aEmitter, aUv } = buildParticleAttributes(
+      const { position, aSeed, aRnd, aUv } = buildParticleAttributes(
         count,
         cfg.seed,
-        fieldW,
-        shedW,
-        shedBias,
+        edgeBias,
+        bias,
       );
       this.geometry.setAttribute("position", new THREE.BufferAttribute(position, 3));
       this.geometry.setAttribute("aSeed", new THREE.BufferAttribute(aSeed, 1));
       this.geometry.setAttribute("aRnd", new THREE.BufferAttribute(aRnd, 4));
-      this.geometry.setAttribute("aEmitter", new THREE.BufferAttribute(aEmitter, 1));
       this.geometry.setAttribute("aUv", new THREE.BufferAttribute(aUv, 2));
       this.geometry.setDrawRange(0, count);
     }
@@ -224,7 +200,7 @@ export class ParticleField {
     u.uSize.value = cfg.size;
     u.uSizeJitter.value = cfg.sizeJitter ?? 0;
     u.uTwinkle.value = cfg.twinkle ?? 0;
-    u.uFieldDrift.value = cfg.field?.drift ?? 0;
+    u.uDrift.value = cfg.drift ?? 0;
     setLinear(u.uColor.value as THREE.Vector3, cfg.color ?? DEFAULT_COLOR);
   }
 
@@ -234,35 +210,27 @@ export class ParticleField {
     (u.uCenter.value as THREE.Vector3).copy(f.center);
     (u.uRight.value as THREE.Vector3).copy(f.right);
     (u.uUp.value as THREE.Vector3).copy(f.up);
-    u.uHalfW.value = f.halfW;
-    u.uHalfH.value = f.halfH;
     u.uPixelRatio.value = pixelRatio;
   }
 
-  /** Wire (or clear) the SHED emitter. `shape` null → shed off: clear the SHED define (lean
-   *  recompile). Present → mirror the emitter wave's shape #defines + uniforms + world matrix so the
-   *  dust rides the SAME deform as the ribbon. Called from refresh(); recompiles the point program
-   *  only when the define set changes. */
-  configureShed(
-    shape: {
-      defines: Record<string, string>;
-      uniforms: Record<string, THREE.IUniform>;
-      matrixWorld: THREE.Matrix4;
-      speed: number;
-      seed: number;
-      drift: number;
-      loopSeconds: number;
-    } | null,
-  ): void {
-    const want = shape ? { SHED: "", ...shape.defines } : {};
+  /** Bind the OWNING wave's shape: mirror its shape #defines + shape uniforms + world matrix so the
+   *  dust rides the SAME deform as the ribbon. Recompiles the point program only when the define set
+   *  changes. Called from refresh() each frame with the wave's live state. */
+  configure(shape: {
+    defines: Record<string, string>;
+    uniforms: Record<string, THREE.IUniform>;
+    matrixWorld: THREE.Matrix4;
+    speed: number;
+    seed: number;
+  }): void {
+    const want = shape.defines;
     const cur = (this.material.defines ?? {}) as Record<string, string>;
     if (Object.keys(want).sort().join(",") !== Object.keys(cur).sort().join(",")) {
-      this.material.defines = want;
+      this.material.defines = { ...want };
       this.material.needsUpdate = true; // define set changed → recompile the point program
     }
-    if (!shape) return;
     const u = this.material.uniforms;
-    for (const name of SHED_SHAPE_UNIFORMS) {
+    for (const name of SHAPE_UNIFORMS) {
       const src = shape.uniforms[name];
       if (!src || u[name] === undefined) continue;
       const dst = u[name].value;
@@ -274,8 +242,6 @@ export class ParticleField {
     (u.uShedModel.value as THREE.Matrix4).copy(shape.matrixWorld);
     u.uShedSpeed.value = shape.speed;
     u.uShedSeed.value = shape.seed;
-    u.uShedDrift.value = shape.drift;
-    u.uLoopSeconds.value = shape.loopSeconds;
   }
 
   /** Advance the field to scene time `t` (= the same `t` the waves get). */

@@ -262,6 +262,9 @@ export interface WaveConfig {
   /** Optional per-wave interactivity: how THIS wave reacts to the shared pointer + inputs (hover
    *  field, click ripples, param bindings). ABSENT = this wave is inert / byte-identical. */
   interaction?: WaveInteractionConfig;
+  /** Optional per-wave particle / dust field emitted off THIS wave's deformed surface / edge.
+   *  ABSENT ⇒ off (no THREE.Points for this wave, byte-identical). See {@link ParticlesConfig}. */
+  particles?: ParticlesConfig;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -418,11 +421,12 @@ export interface SceneInteractionConfig {
 }
 
 /**
- * A field of additive GPU sprites (dust / sparkle). ABSENT ⇒ off: no THREE.Points node is created
- * and the scene render is byte-identical; present ⇒ {@link normalizeParticles} clamps it. Every
- * particle's motion is a pure function of `uTime` + a per-particle seed baked from `seed`, so it is
- * deterministic (timeOffset scrub / loopSeconds / paused all hold). Two emitter modes stack: an
- * ambient `field`, and `shed` — particles peeling off a wave's DEFORMED edge.
+ * A WAVE's field of additive GPU sprites (dust / sparkle). Lives on {@link WaveConfig} — particles
+ * belong to a wave, not the scene. ABSENT ⇒ off: no THREE.Points node is created for that wave and its
+ * render is byte-identical; present ⇒ {@link normalizeParticles} clamps it. Every particle's motion is a
+ * pure function of `uTime` + a per-particle seed baked from `seed`, so it is deterministic (timeOffset
+ * scrub / loopSeconds / paused all hold). Particles spawn on the OWNING wave's DEFORMED surface / edge
+ * (via the shared waveShape) and drift outward from the wave centre.
  */
 export interface ParticlesConfig {
   count: number; // total sprites (clamped in normalizeParticles)
@@ -432,10 +436,12 @@ export interface ParticlesConfig {
   color?: string; // sprite colour (warm gold default)
   life?: number; // seconds per birth→death cycle
   twinkle?: number; // 0..1 brightness flicker
-  field?: { density: number; drift?: number };
-  // `bias` skews the shed spray along the fan/edge width toward one flank: −1 → the uv.x=0 side,
-  // +1 → the uv.x=1 side, 0 (default) → even across the whole rim.
-  shed?: { rate: number; drift: number; fromWave?: number; bias?: number };
+  /** Where on the wave particles spawn: 0 = across the whole SURFACE, 1 = the outer rim / EDGE only. */
+  edgeBias?: number;
+  /** How far particles drift outward from the wave centre as they age (world units). */
+  drift?: number;
+  /** −1..1 skew of the spawn along the edge width toward one flank (0 = even, −1 → one side, +1 → other). */
+  bias?: number;
 }
 
 /**
@@ -531,9 +537,6 @@ export interface SceneConfig {
   /** CMYK halftone (four rotated dot screens). 0 removes the pass; cell = dot size px. */
   halftoneCmyk?: number;
   halftoneCmykCell?: number;
-  /** Additive particle / dust field. ABSENT ⇒ off (no THREE.Points, byte-identical). See
-   *  {@link ParticlesConfig}. */
-  particles?: ParticlesConfig;
   /** Base ambient light level (0–1). */
   ambient: number;
   lights: LightConfig[];
@@ -918,6 +921,7 @@ export function normalizeWave(s: WaveConfig): void {
   if (!Number.isFinite(s.opacity)) s.opacity = 1;
   if (!Number.isFinite(s.seed)) s.seed = 0;
   if (s.interaction) normalizeWaveInteraction(s); // present-only; absence stays inert
+  if (s.particles) normalizeParticles(s); // present-only; absence = no field for this wave
 }
 
 /** Backfill scene-level defaults (background/camera/post/lights/quality/mirror). */
@@ -1098,8 +1102,8 @@ export function normalizeSceneInteraction(config: StudioConfig): void {
  * repair the required fields, leaving absent optionals absent (so the block stays lean). NEVER call
  * when the block is absent — absence is off and byte-identical (ensureStudioConfig gates on presence).
  */
-export function normalizeParticles(config: StudioConfig): void {
-  const p = config.particles;
+export function normalizeParticles(wave: WaveConfig): void {
+  const p = wave.particles;
   if (!p) return;
   p.count = clampNumber(p.count, 0, 40000, 0);
   p.size = clampNumber(p.size, 0, 200, 2);
@@ -1108,18 +1112,9 @@ export function normalizeParticles(config: StudioConfig): void {
   if (p.color !== undefined && typeof p.color !== "string") p.color = "#ffcf8a";
   if (p.life !== undefined) p.life = clampNumber(p.life, 0.1, 60, 6);
   if (p.twinkle !== undefined) p.twinkle = clampNumber(p.twinkle, 0, 1, 0);
-  if (p.field) {
-    p.field.density = clampNumber(p.field.density, 0, 1, 0.5);
-    if (p.field.drift !== undefined) p.field.drift = num(p.field.drift, 0);
-  }
-  if (p.shed) {
-    p.shed.rate = clampNumber(p.shed.rate, 0, 1, 0);
-    p.shed.drift = num(p.shed.drift, 0);
-    if (p.shed.fromWave !== undefined) {
-      p.shed.fromWave = Math.round(clampNumber(p.shed.fromWave, 0, MAX_WAVES - 1, 0));
-    }
-    if (p.shed.bias !== undefined) p.shed.bias = clampNumber(p.shed.bias, -1, 1, 0);
-  }
+  if (p.edgeBias !== undefined) p.edgeBias = clampNumber(p.edgeBias, 0, 1, 1);
+  if (p.drift !== undefined) p.drift = num(p.drift, 0);
+  if (p.bias !== undefined) p.bias = clampNumber(p.bias, -1, 1, 0);
 }
 
 /** Normalize an ingested config to the wave model: backfill the scene + every wave, and drop in
@@ -1131,10 +1126,10 @@ export function ensureStudioConfig(input: StudioConfig): StudioConfig {
   if (!Array.isArray(config.waves) || config.waves.length === 0) {
     config.waves = [makeWave()];
   }
-  config.waves.forEach(normalizeWave); // each wave's normalizeWave runs normalizeWaveInteraction
+  // each wave's normalizeWave runs normalizeWaveInteraction + normalizeParticles (both present-only)
+  config.waves.forEach(normalizeWave);
   config.waveCount = config.waves.length;
-  // Present-only: a config without a scene `interaction` / `particles` block is left untouched ("off").
+  // Present-only: a config without a scene `interaction` block is left untouched ("off").
   if (config.interaction) normalizeSceneInteraction(config);
-  if (config.particles) normalizeParticles(config);
   return config;
 }

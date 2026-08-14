@@ -69,17 +69,17 @@ const CONTROL_HINTS: Record<string, string> = {
   "light x": "Horizontal position of the god-ray light point (0 = left edge, 1 = right).",
   "light y": "Vertical position of the god-ray light point (0 = bottom edge, 1 = top).",
 
-  // --- Particles (dust field) ---
-  "dust count": "Number of sparkle particles. 0 removes the field entirely (no cost).",
+  // --- Particles (this wave's dust field) ---
+  "dust count":
+    "Number of sparkle particles shed off THIS wave. 0 removes the field entirely (no cost).",
   "dust size": "Base sprite size in pixels (each particle also varies a little).",
+  "dust color": "Colour of the dust sprites (additive, so it glows on a dark background).",
   twinkle: "How much each particle flickers in brightness over its life (0 = steady).",
-  "field amount": "Share of the dust scattered as an ambient field across the whole frame.",
-  "shed amount":
-    "Share of the dust that peels off a wave's DEFORMED edge — silk dissolving into glitter. Needs a wave with an edge to shed from (a radial plume, a twist).",
-  "shed drift": "How far the shed dust drifts outward from the edge as it ages, in world units.",
-  "shed from wave": "Which wave the dust sheds from (index into the stack).",
-  "shed bias":
-    "Skews the spray toward one flank of the edge instead of haloing the whole rim — one side at −1, the other at +1, even at 0.",
+  "edge bias":
+    "Where the dust spawns on the wave: 0 = across the whole SURFACE, 1 = the outer rim / EDGE only (silk dissolving into glitter).",
+  drift: "How far the dust drifts outward from the wave as it ages, in world units.",
+  "flank bias":
+    "Skews the spawn toward one flank of the edge instead of the whole rim — one side at −1, the other at +1, even at 0.",
   "dust seed": "Reseeds the random particle layout — the same seed reproduces the same field.",
 
   // --- Radial (fan the ribbon into a plume) ---

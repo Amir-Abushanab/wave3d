@@ -1320,53 +1320,50 @@ export class ControlPanel {
     this.renderer.setScrollPreview(scrollPrev.preview); // apply the rest state on (re)build
   }
 
-  /** "Particles" folder: the additive dust field. Bound to a panel-local proxy (never `cfg.particles`
-   *  directly), so `sync()` can write the block only when `count` > 0 and delete it otherwise — absent
-   *  = off, byte-identical. Flattens the nested ring/field to a handful of sliders. */
-  private buildParticlesFolder(mkFolder: MkFolder, cfg: StudioConfig, refresh: () => void): void {
-    const f = mkFolder("Particles", true);
-    const p = cfg.particles;
+  /** Per-wave "Particles" sub-folder: the dust field emitted off THIS wave's deformed surface / edge.
+   *  Bound to a panel-local proxy (never `wave.particles` directly), so `sync()` writes the block only
+   *  when `count` > 0 and deletes it otherwise — absent = off for this wave, byte-identical (the
+   *  present-only idiom of the interaction folder). Returns the folder so buildWaveFolder can order it. */
+  private buildWaveParticlesFolder(
+    sf: FolderApi,
+    wave: WaveConfig,
+    refresh: () => void,
+  ): FolderApi {
+    const f = sf.addFolder({ title: "Particles", expanded: false });
+    const p = wave.particles;
     const uiParticles = {
       count: p?.count ?? 0,
       size: p?.size ?? 2.4,
       color: p?.color ?? "#ffd597",
       twinkle: p?.twinkle ?? 0.6,
-      fieldDensity: p?.field?.density ?? 0.4,
-      shedRate: p?.shed?.rate ?? 0,
-      shedDrift: p?.shed?.drift ?? 300,
-      shedFromWave: p?.shed?.fromWave ?? 0,
-      shedBias: p?.shed?.bias ?? 0,
+      edgeBias: p?.edgeBias ?? 1,
+      drift: p?.drift ?? 300,
+      bias: p?.bias ?? 0,
       seed: p?.seed ?? 1,
     };
     const sync = (): void => {
       if (uiParticles.count > 0) {
-        cfg.particles = {
+        wave.particles = {
           count: uiParticles.count,
           size: uiParticles.size,
           color: uiParticles.color,
           twinkle: uiParticles.twinkle,
           seed: uiParticles.seed,
-          field: { density: uiParticles.fieldDensity },
+          edgeBias: uiParticles.edgeBias,
+          drift: uiParticles.drift,
+          bias: uiParticles.bias,
         };
-        if (uiParticles.shedRate > 0) {
-          cfg.particles.shed = {
-            rate: uiParticles.shedRate,
-            drift: uiParticles.shedDrift,
-            fromWave: uiParticles.shedFromWave,
-            bias: uiParticles.shedBias,
-          };
-        }
       } else {
-        delete cfg.particles;
+        delete wave.particles;
       }
       refresh();
     };
-    // count + seed rebuild the seeded buffer, so only commit on drag release (the quality idiom).
+    const onRelease = (ev: { last: boolean }): void => {
+      if (ev.last) sync(); // count / seed / edgeBias / bias rebuild the seeded buffer (quality idiom)
+    };
     f.addBinding(uiParticles, "count", { min: 0, max: 20000, step: 100, label: "dust count" }).on(
       "change",
-      (ev) => {
-        if (ev.last) sync();
-      },
+      onRelease,
     );
     f.addBinding(uiParticles, "size", { min: 0.5, max: 10, step: 0.1, label: "dust size" }).on(
       "change",
@@ -1377,46 +1374,25 @@ export class ControlPanel {
       "change",
       sync,
     );
-    f.addBinding(uiParticles, "fieldDensity", {
-      min: 0,
-      max: 1,
-      step: 0.01,
-      label: "field amount",
-    }).on("change", sync);
-    // Shed: dust peeling off a wave's DEFORMED edge (needs a wave whose shape has an edge — a radial
-    // plume, a twist). rate rebuilds the buffer, so commit on release (the quality idiom).
-    f.addBinding(uiParticles, "shedRate", { min: 0, max: 1, step: 0.01, label: "shed amount" }).on(
+    // Where the dust spawns on the wave: 0 = across the whole SURFACE, 1 = the outer rim / EDGE only.
+    f.addBinding(uiParticles, "edgeBias", { min: 0, max: 1, step: 0.01, label: "edge bias" }).on(
       "change",
-      (ev) => {
-        if (ev.last) sync();
-      },
+      onRelease,
     );
-    f.addBinding(uiParticles, "shedDrift", { min: 0, max: 800, step: 5, label: "shed drift" }).on(
+    f.addBinding(uiParticles, "drift", { min: 0, max: 800, step: 5, label: "drift" }).on(
       "change",
       sync,
     );
-    f.addBinding(uiParticles, "shedFromWave", {
-      min: 0,
-      max: MAX_WAVES - 1,
-      step: 1,
-      label: "shed from wave",
-    }).on("change", (ev) => {
-      if (ev.last) sync();
-    });
-    // Skew the spray toward one flank of the rim (−1 → one side, +1 → the other, 0 → even).
-    // Rebuilds the seeded buffer, so commit on release (the quality idiom).
-    f.addBinding(uiParticles, "shedBias", { min: -1, max: 1, step: 0.05, label: "shed bias" }).on(
+    // Skew the spawn toward one flank of the edge (−1 → one side, +1 → the other, 0 → even).
+    f.addBinding(uiParticles, "bias", { min: -1, max: 1, step: 0.05, label: "flank bias" }).on(
       "change",
-      (ev) => {
-        if (ev.last) sync();
-      },
+      onRelease,
     );
     f.addBinding(uiParticles, "seed", { min: 0, max: 999, step: 1, label: "dust seed" }).on(
       "change",
-      (ev) => {
-        if (ev.last) sync();
-      },
+      onRelease,
     );
+    return f;
   }
 
   /** Per-wave interaction: how THIS wave reacts — a Hover field, Click & touch, and param Bindings
@@ -1821,7 +1797,7 @@ export class ControlPanel {
     camFolder = this.buildCameraFolder(mkFolder, cfg);
     this.buildLightsFolder(mkFolder, randomBtn, vec, cfg, refresh);
     this.buildSceneInteractionFolder(mkFolder, cfg, refresh);
-    this.buildParticlesFolder(mkFolder, cfg, refresh);
+    // Particles are per-wave now (built inside buildWaveFolder), not a scene folder.
 
     // ---- Waves ----
     // Each WaveConfig is a COMPLETE wave: its own colour/gradient, finish, displacement, twist,
@@ -2326,12 +2302,14 @@ export class ControlPanel {
       raF
         .addBinding(wave, "radialCenter", { min: -180, max: 180, step: 1, label: "center °" })
         .on("change", refresh);
+      // This wave's dust field (emitted off its own deformed surface / edge).
+      const paF = this.buildWaveParticlesFolder(sf, wave, refresh);
       // Order the sub-sections: appearance (colour, finish) → shape (displacement, twist) → pose
-      // (transform) → advanced (noise bands) → interaction (this wave's reactivity, last — mirrors
-      // the global Interaction folder sitting last in the panel). DOM move so the blocks stay grouped.
+      // (transform) → advanced (noise bands) → particles → interaction (this wave's reactivity, last —
+      // mirrors the global Interaction folder sitting last in the panel). DOM move so blocks stay grouped.
       const waveContent =
         (sf.element.querySelector(":scope > .tp-fldv_c") as HTMLElement | null) ?? sf.element;
-      for (const f of [gradF, finF, dispF, twF, hxF, raF, trF, bandsF, waveIx])
+      for (const f of [gradF, finF, dispF, twF, hxF, raF, trF, bandsF, paF, waveIx])
         waveContent.appendChild(f.element);
     };
 

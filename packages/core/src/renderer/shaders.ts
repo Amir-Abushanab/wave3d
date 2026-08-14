@@ -1002,27 +1002,24 @@ void main(){
 `;
 
 // ---------------------------------------------------------------------------------------------
-// Particle field (additive dust / sparkle). A THREE.Points ShaderMaterial: every particle's
-// position + life is a pure function of uTime + baked per-particle attributes (aSeed / aRnd /
-// aEmitter), so the whole field is deterministic (timeOffset scrub / loopSeconds / paused all hold).
-// Two emitter modes here: a RING annulus around the eclipse anchor, and an ambient FIELD across the
-// frame — both placed in the screen plane via the camera basis (uRight / uUp) so they orbit the disc
-// and stay screen-anchored. (Shed-from-edge is a third emitter, added with the shared deform chunk.)
+// Particle field (additive dust / sparkle) — ONE per wave. A THREE.Points ShaderMaterial: every
+// particle's position + life is a pure function of uTime + baked per-particle attributes (aSeed / aRnd
+// / aUv), so the whole field is deterministic (timeOffset scrub / loopSeconds / paused all hold).
+// Every particle spawns on the OWNING wave's DEFORMED surface / edge (via the shared waveShape chunk,
+// riding the exact deform the ribbon uses) and drifts outward from the wave centre as it ages. The
+// wave's shape #defines (HELIX/RADIAL/…) are mirrored onto this material in configure().
 // ---------------------------------------------------------------------------------------------
 export const particleVertexShader = /* glsl */ `
 attribute float aSeed;
 attribute vec4 aRnd;
-attribute float aEmitter;
-attribute vec2 aUv; // ribbon uv for shed particles (unused by ring/field)
+attribute vec2 aUv; // where this particle spawns on the ribbon (x = flank, y = along length; edge-biased at build)
 
 uniform float uTime, uLoopSeconds, uLife, uSize, uSizeJitter, uTwinkle, uPixelRatio;
-uniform vec3 uColor, uCenter, uRight, uUp;
-uniform float uHalfW, uHalfH, uFieldDrift;
+uniform vec3 uColor, uCenter;
+uniform float uDrift;
 
-// SHED emitter (optional): particles peeling off a wave's DEFORMED edge. Behind #ifdef SHED so a
-// ring/field-only field compiles NONE of this (no simplex, no shape uniforms, no waveShape). The
-// shape uniforms + gates (HELIX/RADIAL/…) mirror the emitter wave so the dust rides the same deform.
-#ifdef SHED
+// The owning wave's shape, mirrored in configure() so the dust rides the SAME deform as the ribbon.
+// The HELIX/RADIAL uniform blocks are declared only when the matching #define is set.
 ${simplex2d}
 uniform float uDispFreqX, uDispFreqZ, uDispAmount;
 uniform float uDetailFreq, uDetailAmount;
@@ -1033,10 +1030,9 @@ uniform float uHelixTurns, uHelixRadius, uHelixRoll, uHelixPhase;
 #ifdef RADIAL
 uniform float uRadialAmount, uRadialArc, uRadialSpread, uRadialRadius, uRadialCenter;
 #endif
-uniform mat4 uShedModel;              // emitter wave's matrixWorld (deformed LOCAL → world)
-uniform float uShedSpeed, uShedSeed, uShedDrift;
+uniform mat4 uShedModel;              // the wave's matrixWorld (deformed LOCAL → world)
+uniform float uShedSpeed, uShedSeed;
 ${waveShapeChunk}
-#endif
 
 varying float vAlpha;
 varying vec3 vColor;
@@ -1050,35 +1046,22 @@ void main(){
   float age = fract(rate + aSeed);
   float fade = sin(3.14159265 * age); // 0 at birth/death, 1 mid-life
 
-  vec3 p;
-  if (aEmitter < 0.5) {
-    // FIELD: ambient dust scattered across the frame, drifting slowly and wrapping (fract) so it never
-    // depletes. The drift phase rides rate, so it repeats with the loop too.
-    float fx = fract(aRnd.x + rate * uFieldDrift * (aRnd.z - 0.5)) - 0.5;
-    float fy = fract(aRnd.y + rate * uFieldDrift * (aRnd.w - 0.5)) - 0.5;
-    p = uCenter + uRight * (fx * 2.0 * uHalfW) + uUp * (fy * 2.0 * uHalfH);
-  } else {
-    // SHED: sit on the emitter wave's DEFORMED edge at aUv (via the shared waveShape), then peel
-    // outward from the composition centre as the particle ages — silk dissolving into glitter.
-#ifdef SHED
-    float ts = uTime * uShedSpeed + uShedSeed;
-    vec2 loopOffS = vec2(0.0);
+  // Spawn on the owning wave's DEFORMED surface / edge at aUv (via the shared waveShape), then peel
+  // outward from the wave centre as the particle ages — silk dissolving into glitter.
+  float ts = uTime * uShedSpeed + uShedSeed;
+  vec2 loopOff = vec2(0.0);
 #ifdef LOOP_MOTION
-    float loopThetaS = uTime * (6.28318530718 / uLoopSeconds) + uShedSeed;
-    float loopRS = uShedSpeed * uLoopSeconds * 0.159154943092;
-    loopOffS = loopRS * vec2(cos(loopThetaS), sin(loopThetaS));
-    ts = 0.0;
+  float loopTheta = uTime * (TAU / uLoopSeconds) + uShedSeed;
+  float loopR = uShedSpeed * uLoopSeconds * 0.159154943092;
+  loopOff = loopR * vec2(cos(loopTheta), sin(loopTheta));
+  ts = 0.0;
 #endif
-    // Approximate the base hairpin point for this uv (length from uv.y; width centre), then deform it
-    // exactly as the wave does. Good enough for dust — the fan / displacement dominate.
-    vec3 base = vec3((aUv.y - 0.5) * 400.0, 0.0, ${RIBBON_Z_CENTER.toFixed(1)});
-    vec3 edge = (uShedModel * vec4(waveShape(base, aUv, ts, loopOffS).pos, 1.0)).xyz;
-    vec3 outward = normalize(edge - uCenter + vec3(1e-4));
-    p = edge + outward * age * uShedDrift + (aRnd.xyz - 0.5) * age * uShedDrift * 0.35;
-#else
-    p = uCenter; // shed compiled out — no shed particles are assigned when SHED is off
-#endif
-  }
+  // Approximate the base hairpin point for this uv (length from uv.y; width centre), then deform it
+  // exactly as the wave does. Good enough for dust — the fan / displacement dominate.
+  vec3 base = vec3((aUv.y - 0.5) * 400.0, 0.0, ${RIBBON_Z_CENTER.toFixed(1)});
+  vec3 origin = (uShedModel * vec4(waveShape(base, aUv, ts, loopOff).pos, 1.0)).xyz;
+  vec3 outward = normalize(origin - uCenter + vec3(1e-4));
+  vec3 p = origin + outward * age * uDrift + (aRnd.xyz - 0.5) * age * uDrift * 0.35;
 
   float tw = 0.5 + 0.5 * sin((age * 9.0 + aSeed) * TAU); // loop-safe flicker (rides age)
   vAlpha = fade * mix(1.0, tw, clamp(uTwinkle, 0.0, 1.0));

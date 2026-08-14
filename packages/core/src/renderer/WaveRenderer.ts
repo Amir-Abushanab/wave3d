@@ -244,6 +244,9 @@ type Wave = {
   geometry: WaveGeometry;
   /** This wave's own 2D palette texture + optional video. */
   palette: WavePalette;
+  /** This wave's own particle / dust field — created when its `particles.count` first goes >0,
+   *  disposed at 0 / absent (the WavePalette lifecycle pattern). Undefined = no dust for this wave. */
+  particleField?: ParticleField;
 };
 
 // Parse scratch: refresh() converts ~25 hex colours per wave per call (i.e. per slider input),
@@ -281,13 +284,10 @@ export class WaveRenderer {
   private heatmapPass?: ShaderPass;
   private paperTexturePass?: ShaderPass;
   private halftoneCmykPass?: ShaderPass;
-  /** Optional particle / dust field — created when particles.count first goes >0, disposed at 0. */
-  private particleField?: ParticleField;
-  // Reused scratch for the per-frame particle placement (updateSceneFx) — no allocation.
+  // Reused scratch for the per-frame per-wave particle placement (updateSceneFx) — no allocation.
   private readonly fxCenter = new THREE.Vector3();
   private readonly fxRight = new THREE.Vector3();
   private readonly fxUp = new THREE.Vector3();
-  private fxActive = false; // particles this frame; consumed by updateClipPlanes
   protected readonly container: HTMLElement;
   private readonly respectReducedMotion: boolean;
   private readonly skipIntroRamp: boolean;
@@ -714,6 +714,10 @@ export class WaveRenderer {
       s.material.dispose();
       s.geometry.dispose();
       s.palette.dispose();
+      if (s.particleField) {
+        this.scene.remove(s.particleField.points);
+        s.particleField.dispose();
+      }
     }
     this.waves = [];
   }
@@ -1536,14 +1540,9 @@ export class WaveRenderer {
   };
 
   private onContextRestored = (): void => {
-    this.disposeWaves(); // old GPU resources are invalid on a fresh context (per-wave palettes too)
-    // The particle Points also hold GPU buffers; drop them so refresh() (via buildWaves →
-    // applyParticles) rebuilds them on the fresh context.
-    if (this.particleField) {
-      this.scene.remove(this.particleField.points);
-      this.particleField.dispose();
-      this.particleField = undefined;
-    }
+    // old GPU resources are invalid on a fresh context — disposeWaves drops each wave's palette AND
+    // its particle Points, so refresh() (via buildWaves → applyParticles) rebuilds them fresh.
+    this.disposeWaves();
     this.backgroundTexture?.dispose();
     this.backgroundTexture = undefined;
     this.backgroundSig = "";
@@ -1678,7 +1677,8 @@ export class WaveRenderer {
       }
     }
     this.postPass.uniforms.uTime.value = t;
-    this.particleField?.setTime(t); // same t as the waves → scrub / loop / pause stay in sync
+    // same t as the waves → scrub / loop / pause stay in sync
+    for (const w of this.waves) w.particleField?.setTime(t);
   }
 
   /** Render exactly one frame at the current time. */
@@ -1694,71 +1694,66 @@ export class WaveRenderer {
     this.onAfterRenderFrame();
   }
 
-  /** Insert / sync / remove the particle field — mirrors applyBloom's lazy lifecycle. An absent block
-   *  or count 0 means no THREE.Points in the scene (byte-identical). The seeded attribute buffers
-   *  rebuild only when the (count, seed, mix) signature changes; the rest are live uniforms. */
+  /** Insert / sync / remove EACH wave's particle field — mirrors applyBloom's lazy lifecycle, per wave.
+   *  An absent block or count 0 means no THREE.Points for that wave (byte-identical). The seeded buffers
+   *  rebuild only when the (count, seed, edgeBias, bias) signature changes; the rest are live uniforms.
+   *  configure() (the wave-shape binding) runs later in updateSceneFx, once transforms are current. */
   private applyParticles(): void {
-    const cfg = this.config.particles;
-    if (cfg && cfg.count > 0) {
-      if (!this.particleField) {
-        this.particleField = new ParticleField();
-        this.scene.add(this.particleField.points);
+    const loop = this.config.loopSeconds ?? 0;
+    this.waves.forEach((wave, i) => {
+      const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
+      const cfg = sc?.particles;
+      if (cfg && cfg.count > 0) {
+        if (!wave.particleField) {
+          wave.particleField = new ParticleField();
+          this.scene.add(wave.particleField.points);
+        }
+        wave.particleField.sync(cfg, loop);
+      } else if (wave.particleField) {
+        this.scene.remove(wave.particleField.points);
+        wave.particleField.dispose();
+        wave.particleField = undefined;
       }
-      this.particleField.sync(cfg, this.config.loopSeconds ?? 0);
-    } else if (this.particleField) {
-      this.scene.remove(this.particleField.points);
-      this.particleField.dispose();
-      this.particleField = undefined;
-    }
+    });
   }
 
-  /** Per-frame placement for the particle field: derive the camera's screen basis + the composition
-   *  centre (world) and feed them to the field. Anchored to the authored FRAME_W×FRAME_H reference so
-   *  sizes are screen-size-independent. No allocation (reused scratch); a no-op when off. */
+  /** Per-frame placement for every wave's particle field: derive the camera's screen basis + each
+   *  wave's world centre (drift radiates from there) and bind that wave's live shape (#defines +
+   *  uniforms + matrixWorld) so the dust rides the SAME deform as the ribbon. Runs after refresh()'s
+   *  per-wave loop so the wave transforms/uniforms are current. No allocation; a no-op when off. */
   private updateSceneFx(): void {
-    this.fxActive = !!this.particleField;
-    if (!this.fxActive) return;
+    let anyField = false;
+    for (const w of this.waves) {
+      if (w.particleField) {
+        anyField = true;
+        break;
+      }
+    }
+    if (!anyField) return;
     this.camera.updateMatrixWorld();
     this.fxRight.setFromMatrixColumn(this.camera.matrixWorld, 0).normalize();
     this.fxUp.setFromMatrixColumn(this.camera.matrixWorld, 1).normalize();
-    const tgt = this.config.cameraTarget;
-    this.fxCenter.set(tgt.x, tgt.y, tgt.z);
-    if (this.particleField) {
-      const frame: ParticleFrame = {
-        center: this.fxCenter,
-        right: this.fxRight,
-        up: this.fxUp,
-        halfW: FRAME_W / 2,
-        halfH: FRAME_H / 2,
-      };
-      this.particleField.frame(frame, this.renderer.getPixelRatio());
-      // Shed emitter: mirror the designated wave's shape (#defines + uniforms + world matrix) onto the
-      // particle material so the dust rides the SAME deform. Runs here (not applyParticles) because the
-      // wave's uniforms/transform are only current AFTER refresh()'s per-wave loop. Cleared when shed is
-      // off or there are no waves — configureShed recompiles only when the define set changes.
-      const shed = this.config.particles?.shed;
-      if ((shed?.rate ?? 0) > 0 && this.waves.length > 0) {
-        const idx = Math.min(Math.max(0, Math.floor(shed?.fromWave ?? 0)), this.waves.length - 1);
-        const wave = this.waves[idx];
-        const sc = this.config.waves[idx] ?? this.config.waves[this.config.waves.length - 1];
-        wave.mesh.updateWorldMatrix(true, false);
-        this.particleField.configureShed({
-          defines: this.shapeDefines(sc),
-          uniforms: wave.material.uniforms,
-          matrixWorld: wave.mesh.matrixWorld,
-          speed: sc.speed,
-          seed: sc.seed,
-          drift: shed?.drift ?? 0,
-          loopSeconds: this.config.loopSeconds ?? 0,
-        });
-      } else {
-        this.particleField.configureShed(null);
-      }
-    }
+    const pr = this.renderer.getPixelRatio();
+    this.waves.forEach((wave, i) => {
+      const field = wave.particleField;
+      if (!field) return;
+      const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
+      wave.mesh.updateWorldMatrix(true, false);
+      wave.mesh.getWorldPosition(this.fxCenter); // drift radiates from this wave's world centre
+      const frame: ParticleFrame = { center: this.fxCenter, right: this.fxRight, up: this.fxUp };
+      field.frame(frame, pr);
+      field.configure({
+        defines: this.shapeDefines(sc),
+        uniforms: wave.material.uniforms,
+        matrixWorld: wave.mesh.matrixWorld,
+        speed: sc.speed,
+        seed: sc.seed,
+      });
+    });
   }
 
   /** The shape-affecting subset of waveDefines() (what the shared waveShape reads) — used to compile
-   *  the particle SHED shader to match its emitter wave. */
+   *  each wave's particle shader to match its own deform. */
   private shapeDefines(sc: WaveConfig): Record<string, string> {
     const all = this.waveDefines(sc);
     const out: Record<string, string> = {};
@@ -2036,18 +2031,14 @@ export class WaveRenderer {
           (sc.interaction?.press?.ripple ?? 0);
       }
       const localRadius = bs.center.length() + bs.radius + disp + pointerDisp;
-      const radius = localRadius * mesh.matrixWorld.getMaxScaleOnAxis() * 1.2;
+      // This wave's dust (if any) spawns on its surface and drifts OUTWARD by up to `drift` world
+      // units as it ages — added post-scale so the particles never cross the fitted near/far. No field
+      // / drift 0 → byte-identical.
+      const drift = wave.particleField ? Math.abs(sc.particles?.drift ?? 0) : 0;
+      const radius = localRadius * mesh.matrixWorld.getMaxScaleOnAxis() * 1.2 + drift;
       // Enclose this wave's sphere by adding its axis-aligned bounding cube corners.
       this.clipBox.expandByPoint(this.clipTmpB.copy(center).addScalar(radius));
       this.clipBox.expandByPoint(this.clipTmpB.copy(center).addScalar(-radius));
-    }
-    // Include the particle field (this loop fits to this.waves only). It sits around the composition
-    // centre in the screen plane spanning ~the authored frame, so a cube of ±max(FRAME_W,FRAME_H)
-    // about fxCenter bounds it. Skipped when off → byte-identical.
-    if (this.fxActive) {
-      const r = Math.max(FRAME_W, FRAME_H);
-      this.clipBox.expandByPoint(this.clipTmpB.copy(this.fxCenter).addScalar(r));
-      this.clipBox.expandByPoint(this.clipTmpB.copy(this.fxCenter).addScalar(-r));
     }
     if (this.clipBox.isEmpty()) return;
     this.clipBox.getBoundingSphere(this.clipSphere);
@@ -2171,8 +2162,8 @@ export class WaveRenderer {
       s.material.dispose();
       s.geometry.dispose();
       s.palette.dispose();
+      s.particleField?.dispose();
     }
-    this.particleField?.dispose();
     this.bloomPass?.dispose();
     this.ditherPass?.dispose();
     this.innerLightPass?.dispose();

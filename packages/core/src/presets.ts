@@ -308,15 +308,17 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     c.bloomStrength = 0.18;
     c.bloomRadius = 0.55;
     c.bloomThreshold = 0.72;
-    // Golden dust shed off the ring's edge into the void (biased to one flank).
-    c.particles = {
+    // Golden dust shed off the ring's own edge into the void (biased to one flank). Per-wave: it rides
+    // this wave's deform and drifts outward from it. edgeBias 1 = spawn on the rim (the shed look).
+    w.particles = {
       count: 20000,
       size: 2.9,
       color: "#ffdca8",
       seed: 7,
       twinkle: 0.8,
-      field: { density: 0.03 },
-      shed: { rate: 0.97, drift: 490, fromWave: 0, bias: -0.6 },
+      edgeBias: 1,
+      drift: 490,
+      bias: -0.6,
     };
     return c;
   },
