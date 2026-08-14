@@ -414,45 +414,96 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     return c;
   },
   "Particle Zoo": () => {
-    // One scene demoing every particle STYLE — a row of small waves, each shedding a different kind of
-    // dust off its own surface (embers / snow / sparks / fireflies / bubbles). The showcase for the
-    // per-wave particle system; the styles come from PARTICLE_PRESETS (also the studio "style" picker).
+    // One scene demoing every particle STYLE — each wave sheds a different kind of dust off its own
+    // surface (embers / snow / sparks / fireflies / bubbles). Scattered across the frame at varied poses
+    // + scales, with the sparks wave fanned into a central radial burst, so the styles read distinctly
+    // and fill the screen. The showcase for the per-wave particle system; styles come from
+    // PARTICLE_PRESETS (the studio "style" picker).
     const c = createDefaultConfig();
     c.background = "#05070d";
     c.backgroundMode = "color";
     c.transparentBackground = false;
-    c.grain = 0.28;
+    c.grain = 0.26;
     c.blur = 0;
-    c.bloomStrength = 0.34;
-    c.bloomThreshold = 0.55;
+    c.bloomStrength = 0.3;
+    c.bloomThreshold = 0.66; // high, so the central sparks fan glows without blowing the middle out
     c.cameraPosition = { x: 100, y: 0, z: 5000 };
     c.cameraTarget = { x: 0, y: 0, z: 0 };
-    c.cameraZoom = 0.5;
-    const zoo: Array<[string, string[]]> = [
-      ["Embers", ["#ff7a1e", "#ffd27a", "#c23a12"]],
-      ["Snow", ["#8fb8e8", "#e8f1fb", "#aeb9d6"]],
-      ["Sparks", ["#ffd27a", "#fff4d0", "#c8853a"]],
-      ["Fireflies", ["#3d5a24", "#7bd23a", "#40521f"]],
-      ["Bubbles", ["#2e8fb0", "#7fd4e8", "#1a5a6e"]],
+    c.cameraZoom = 0.6;
+    // A scattered quincunx (four corners + a central burst) that fills the frame, each pose distinct.
+    // style, palette, screen position, scale, rotation°, radial-fan amount (0 = plain ribbon), opacity.
+    const zoo = [
+      {
+        style: "Embers",
+        palette: ["#ff7a1e", "#ffd27a", "#c23a12"],
+        pos: [-560, 210],
+        scale: [3.4, 3.6, 2.2],
+        rotZ: -16,
+        radial: 0,
+        opacity: 0.6,
+      },
+      {
+        style: "Snow",
+        palette: ["#8fb8e8", "#e8f1fb", "#aeb9d6"],
+        pos: [560, 235],
+        scale: [2.6, 3.2, 1.8],
+        rotZ: 22,
+        radial: 0,
+        opacity: 0.6,
+      },
+      {
+        style: "Sparks",
+        palette: ["#ffd27a", "#fff4d0", "#c8853a"],
+        pos: [30, -20],
+        scale: [1.5, 1.5, 1.4],
+        rotZ: 0,
+        radial: 0.7,
+        opacity: 0.28,
+      }, // dim + fanned → the streaks burst outward
+      {
+        style: "Fireflies",
+        palette: ["#3d5a24", "#7bd23a", "#40521f"],
+        pos: [-500, -250],
+        scale: [3.6, 2.8, 2.2],
+        rotZ: 14,
+        radial: 0,
+        opacity: 0.6,
+      },
+      {
+        style: "Bubbles",
+        palette: ["#2e8fb0", "#7fd4e8", "#1a5a6e"],
+        pos: [560, -230],
+        scale: [2.4, 3.6, 1.8],
+        rotZ: -30,
+        radial: 0,
+        opacity: 0.6,
+      },
     ];
     const base = c.waves[0];
-    c.waves = zoo.map(([style, palette], i) => {
+    c.waves = zoo.map((z, i) => {
       const w = structuredClone(base);
       w.usePaletteTexture = false;
       w.gradientType = "linear";
       w.gradientAngle = 0;
-      w.palette = makeStops(palette);
+      w.palette = makeStops(z.palette);
       w.blendMode = "normal";
       w.hueShift = 0;
       w.colorContrast = 1;
-      w.colorSaturation = 1.05;
-      w.opacity = 0.6;
-      w.scale = { x: 2, y: 2.4, z: 1.6 };
-      w.rotation = { x: 0, y: 0, z: 0 };
-      w.position = { x: -880 + i * 440, y: 0, z: 0 }; // spread across the frame, one style each
+      w.colorSaturation = 1.1;
+      w.opacity = z.opacity;
+      w.scale = { x: z.scale[0], y: z.scale[1], z: z.scale[2] };
+      w.rotation = { x: 0, y: 0, z: (z.rotZ * Math.PI) / 180 };
+      w.position = { x: z.pos[0], y: z.pos[1], z: 0 };
       w.seed = i * 7;
       w.speed = 0.05;
-      w.particles = structuredClone(PARTICLE_PRESETS[style]);
+      if (z.radial > 0) {
+        w.radialAmount = z.radial;
+        w.radialArc = 150;
+        w.radialCenter = 90; // fan points up
+        w.radialRadius = 50;
+        w.radialSpread = 1.2;
+      }
+      w.particles = structuredClone(PARTICLE_PRESETS[z.style]);
       return w;
     });
     c.waveCount = c.waves.length;

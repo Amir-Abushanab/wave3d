@@ -737,6 +737,13 @@ export class WaveRenderer {
       s.material.dispose();
       s.geometry.dispose();
       s.palette.dispose();
+      // Also drop this wave's particle field, or its THREE.Points lingers in the scene and sheds stray
+      // dust onto later frames — notably the shared thumbnail renderer (preset previews after a
+      // particle-heavy preset showed leftover white specks).
+      if (s.particleField) {
+        this.scene.remove(s.particleField.points);
+        s.particleField.dispose();
+      }
     }
     while (this.waves.length < target) this.addWave();
 
