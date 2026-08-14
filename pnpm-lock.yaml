@@ -16,9 +16,6 @@ importers:
       '@changesets/cli':
         specifier: ^2.31.1
         version: 2.31.1(@types/node@22.20.0)
-      '@tanstack/intent':
-        specifier: ^0.3.6
-        version: 0.3.6
       dependency-cruiser:
         specifier: ^18.1.0
         version: 18.1.0
@@ -115,8 +112,8 @@ importers:
   packages/core:
     devDependencies:
       '@tanstack/intent':
-        specifier: ^0.3.4
-        version: 0.3.4
+        specifier: ^0.3.6
+        version: 0.3.6
       '@types/three':
         specifier: ^0.185.0
         version: 0.185.0
@@ -1109,10 +1106,6 @@ packages:
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
-
-  '@tanstack/intent@0.3.4':
-    resolution: {integrity: sha512-yK1VRa118Xdcj+YmuVPVVkSLtyabYnr7Wcn6sBMdHhFEfav/QHIP0G7NdNOA7qSHgbrXiKmLMyYJCQpJ8OLgfQ==}
-    hasBin: true
 
   '@tanstack/intent@0.3.6':
     resolution: {integrity: sha512-ylew/4T3layUXSfE/SDGUSAi1B3U/wuoNUE0adC3j/s6wzX7omV6e6hAv0WyMC52Inren8kqvwpHj+G/ZBbQHQ==}
@@ -3273,14 +3266,6 @@ snapshots:
   '@shikijs/vscode-textmate@10.0.2': {}
 
   '@standard-schema/spec@1.1.0': {}
-
-  '@tanstack/intent@0.3.4':
-    dependencies:
-      cac: 6.7.14
-      jsonc-parser: 3.3.1
-      semver: 7.8.5
-      std-env: 4.1.0
-      yaml: 2.9.0
 
   '@tanstack/intent@0.3.6':
     dependencies:
