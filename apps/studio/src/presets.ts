@@ -19,6 +19,8 @@ export const PRESETS: Record<string, () => StudioConfig> = {
   Embers: CORE["Embers"],
   Snow: CORE["Snow"],
   Sparks: CORE["Sparks"],
+  Fireflies: CORE["Fireflies"],
+  Bubbles: CORE["Bubbles"],
   Holographic: CORE["Holographic"],
   Aurora: CORE["Aurora"],
   Palestine: CORE["Palestine"],

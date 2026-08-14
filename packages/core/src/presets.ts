@@ -421,6 +421,84 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     };
     return c;
   },
+  Fireflies: () => {
+    // Warm sparks of light wandering + flickering in the dusk: few, large STAR sprites with heavy
+    // wander, a slow swirl, low drift and full twinkle. Showcases the organic-wander motion.
+    const c = PRESETS["Hero"]();
+    const w = c.waves[0];
+    // A dim warm-green ribbon so the fireflies are the star, not the wave.
+    w.usePaletteTexture = false;
+    w.gradientType = "linear";
+    w.gradientAngle = 0;
+    w.palette = makeStops(["#1f3a1a", "#3d5a24", "#6b7a2e", "#40521f"]);
+    w.blendMode = "normal";
+    w.hueShift = 0;
+    w.colorContrast = 1;
+    w.colorSaturation = 1;
+    w.opacity = 0.5;
+    c.background = "#05080a"; // deep dusk
+    c.backgroundMode = "color";
+    c.transparentBackground = false;
+    c.grain = 0.3;
+    c.bloomStrength = 0.4; // let the fireflies glow
+    c.bloomThreshold = 0.5;
+    w.particles = {
+      count: 2200,
+      size: 5,
+      seed: 11,
+      color: "#dfff9a",
+      color2: "#8fd94a",
+      shape: "star",
+      edgeBias: 0.1,
+      drift: 25,
+      swirl: 0.3,
+      wander: 170,
+      twinkle: 1,
+      life: 5,
+    };
+    return c;
+  },
+  Bubbles: () => {
+    // Translucent bubbles rising off the wave: RING sprites floating UP (rise positive) with a gentle
+    // sway and varied sizes, on a deep-water ground. Showcases the ring shape + buoyant rise.
+    const c = PRESETS["Hero"]();
+    const w = c.waves[0];
+    // A cool aqua ribbon on a deep-teal underwater ground.
+    w.usePaletteTexture = false;
+    w.gradientType = "linear";
+    w.gradientAngle = 0;
+    w.palette = makeStops(["#1a5a6e", "#2e8fb0", "#7fd4e8", "#bff0f7"]);
+    w.blendMode = "normal";
+    w.hueShift = 0;
+    w.colorContrast = 1.05;
+    w.colorSaturation = 1.1;
+    w.opacity = 0.7;
+    c.background = "#04121a";
+    c.backgroundMode = "gradient";
+    c.backgroundGradientType = "linear";
+    c.backgroundGradientAngle = 90;
+    c.backgroundGradientSource = "stops";
+    c.backgroundPalette = makeStops(["#0a2c3a", "#02080c"]);
+    c.transparentBackground = false;
+    c.grain = 0.25;
+    c.bloomStrength = 0.2;
+    w.particles = {
+      count: 3000,
+      size: 7,
+      sizeJitter: 0.9, // varied bubble sizes
+      seed: 6,
+      color: "#cdeefb",
+      color2: "#8fd0e6",
+      shape: "ring",
+      edgeBias: 0.2,
+      drift: 30,
+      rise: 240,
+      wander: 60,
+      twinkle: 0.3,
+      life: 7,
+    };
+    return c;
+  },
   Holographic: () => {
     // Conic gradient: an iridescent oil-slick sweep. The palette wraps (first ≈ last stop) so
     // the conic seam is invisible.
