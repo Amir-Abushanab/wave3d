@@ -356,6 +356,71 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     };
     return c;
   },
+  Snow: () => {
+    // The other end of the motion range from Embers: soft snow drifting DOWN off a calm cool wave
+    // (rise negative), a gentle sideways wander, and a long life so the flakes fall slowly.
+    const c = PRESETS["Hero"]();
+    const w = c.waves[0];
+    // A cool, dim ribbon so the white snow reads against it.
+    w.usePaletteTexture = false;
+    w.gradientType = "linear";
+    w.gradientAngle = 0;
+    w.palette = makeStops(["#8fb8e8", "#c9dcf2", "#e8f1fb", "#aeb9d6"]);
+    w.blendMode = "normal";
+    w.hueShift = 0;
+    w.colorContrast = 1;
+    w.colorSaturation = 0.9;
+    w.opacity = 0.72;
+    c.background = "#060912"; // deep night sky
+    c.backgroundMode = "color";
+    c.transparentBackground = false;
+    c.grain = 0.3;
+    c.blur = 0.008;
+    c.bloomStrength = 0.14;
+    c.bloomThreshold = 0.72;
+    // Snow off the whole surface, falling with a slow sway; soft white two-tone flakes.
+    w.particles = {
+      count: 12000,
+      size: 3,
+      seed: 4,
+      color: "#eef4ff",
+      color2: "#bcd0ee",
+      shape: "soft",
+      edgeBias: 0.1,
+      drift: 20,
+      rise: -260,
+      wander: 80,
+      twinkle: 0.5,
+      life: 8,
+    };
+    return c;
+  },
+  Sparks: () => {
+    // The fast, bright end of the range: sparks flying off the ring's EDGE as streaks — high outward
+    // drift, a slight rise, and a short life so they zip out and fade. Built on Latte Ring's ring.
+    const c = PRESETS["Latte Ring"]();
+    const w = c.waves[0];
+    w.colorSaturation = 1.15;
+    c.bloomStrength = 0.35;
+    c.bloomThreshold = 0.5;
+    // Streak sprites peeling off one flank, fast and short-lived.
+    w.particles = {
+      count: 9000,
+      size: 5,
+      seed: 9,
+      color: "#ffd27a",
+      color2: "#fff4d0",
+      shape: "streak",
+      edgeBias: 1,
+      drift: 620,
+      rise: 90,
+      wander: 20,
+      bias: -0.4,
+      twinkle: 0.9,
+      life: 2.5,
+    };
+    return c;
+  },
   Holographic: () => {
     // Conic gradient: an iridescent oil-slick sweep. The palette wraps (first ≈ last stop) so
     // the conic seam is invisible.
