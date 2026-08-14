@@ -785,11 +785,11 @@ export class ControlPanel {
         }),
     );
     // Whole-composition mirror (scene-level world-space flip).
-    g.addButton({ title: "↔ mirror horizontal" }).on("click", () => {
+    g.addButton({ title: "↔ mirror / flip horizontal" }).on("click", () => {
       cfg.mirrorH = !cfg.mirrorH;
       refresh();
     });
-    g.addButton({ title: "↕ mirror vertical" }).on("click", () => {
+    g.addButton({ title: "↕ mirror / flip vertical" }).on("click", () => {
       cfg.mirrorV = !cfg.mirrorV;
       refresh();
     });
