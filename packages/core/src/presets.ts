@@ -539,12 +539,16 @@ export const PRESETS: Record<string, () => StudioConfig> = {
       w.seed = i * 7;
       w.speed = 0.05;
       Object.assign(w, z.shape); // the wave's distinct shape family (displace / twist / helix / radial)
-      // Each PARTICLE_PRESET is tuned as a standalone hero cloud that sprawls ~1000px; here five share
-      // one frame, so cap the long-range motion terms to keep each specimen a tidy, separated tuft.
+      // Each PARTICLE_PRESET is tuned as a standalone hero cloud whose dust flings far; here every
+      // specimen should read as dust coming straight OFF its wave, not a cloud floating near it. Pull
+      // the motion terms in (scale) and clamp the outliers (e.g. Sparks' long streak drift) so each
+      // cloud hugs its own wave.
       const p = structuredClone(PARTICLE_PRESETS[z.style]);
-      p.drift = capMag(p.drift, 150);
-      p.rise = capMag(p.rise, 170);
-      p.wander = capMag(p.wander, 80);
+      const PULL = 0.45; // fraction of each preset's hero-scale reach kept here
+      if (p.drift != null) p.drift = capMag(p.drift * PULL, 95);
+      if (p.rise != null) p.rise = capMag(p.rise * PULL, 120);
+      if (p.wander != null) p.wander = capMag(p.wander * PULL, 55);
+      if (p.swirl != null) p.swirl = capMag(p.swirl * PULL, 0.15);
       w.particles = p;
       return w;
     });
