@@ -99,6 +99,13 @@ export const PARTICLE_PRESETS: Record<string, ParticlesConfig> = {
   },
 };
 
+/** Degrees → radians (for the Particle Zoo's per-wave rotation, authored in degrees). */
+const rad = (deg: number): number => (deg * Math.PI) / 180;
+
+/** Clamp a signed magnitude to ±m (used to cap the Zoo's long-range particle motion terms). */
+const capMag = (v: number | undefined, m: number): number | undefined =>
+  v == null ? v : Math.sign(v) * Math.min(Math.abs(v), m);
+
 /** Build a preset from a set of wave parameters. rotation/hue are given in RADIANS and
  *  converted to degrees. All presets are solid-theme, so they reuse the hero palette +
  *  surfaceColor fibers (600/0.2) and sheen 0, like the hero. camTarget/zoom frame the
@@ -415,10 +422,10 @@ export const PRESETS: Record<string, () => StudioConfig> = {
   },
   "Particle Zoo": () => {
     // One scene demoing every particle STYLE — each wave sheds a different kind of dust off its own
-    // surface (embers / snow / sparks / fireflies / bubbles). Scattered across the frame at varied poses
-    // + scales, with the sparks wave fanned into a central radial burst, so the styles read distinctly
-    // and fill the screen. The showcase for the per-wave particle system; styles come from
-    // PARTICLE_PRESETS (the studio "style" picker).
+    // surface (embers / snow / sparks / fireflies / bubbles). Every wave is a DIFFERENT shape family
+    // too (dome / flat sheet / radial fan / helix coil / twist curl), spread apart so none overlap and
+    // the frame stays full. The showcase for the per-wave particle system; styles come from
+    // PARTICLE_PRESETS (the studio "preset style" picker).
     const c = createDefaultConfig();
     c.background = "#05070d";
     c.backgroundMode = "color";
@@ -430,53 +437,88 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     c.cameraPosition = { x: 100, y: 0, z: 5000 };
     c.cameraTarget = { x: 0, y: 0, z: 0 };
     c.cameraZoom = 0.6;
-    // A scattered quincunx (four corners + a central burst) that fills the frame, each pose distinct.
-    // style, palette, screen position, scale, rotation°, radial-fan amount (0 = plain ribbon), opacity.
+    // Five well-separated waves, each a DIFFERENT shape family so the silhouettes read as distinct,
+    // not five copies of one ribbon. Frame at cameraZoom 0.6 spans ~2222×1250 world units centred on
+    // the origin (x ∈ [-1111, 1111], y ∈ [-625, 625], orthographic → screen-xy = world-xy), so the
+    // positions/scales below keep the meshes from overlapping. `shape` carries the per-family knobs
+    // (displace / twist / helix / radial); `rot` is in degrees. style, palette, opacity as before.
     const zoo = [
       {
+        // Embers rising off a broad DOME — low-frequency, high-amplitude displacement mound.
         style: "Embers",
         palette: ["#ff7a1e", "#ffd27a", "#c23a12"],
-        pos: [-560, 210],
-        scale: [3.4, 3.6, 2.2],
-        rotZ: -16,
-        radial: 0,
-        opacity: 0.6,
+        pos: [-720, 285],
+        scale: [1.0, 1.0, 1.0],
+        rot: [-20, 0, -14],
+        opacity: 0.72,
+        shape: {
+          displaceFrequency: { x: 0.0024, y: 0.0065 },
+          displaceAmount: 118,
+          twistPower: { x: 2.4, y: 2.4, z: 3.2 },
+        },
       },
       {
+        // Snow settling on a near-flat drifting SHEET — tilted toward the camera, barely rippled.
         style: "Snow",
         palette: ["#8fb8e8", "#e8f1fb", "#aeb9d6"],
-        pos: [560, 235],
-        scale: [2.6, 3.2, 1.8],
-        rotZ: 22,
-        radial: 0,
-        opacity: 0.6,
+        pos: [700, 320],
+        scale: [1.1, 1.0, 0.9],
+        rot: [-62, 0, 12],
+        opacity: 0.72,
+        shape: {
+          displaceFrequency: { x: 0.006, y: 0.013 },
+          displaceAmount: 22,
+          twistPower: { x: 0.8, y: 0.8, z: 1.0 },
+        },
       },
       {
+        // Sparks bursting off a RADIAL FAN — the one spiky, fanned silhouette; dimmed so it glows
+        // without blowing the centre out.
         style: "Sparks",
         palette: ["#ffd27a", "#fff4d0", "#c8853a"],
-        pos: [30, -20],
-        scale: [1.5, 1.5, 1.4],
-        rotZ: 0,
-        radial: 0.7,
-        opacity: 0.28,
-      }, // dim + fanned → the streaks burst outward
-      {
-        style: "Fireflies",
-        palette: ["#3d5a24", "#7bd23a", "#40521f"],
-        pos: [-500, -250],
-        scale: [3.6, 2.8, 2.2],
-        rotZ: 14,
-        radial: 0,
-        opacity: 0.6,
+        pos: [0, -30],
+        scale: [0.85, 0.85, 0.85],
+        rot: [0, 0, 0],
+        opacity: 0.32,
+        shape: {
+          radialAmount: 0.82,
+          radialArc: 118,
+          radialCenter: 90, // fan points up
+          radialRadius: 40,
+          radialSpread: 1.0,
+          displaceAmount: 30,
+        },
       },
       {
+        // Fireflies wandering around a HELIX coil — a screw-thread column of light.
+        style: "Fireflies",
+        palette: ["#3d5a24", "#7bd23a", "#40521f"],
+        pos: [-560, -300],
+        scale: [1.25, 1.25, 1.25],
+        rot: [0, 0, 8],
+        opacity: 0.72,
+        shape: {
+          helixTurns: 3,
+          helixRadius: 44,
+          helixRoll: 1,
+          displaceAmount: 8,
+          twistPower: { x: 1.0, y: 1.0, z: 1.2 },
+        },
+      },
+      {
+        // Bubbles rising off a strongly TWISTED curl — an S-ribbon coiling on its length.
         style: "Bubbles",
         palette: ["#2e8fb0", "#7fd4e8", "#1a5a6e"],
-        pos: [560, -230],
-        scale: [2.4, 3.6, 1.8],
-        rotZ: -30,
-        radial: 0,
-        opacity: 0.6,
+        pos: [660, -270],
+        scale: [1.0, 1.15, 1.0],
+        rot: [-16, 0, -20],
+        opacity: 0.72,
+        shape: {
+          displaceFrequency: { x: 0.005, y: 0.011 },
+          displaceAmount: 46,
+          twistFrequency: { x: -0.06, y: 0.09, z: -0.5 },
+          twistPower: { x: 4.0, y: 6.0, z: 9.0 },
+        },
       },
     ];
     const base = c.waves[0];
@@ -492,18 +534,18 @@ export const PRESETS: Record<string, () => StudioConfig> = {
       w.colorSaturation = 1.1;
       w.opacity = z.opacity;
       w.scale = { x: z.scale[0], y: z.scale[1], z: z.scale[2] };
-      w.rotation = { x: 0, y: 0, z: (z.rotZ * Math.PI) / 180 };
+      w.rotation = { x: rad(z.rot[0]), y: rad(z.rot[1]), z: rad(z.rot[2]) };
       w.position = { x: z.pos[0], y: z.pos[1], z: 0 };
       w.seed = i * 7;
       w.speed = 0.05;
-      if (z.radial > 0) {
-        w.radialAmount = z.radial;
-        w.radialArc = 150;
-        w.radialCenter = 90; // fan points up
-        w.radialRadius = 50;
-        w.radialSpread = 1.2;
-      }
-      w.particles = structuredClone(PARTICLE_PRESETS[z.style]);
+      Object.assign(w, z.shape); // the wave's distinct shape family (displace / twist / helix / radial)
+      // Each PARTICLE_PRESET is tuned as a standalone hero cloud that sprawls ~1000px; here five share
+      // one frame, so cap the long-range motion terms to keep each specimen a tidy, separated tuft.
+      const p = structuredClone(PARTICLE_PRESETS[z.style]);
+      p.drift = capMag(p.drift, 150);
+      p.rise = capMag(p.rise, 170);
+      p.wander = capMag(p.wander, 80);
+      w.particles = p;
       return w;
     });
     c.waveCount = c.waves.length;

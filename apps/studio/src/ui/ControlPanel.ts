@@ -1383,7 +1383,7 @@ export class ControlPanel {
     // config) — it just seeds the knobs, which stay fully editable afterward.
     const styleOptions: Record<string, string> = { "—": "—" };
     for (const name of Object.keys(PARTICLE_PRESETS)) styleOptions[name] = name;
-    f.addBinding(uiParticles, "style", { label: "style", options: styleOptions }).on(
+    f.addBinding(uiParticles, "style", { label: "preset style", options: styleOptions }).on(
       "change",
       (ev) => {
         const preset = PARTICLE_PRESETS[String(ev.value)];
