@@ -128,6 +128,7 @@ export class ParticleField {
         uTime: { value: 0 },
         uLoopSeconds: { value: 0 },
         uLife: { value: 6 },
+        uPartSpeed: { value: 1 },
         uSize: { value: 2 },
         uSizeJitter: { value: 0 },
         uTwinkle: { value: 0 },
@@ -205,6 +206,7 @@ export class ParticleField {
     const u = this.material.uniforms;
     u.uLoopSeconds.value = loopSeconds;
     u.uLife.value = cfg.life ?? 6;
+    u.uPartSpeed.value = cfg.speed ?? 1;
     u.uSize.value = cfg.size;
     u.uSizeJitter.value = cfg.sizeJitter ?? 0;
     u.uTwinkle.value = cfg.twinkle ?? 0;

@@ -447,6 +447,10 @@ export interface ParticlesConfig {
   /** Second sprite colour — particles interpolate between `color` and this by their seed (two-tone dust). */
   color2?: string;
   life?: number; // seconds per birth→death cycle
+  /** Motion-speed multiplier for the dust: how fast particles cycle + drift (1 = default, 0 = frozen).
+   *  Independent of the wave's own `speed` (which animates the surface the dust rides). Under a seamless
+   *  `loopSeconds` it snaps to a whole number of cycles so the loop stays seamless. */
+  speed?: number;
   twinkle?: number; // 0..1 brightness flicker
   /** Where on the wave particles spawn: 0 = across the whole SURFACE, 1 = the outer rim / EDGE only. */
   edgeBias?: number;
@@ -1131,6 +1135,7 @@ export function normalizeParticles(wave: WaveConfig): void {
   if (p.sizeJitter !== undefined) p.sizeJitter = clampNumber(p.sizeJitter, 0, 1, 0);
   if (p.color !== undefined && typeof p.color !== "string") p.color = "#ffcf8a";
   if (p.life !== undefined) p.life = clampNumber(p.life, 0.1, 60, 6);
+  if (p.speed !== undefined) p.speed = clampNumber(p.speed, 0, 8, 1);
   if (p.twinkle !== undefined) p.twinkle = clampNumber(p.twinkle, 0, 1, 0);
   if (p.color2 !== undefined && typeof p.color2 !== "string") p.color2 = "#ffcf8a";
   if (p.edgeBias !== undefined) p.edgeBias = clampNumber(p.edgeBias, 0, 1, 1);

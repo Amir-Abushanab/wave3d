@@ -1343,6 +1343,7 @@ export class ControlPanel {
       shape: (p?.shape ?? "glitter") as ParticleShape,
       twinkle: p?.twinkle ?? 0.6,
       life: p?.life ?? 6,
+      speed: p?.speed ?? 1,
       edgeBias: p?.edgeBias ?? 1,
       drift: p?.drift ?? 300,
       bias: p?.bias ?? 0,
@@ -1362,6 +1363,7 @@ export class ControlPanel {
           shape: uiParticles.shape,
           twinkle: uiParticles.twinkle,
           life: uiParticles.life,
+          speed: uiParticles.speed,
           seed: uiParticles.seed,
           edgeBias: uiParticles.edgeBias,
           drift: uiParticles.drift,
@@ -1397,6 +1399,7 @@ export class ControlPanel {
           shape: preset.shape ?? "glitter",
           twinkle: preset.twinkle ?? 0,
           life: preset.life ?? 6,
+          speed: preset.speed ?? 1,
           edgeBias: preset.edgeBias ?? 1,
           drift: preset.drift ?? 0,
           bias: preset.bias ?? 0,
@@ -1437,6 +1440,10 @@ export class ControlPanel {
       sync,
     );
     f.addBinding(uiParticles, "life", { min: 0.5, max: 30, step: 0.5, label: "life (s)" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiParticles, "speed", { min: 0, max: 4, step: 0.05, label: "dust speed" }).on(
       "change",
       sync,
     );

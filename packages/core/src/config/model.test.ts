@@ -204,7 +204,9 @@ describe("ensureStudioConfig repairs configs that used to break the panel", () =
     // Present on the wave → repaired in place: required fields backfilled, out-of-range clamped, bindable.
     const on = ensureStudioConfig(
       hostile({
-        waves: [{ particles: { count: 99999, size: NaN, edgeBias: 5, bias: 9, drift: 100 } }],
+        waves: [
+          { particles: { count: 99999, size: NaN, edgeBias: 5, bias: 9, drift: 100, speed: 99 } },
+        ],
       }),
     );
     const p = on.waves[0].particles;
@@ -214,6 +216,7 @@ describe("ensureStudioConfig repairs configs that used to break the panel", () =
     expect(p?.seed).toBe(0);
     expect(p?.edgeBias).toBe(1); // clamped 0..1
     expect(p?.bias).toBe(1); // clamped −1..1
+    expect(p?.speed).toBe(8); // clamped 0..8
     assertBindableLeaves(p);
   });
 });

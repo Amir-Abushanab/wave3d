@@ -1015,6 +1015,7 @@ attribute vec4 aRnd;
 attribute vec2 aUv; // where this particle spawns on the ribbon (x = flank, y = along length; edge-biased at build)
 
 uniform float uTime, uLoopSeconds, uLife, uSize, uSizeJitter, uTwinkle, uPixelRatio;
+uniform float uPartSpeed;
 uniform vec3 uColor, uColor2, uCenter, uRight, uUp;
 uniform float uDrift, uRise, uSwirl, uWander;
 
@@ -1042,8 +1043,10 @@ const float TAU = 6.28318530718;
 
 void main(){
   // Deterministic life: age 0..1 from uTime + a per-particle seed. Advances once per loop period when
-  // looping (so the whole field repeats seamlessly), else once per uLife seconds.
-  float rate = (uLoopSeconds > 0.0) ? (uTime / uLoopSeconds) : (uTime / max(uLife, 0.001));
+  // looping (so the whole field repeats seamlessly), else once per uLife seconds. uPartSpeed scales the
+  // cadence (motion speed); under a loop it snaps to a whole number of cycles so the seam stays seamless.
+  float cyc = max(1.0, floor(uPartSpeed + 0.5));
+  float rate = (uLoopSeconds > 0.0) ? (uTime / uLoopSeconds * cyc) : (uTime * uPartSpeed / max(uLife, 0.001));
   float age = fract(rate + aSeed);
   float fade = sin(3.14159265 * age); // 0 at birth/death, 1 mid-life
 

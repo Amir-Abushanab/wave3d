@@ -78,6 +78,8 @@ const CONTROL_HINTS: Record<string, string> = {
   "size jitter": "How much each particle's size varies from the base — 0 = all the same size.",
   "life (s)":
     "Seconds each particle takes to fade in, drift, and fade out over one birth→death cycle.",
+  "dust speed":
+    "How fast the dust moves — a multiplier on the whole particle cadence (1 = normal, 0 = frozen in place). Separate from the wave's own speed.",
   "dust color": "Colour of the dust sprites (additive, so it glows on a dark background).",
   twinkle: "How much each particle flickers in brightness over its life (0 = steady).",
   "edge bias":
