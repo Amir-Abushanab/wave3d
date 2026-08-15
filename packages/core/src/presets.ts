@@ -540,15 +540,16 @@ export const PRESETS: Record<string, () => StudioConfig> = {
       w.speed = 0.05;
       Object.assign(w, z.shape); // the wave's distinct shape family (displace / twist / helix / radial)
       // Each PARTICLE_PRESET is tuned as a standalone hero cloud whose dust flings far; here every
-      // specimen should read as dust coming straight OFF its wave, not a cloud floating near it. Pull
-      // the motion terms in (scale) and clamp the outliers (e.g. Sparks' long streak drift) so each
-      // cloud hugs its own wave.
+      // specimen should sit ON the wave that emits it, reading as dust clinging to the surface rather
+      // than a cloud floating nearby. Pull the motion terms right down (a small fraction of the hero
+      // reach + tight clamps) so the dust overlaps its own wave; the styles still read apart by sprite
+      // shape / colour / wave shape.
       const p = structuredClone(PARTICLE_PRESETS[z.style]);
-      const PULL = 0.45; // fraction of each preset's hero-scale reach kept here
-      if (p.drift != null) p.drift = capMag(p.drift * PULL, 95);
-      if (p.rise != null) p.rise = capMag(p.rise * PULL, 120);
-      if (p.wander != null) p.wander = capMag(p.wander * PULL, 55);
-      if (p.swirl != null) p.swirl = capMag(p.swirl * PULL, 0.15);
+      const PULL = 0.13; // fraction of each preset's hero-scale reach kept here
+      if (p.drift != null) p.drift = capMag(p.drift * PULL, 24);
+      if (p.rise != null) p.rise = capMag(p.rise * PULL, 28);
+      if (p.wander != null) p.wander = capMag(p.wander * PULL, 15);
+      if (p.swirl != null) p.swirl = capMag(p.swirl * PULL, 0.05);
       w.particles = p;
       return w;
     });
