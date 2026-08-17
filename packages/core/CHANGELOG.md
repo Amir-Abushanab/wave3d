@@ -1,5 +1,26 @@
 # @wave3d/core
 
+## 0.7.0
+
+### Minor Changes
+
+- [#19](https://github.com/Amir-Abushanab/wave3d/pull/19) [`51e9f48`](https://github.com/Amir-Abushanab/wave3d/commit/51e9f480f98da5b7a446115a282ec34355a9e90d) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Add two optional, default-off features for building luminous "plume" compositions:
+
+  - **Radial wave mode** — a per-wave vertex-shader warp (`radialAmount`/`radialArc`/`radialSpread`/`radialRadius`/`radialCenter`) that fans the ribbon's length radially from the local origin, so the combed fibers read as individual radial strands. Placed with the wave's `position` transform.
+  - **Per-wave particles** — an additive GPU dust/sparkle layer (an optional `particles` block on each wave) whose sprites spawn on that wave's deformed surface / edge and drift outward, driven entirely by `uTime` + a seeded layout so it stays deterministic (timeOffset scrub / loopSeconds / paused all hold).
+
+  Each is byte-identical when off (no scene node, pass, or shader `#define`). Ships with a "Latte Ring" preset and studio controls.
+
+- [#19](https://github.com/Amir-Abushanab/wave3d/pull/19) [`51e9f48`](https://github.com/Amir-Abushanab/wave3d/commit/51e9f480f98da5b7a446115a282ec34355a9e90d) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Particles are **per-wave**: each wave carries its own optional `particles` block, and every sprite spawns on THAT wave's DEFORMED surface / edge (silk dissolving into glitter) and drifts outward from it. The vertex deform (displacement / helix / twist / radial) is extracted into a shared `waveShapeChunk` GLSL function used by BOTH the wave vertex shader and the particle shader, so the dust rides the exact same deform as the ribbon it comes off. The extraction is verified byte-identical for existing waves via the pixel-digest harness.
+
+  Knobs: `count / size / color / color2 / seed / life / speed / twinkle / sizeJitter`, plus `edgeBias` (0 = spawn across the whole surface … 1 = the outer rim / edge only), `drift` (outward distance as it ages), and `bias` (−1..1, skews the spawn toward one flank of the edge). `speed` is a motion multiplier (1 = default, 0 = frozen) that scales the dust's cadence independently of the wave's own speed — and snaps to whole cycles under a seamless `loopSeconds`.
+
+  **Variety** beyond the round glitter — motion styles `rise` (screen-vertical buoyancy: + embers, − snow), `swirl` (orbit around the wave), and `wander` (curl-noise turbulence for fireflies / motes); a `shape` render style (`glitter` / `soft` / `ring` / `star` / `streak`); and `color2` for two-tone dust. Each is 0 / default = off. Studio controls live in a per-wave "Particles" folder with a **"style" picker** that loads ready-made looks (glitter / embers / snow / sparks / fireflies / bubbles — exported as `PARTICLE_PRESETS`), and a **"Particle Zoo"** preset demos all of them in one scene (five waves, one style each). Byte-identical when off — an absent block means no THREE.Points for that wave.
+
+### Patch Changes
+
+- [#19](https://github.com/Amir-Abushanab/wave3d/pull/19) [`51e9f48`](https://github.com/Amir-Abushanab/wave3d/commit/51e9f480f98da5b7a446115a282ec34355a9e90d) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Preset/gallery thumbnails now keep a preset's **own dark background** instead of always swapping in a white card. Any solid-theme preset authored on a dark, opaque colour (e.g. "Latte Ring") reads best on that dark ground — a bright wave shows against it and bloom behaves — where the white card washed the warm wave out. Light/transparent-background presets still get the white card (with the light-scatter passes zeroed) so their shape stands out.
+
 ## 0.6.0
 
 ### Minor Changes
