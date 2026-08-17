@@ -53,6 +53,7 @@ const UI_STATE_RECEIVERS = new Set([
   "waveDragProxy",
   "gizmoProxy",
   "uiInputs",
+  "uiParticles",
   "uiHover",
   "uiPress",
   "scrollPrev",

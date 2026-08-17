@@ -175,6 +175,50 @@ describe("ensureStudioConfig repairs configs that used to break the panel", () =
     expect(w.helixPhase).toBe(180);
     expect(w.rungAmount).toBe(94);
   });
+
+  it("backfills radial fields to their off values", () => {
+    // Same contract as helix: the renderer keys RADIAL off radialAmount, so a config predating it must
+    // come back inert (and bindable).
+    const c = ensureStudioConfig(hostile({ waves: [{}] }));
+    const w = c.waves[0];
+    expect(w.radialAmount).toBe(0);
+    expect(w.radialArc).toBe(160);
+    expect(w.radialRadius).toBe(40);
+  });
+
+  it("leaves authored radial values alone", () => {
+    const c = ensureStudioConfig(
+      hostile({
+        waves: [{ radialAmount: 0.9, radialArc: 200, radialCenter: -160 }],
+      }),
+    );
+    expect(c.waves[0].radialAmount).toBe(0.9);
+    expect(c.waves[0].radialArc).toBe(200);
+    expect(c.waves[0].radialCenter).toBe(-160);
+  });
+
+  it("leaves a wave's particles absent when absent (off = byte-identical), and clamps it when present", () => {
+    // Absent → stays absent: no THREE.Points for the wave, byte-identical (the interaction contract).
+    const off = ensureStudioConfig(hostile({ waves: [{}] }));
+    expect(off.waves[0].particles).toBeUndefined();
+    // Present on the wave → repaired in place: required fields backfilled, out-of-range clamped, bindable.
+    const on = ensureStudioConfig(
+      hostile({
+        waves: [
+          { particles: { count: 99999, size: NaN, edgeBias: 5, bias: 9, drift: 100, speed: 99 } },
+        ],
+      }),
+    );
+    const p = on.waves[0].particles;
+    expect(p).toBeDefined();
+    expect(p?.count).toBe(40000);
+    expect(p?.size).toBe(2);
+    expect(p?.seed).toBe(0);
+    expect(p?.edgeBias).toBe(1); // clamped 0..1
+    expect(p?.bias).toBe(1); // clamped −1..1
+    expect(p?.speed).toBe(8); // clamped 0..8
+    assertBindableLeaves(p);
+  });
 });
 
 describe("normalizing never rewrites a value the config already declares", () => {

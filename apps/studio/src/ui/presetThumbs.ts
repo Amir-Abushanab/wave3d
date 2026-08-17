@@ -28,6 +28,38 @@ export function getPresetThumb(name: string): HTMLCanvasElement {
   return cache.get(name) ?? PLACEHOLDER;
 }
 
+/** URLs the renderer fetches ASYNCHRONOUSLY for a config — palette textures and the background
+ *  image. A thumbnail snapshotted before they load is blank; that is why the wireframe + additive
+ *  "Spider-Man" preset (its web lines AND its background are both image-driven, and additive blend
+ *  means an unloaded texture contributes nothing) rendered empty. */
+function asyncImageUrls(cfg: StudioConfig): string[] {
+  const urls: string[] = [];
+  for (const w of cfg.waves ?? []) {
+    if (w.usePaletteTexture && w.paletteImageUrl) urls.push(w.paletteImageUrl);
+  }
+  if (cfg.backgroundMode === "image" && cfg.backgroundImageUrl) urls.push(cfg.backgroundImageUrl);
+  return urls;
+}
+
+/** Resolve once every url has loaded (or failed) — priming the browser's decode cache so the
+ *  renderer's own load of the same url settles promptly, then we snapshot. */
+function preloadImages(urls: string[]): Promise<unknown> {
+  return Promise.all(
+    urls.map(
+      (src) =>
+        new Promise<void>((resolve) => {
+          const img = new Image();
+          // resolve on either outcome — a broken asset shouldn't hang thumbnail generation.
+          img.addEventListener("load", () => resolve(), { once: true });
+          img.addEventListener("error", () => resolve(), { once: true });
+          img.src = src;
+        }),
+    ),
+  );
+}
+
+const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
 /** Render a thumbnail for every preset (once), then call onReady. Safe to call repeatedly. */
 export async function generatePresetThumbnails(
   presets: Record<string, () => StudioConfig>,
@@ -43,8 +75,14 @@ export async function generatePresetThumbnails(
     for (const [name, make] of Object.entries(presets)) {
       const cfg = make();
       prepThumbConfig(cfg);
+      const urls = asyncImageUrls(cfg);
+      await preloadImages(urls); // prime the decode cache before the renderer loads the same urls
       if (!renderer) renderer = new WaveRenderer(host, cfg);
       else renderer.setConfig(cfg);
+      // Image-driven presets load their textures asynchronously; give the renderer's onloads a beat
+      // to fire (and upload) before we snapshot, or the frame captures blank. Cheap and only for the
+      // handful of presets that use an image (the cache is primed, so the loads settle fast).
+      if (urls.length) await wait(120);
       const c = renderThumbFrame(renderer, host);
       if (c) cache.set(name, c);
       // Rendering is intentionally sequential because every iteration reuses the same renderer.

@@ -69,6 +69,43 @@ const CONTROL_HINTS: Record<string, string> = {
   "light x": "Horizontal position of the god-ray light point (0 = left edge, 1 = right).",
   "light y": "Vertical position of the god-ray light point (0 = bottom edge, 1 = top).",
 
+  // --- Particles (this wave's dust field) ---
+  "preset style":
+    "Load a ready-made dust look onto this wave (embers, snow, sparks, fireflies, bubbles, glitter) — then tweak any knob from there.",
+  "dust count":
+    "Number of sparkle particles shed off THIS wave. 0 removes the field entirely (no cost).",
+  "dust size": "Base sprite size in pixels (each particle also varies a little).",
+  "size jitter": "How much each particle's size varies from the base — 0 = all the same size.",
+  "life (s)":
+    "Seconds each particle takes to fade in, drift, and fade out over one birth→death cycle.",
+  "dust speed":
+    "How fast the dust moves — a multiplier on the whole particle cadence (1 = normal, 0 = frozen in place). Separate from the wave's own speed.",
+  "dust color": "Colour of the dust sprites (additive, so it glows on a dark background).",
+  twinkle: "How much each particle flickers in brightness over its life (0 = steady).",
+  "edge bias":
+    "Where the dust spawns on the wave: 0 = across the whole SURFACE, 1 = the outer rim / EDGE only (silk dissolving into glitter).",
+  "dust color 2":
+    "A second dust colour — each particle picks a blend between this and 'dust color', so the field reads two-tone.",
+  shape:
+    "How each sprite is drawn: glitter (soft dot), soft (diffuse blob), ring (bubble), star (sparkle), or streak (a comet along its motion).",
+  drift: "How far the dust drifts outward from the wave as it ages, in world units.",
+  "rise / fall":
+    "Buoyancy: positive floats the dust UP the screen (embers), negative sinks it DOWN (snow / ash). 0 = no vertical drift.",
+  swirl: "Orbits the dust around the wave as it ages — positive one way, negative the other.",
+  wander:
+    "Curl-noise turbulence: particles meander on wavy paths (fireflies, floating motes) instead of straight lines.",
+  "flank bias":
+    "Skews the spawn toward one flank of the edge instead of the whole rim — one side at −1, the other at +1, even at 0.",
+  "dust seed": "Reseeds the random particle layout — the same seed reproduces the same field.",
+
+  // --- Radial (fan the ribbon into a plume) ---
+  "fan amount":
+    "Fans the ribbon's length radially into a plume; the combed fibers become the radial strands. Place it with the wave's position transform. 0 = off (the ribbon's normal shape).",
+  "arc °": "How wide the fan spreads, in degrees.",
+  spread: "How far the strands reach outward — scales the plume's length into its radius.",
+  "inner radius": "Radius of the plume's source (a bigger hole at the centre).",
+  "center °": "Direction the fan points, in degrees.",
+
   // --- Background ---
   "color / matte":
     "The background colour under the 'Solid color' fill — and, under the others, the matte that shows wherever the gradient or image doesn't cover. Ignored while 'transparent' is on.",

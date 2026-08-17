@@ -6,8 +6,7 @@
       "ignoreDependencies": ["@tweakpane/core"]
     },
     "packages/core": {
-      "project": ["src/**/*.ts"],
-      "ignoreDependencies": ["@tanstack/intent"]
+      "project": ["src/**/*.ts"]
     },
     "apps/studio": {
       "entry": ["src/preview.ts", "src/gallery.ts"],

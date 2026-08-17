@@ -18,6 +18,7 @@ import {
   halftoneCmykFragmentShader,
 } from "./shaders";
 import { WaveGeometry } from "./WaveGeometry";
+import { ParticleField, type ParticleFrame } from "./particleField";
 import {
   InteractionController,
   interactionActive,
@@ -243,6 +244,9 @@ type Wave = {
   geometry: WaveGeometry;
   /** This wave's own 2D palette texture + optional video. */
   palette: WavePalette;
+  /** This wave's own particle / dust field — created when its `particles.count` first goes >0,
+   *  disposed at 0 / absent (the WavePalette lifecycle pattern). Undefined = no dust for this wave. */
+  particleField?: ParticleField;
 };
 
 // Parse scratch: refresh() converts ~25 hex colours per wave per call (i.e. per slider input),
@@ -280,6 +284,10 @@ export class WaveRenderer {
   private heatmapPass?: ShaderPass;
   private paperTexturePass?: ShaderPass;
   private halftoneCmykPass?: ShaderPass;
+  // Reused scratch for the per-frame per-wave particle placement (updateSceneFx) — no allocation.
+  private readonly fxCenter = new THREE.Vector3();
+  private readonly fxRight = new THREE.Vector3();
+  private readonly fxUp = new THREE.Vector3();
   protected readonly container: HTMLElement;
   private readonly respectReducedMotion: boolean;
   private readonly skipIntroRamp: boolean;
@@ -562,6 +570,13 @@ export class WaveRenderer {
       uHelixRadius: { value: 0 },
       uHelixRoll: { value: 0 },
       uHelixPhase: { value: 0 },
+      // Radial fan (vertex, under RADIAL). Always present JS-side; three uploads them only when the
+      // compiled program declares them, so a non-radial wave is untouched (precedent: uDetailAmount).
+      uRadialAmount: { value: 0 },
+      uRadialArc: { value: 160 },
+      uRadialSpread: { value: 1 },
+      uRadialRadius: { value: 40 },
+      uRadialCenter: { value: 0 },
       uRungAmount: { value: 0 },
       uRungThickness: { value: 1 },
       uPointer: { value: new THREE.Vector2(0, 0) }, // smoothed pointer NDC
@@ -605,6 +620,9 @@ export class WaveRenderer {
     if ((sc?.helixRadius ?? 0) !== 0 || (sc?.helixRoll ?? 0) !== 0 || bindsHelix) {
       defines.HELIX = "";
     }
+    // Radial fan: amount 0 is the identity mix, so it alone decides whether the block is compiled.
+    // Not binding-driveable in v1 (not in WAVE_TARGET_NAMES), so no bindsRadial term is needed.
+    if ((sc?.radialAmount ?? 0) !== 0) defines.RADIAL = "";
     // Rungs live in the wireframe fragment shader only; setting the define on a solid wave would
     // key a second, identical program for nothing.
     if (sc?.theme === "wireframe" && (sc.rungAmount ?? 0) > 0) defines.RUNGS = "";
@@ -696,6 +714,10 @@ export class WaveRenderer {
       s.material.dispose();
       s.geometry.dispose();
       s.palette.dispose();
+      if (s.particleField) {
+        this.scene.remove(s.particleField.points);
+        s.particleField.dispose();
+      }
     }
     this.waves = [];
   }
@@ -715,6 +737,13 @@ export class WaveRenderer {
       s.material.dispose();
       s.geometry.dispose();
       s.palette.dispose();
+      // Also drop this wave's particle field, or its THREE.Points lingers in the scene and sheds stray
+      // dust onto later frames — notably the shared thumbnail renderer (preset previews after a
+      // particle-heavy preset showed leftover white specks).
+      if (s.particleField) {
+        this.scene.remove(s.particleField.points);
+        s.particleField.dispose();
+      }
     }
     while (this.waves.length < target) this.addWave();
 
@@ -730,6 +759,7 @@ export class WaveRenderer {
   refresh(): void {
     this.applyBackground();
     this.applyPost();
+    this.applyParticles();
     this.syncInteraction(); // create/dispose the interaction controller as config toggles it
     // Once an external driver (orbit / edit gizmo) owns the camera, don't fight it here; the shell
     // (no orbit) applies the saved camera position/target so it matches the authored view.
@@ -871,6 +901,11 @@ export class WaveRenderer {
       u.uHelixRadius.value = sc.helixRadius ?? 0;
       u.uHelixRoll.value = sc.helixRoll ?? 0;
       u.uHelixPhase.value = sc.helixPhase ?? 0;
+      u.uRadialAmount.value = sc.radialAmount ?? 0;
+      u.uRadialArc.value = sc.radialArc ?? 160;
+      u.uRadialSpread.value = sc.radialSpread ?? 1;
+      u.uRadialRadius.value = sc.radialRadius ?? 40;
+      u.uRadialCenter.value = sc.radialCenter ?? 0;
       // Mesh transform — each wave's ABSOLUTE scale / rotation / position, applied via
       // modelMatrix using THREE's Euler XYZ order so the on-screen orientation matches the
       // authored view.
@@ -1512,7 +1547,9 @@ export class WaveRenderer {
   };
 
   private onContextRestored = (): void => {
-    this.disposeWaves(); // old GPU resources are invalid on a fresh context (per-wave palettes too)
+    // old GPU resources are invalid on a fresh context — disposeWaves drops each wave's palette AND
+    // its particle Points, so refresh() (via buildWaves → applyParticles) rebuilds them fresh.
+    this.disposeWaves();
     this.backgroundTexture?.dispose();
     this.backgroundTexture = undefined;
     this.backgroundSig = "";
@@ -1647,6 +1684,8 @@ export class WaveRenderer {
       }
     }
     this.postPass.uniforms.uTime.value = t;
+    // same t as the waves → scrub / loop / pause stay in sync
+    for (const w of this.waves) w.particleField?.setTime(t);
   }
 
   /** Render exactly one frame at the current time. */
@@ -1654,11 +1693,81 @@ export class WaveRenderer {
     this.updateBackgroundVideoFrame();
     this.updateTime();
     this.applyInteraction(); // write pointer + binding uniforms (no-op when off / capturing)
+    this.updateSceneFx(); // feed the particle field (before clip fitting)
     this.updateClipPlanes(); // keep near/far bracketing the scene so no camera angle clips the wave
     this.composer.render();
     // Editor overlays (gizmo/helpers + camera-rig minimap) draw on top of the composed frame —
     // the studio subclass plugs them in here; the base renders nothing extra.
     this.onAfterRenderFrame();
+  }
+
+  /** Insert / sync / remove EACH wave's particle field — mirrors applyBloom's lazy lifecycle, per wave.
+   *  An absent block or count 0 means no THREE.Points for that wave (byte-identical). The seeded buffers
+   *  rebuild only when the (count, seed, edgeBias, bias) signature changes; the rest are live uniforms.
+   *  configure() (the wave-shape binding) runs later in updateSceneFx, once transforms are current. */
+  private applyParticles(): void {
+    const loop = this.config.loopSeconds ?? 0;
+    this.waves.forEach((wave, i) => {
+      const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
+      const cfg = sc?.particles;
+      if (cfg && cfg.count > 0) {
+        if (!wave.particleField) {
+          wave.particleField = new ParticleField();
+          this.scene.add(wave.particleField.points);
+        }
+        wave.particleField.sync(cfg, loop);
+      } else if (wave.particleField) {
+        this.scene.remove(wave.particleField.points);
+        wave.particleField.dispose();
+        wave.particleField = undefined;
+      }
+    });
+  }
+
+  /** Per-frame placement for every wave's particle field: derive the camera's screen basis + each
+   *  wave's world centre (drift radiates from there) and bind that wave's live shape (#defines +
+   *  uniforms + matrixWorld) so the dust rides the SAME deform as the ribbon. Runs after refresh()'s
+   *  per-wave loop so the wave transforms/uniforms are current. No allocation; a no-op when off. */
+  private updateSceneFx(): void {
+    let anyField = false;
+    for (const w of this.waves) {
+      if (w.particleField) {
+        anyField = true;
+        break;
+      }
+    }
+    if (!anyField) return;
+    this.camera.updateMatrixWorld();
+    this.fxRight.setFromMatrixColumn(this.camera.matrixWorld, 0).normalize();
+    this.fxUp.setFromMatrixColumn(this.camera.matrixWorld, 1).normalize();
+    const pr = this.renderer.getPixelRatio();
+    this.waves.forEach((wave, i) => {
+      const field = wave.particleField;
+      if (!field) return;
+      const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
+      wave.mesh.updateWorldMatrix(true, false);
+      wave.mesh.getWorldPosition(this.fxCenter); // drift radiates from this wave's world centre
+      const frame: ParticleFrame = { center: this.fxCenter, right: this.fxRight, up: this.fxUp };
+      field.frame(frame, pr);
+      field.configure({
+        defines: this.shapeDefines(sc),
+        uniforms: wave.material.uniforms,
+        matrixWorld: wave.mesh.matrixWorld,
+        speed: sc.speed,
+        seed: sc.seed,
+      });
+    });
+  }
+
+  /** The shape-affecting subset of waveDefines() (what the shared waveShape reads) — used to compile
+   *  each wave's particle shader to match its own deform. */
+  private shapeDefines(sc: WaveConfig): Record<string, string> {
+    const all = this.waveDefines(sc);
+    const out: Record<string, string> = {};
+    for (const k of ["LOOP_MOTION", "DETAIL_OCTAVE", "HELIX", "TWIST_MOTION", "RADIAL"]) {
+      if (k in all) out[k] = "";
+    }
+    return out;
   }
 
   /** Create/dispose the interaction controller as config toggles interaction on/off. Called from
@@ -1929,7 +2038,11 @@ export class WaveRenderer {
           (sc.interaction?.press?.ripple ?? 0);
       }
       const localRadius = bs.center.length() + bs.radius + disp + pointerDisp;
-      const radius = localRadius * mesh.matrixWorld.getMaxScaleOnAxis() * 1.2;
+      // This wave's dust (if any) spawns on its surface and drifts OUTWARD by up to `drift` world
+      // units as it ages — added post-scale so the particles never cross the fitted near/far. No field
+      // / drift 0 → byte-identical.
+      const drift = wave.particleField ? Math.abs(sc.particles?.drift ?? 0) : 0;
+      const radius = localRadius * mesh.matrixWorld.getMaxScaleOnAxis() * 1.2 + drift;
       // Enclose this wave's sphere by adding its axis-aligned bounding cube corners.
       this.clipBox.expandByPoint(this.clipTmpB.copy(center).addScalar(radius));
       this.clipBox.expandByPoint(this.clipTmpB.copy(center).addScalar(-radius));
@@ -2056,6 +2169,7 @@ export class WaveRenderer {
       s.material.dispose();
       s.geometry.dispose();
       s.palette.dispose();
+      s.particleField?.dispose();
     }
     this.bloomPass?.dispose();
     this.ditherPass?.dispose();

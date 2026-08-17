@@ -225,6 +225,16 @@ export interface WaveConfig {
   /** Phase offset in degrees — where along the turn the ribbon starts. The per-wave knob that puts
    *  a second wave on the opposite side of the same helix (180). */
   helixPhase?: number;
+  /** Radial fan (optional): sweep the ribbon's length into a plume/peacock spread from the local
+   *  origin. The three twists and the helix can't reach it — this maps the ribbon to polar so the
+   *  combed fibers ({@link fiberCount}) read as the individual radial strands. Placement is the wave's
+   *  `position` transform (there is no separate pivot). Runs AFTER displace/helix/twist, behind
+   *  `#ifdef RADIAL`, so `radialAmount` 0 leaves the block uncompiled and the wave byte-identical. */
+  radialAmount?: number; // 0..1 gate + blend (0 = off / identity)
+  radialArc?: number; // fan spread, degrees
+  radialSpread?: number; // along-length → radius scale
+  radialRadius?: number; // source / inner radius (world units, pre-scale)
+  radialCenter?: number; // base angle, degrees
   // Material ("solid" surface vs "wireframe" line shader)
   theme?: "solid" | "wireframe";
   lineAmount?: number;
@@ -252,6 +262,9 @@ export interface WaveConfig {
   /** Optional per-wave interactivity: how THIS wave reacts to the shared pointer + inputs (hover
    *  field, click ripples, param bindings). ABSENT = this wave is inert / byte-identical. */
   interaction?: WaveInteractionConfig;
+  /** Optional per-wave particle / dust field emitted off THIS wave's deformed surface / edge.
+   *  ABSENT ⇒ off (no THREE.Points for this wave, byte-identical). See {@link ParticlesConfig}. */
+  particles?: ParticlesConfig;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -405,6 +418,54 @@ export interface SceneInteractionConfig {
   touch?: boolean;
   /** Input→param bindings driving SCENE params (timeOffset, cameraZoom, blur, grain). */
   bindings?: SceneInteractionBinding[];
+}
+
+/**
+ * A WAVE's field of additive GPU sprites (dust / sparkle). Lives on {@link WaveConfig} — particles
+ * belong to a wave, not the scene. ABSENT ⇒ off: no THREE.Points node is created for that wave and its
+ * render is byte-identical; present ⇒ {@link normalizeParticles} clamps it. Every particle's motion is a
+ * pure function of `uTime` + a per-particle seed baked from `seed`, so it is deterministic (timeOffset
+ * scrub / loopSeconds / paused all hold). Particles spawn on the OWNING wave's DEFORMED surface / edge
+ * (via the shared waveShape) and drift outward from the wave centre.
+ */
+/** How each particle sprite is drawn (a per-field render style, not per-particle). */
+export type ParticleShape = "glitter" | "soft" | "ring" | "star" | "streak";
+export const PARTICLE_SHAPES: readonly ParticleShape[] = [
+  "glitter",
+  "soft",
+  "ring",
+  "star",
+  "streak",
+];
+
+export interface ParticlesConfig {
+  count: number; // total sprites (clamped in normalizeParticles)
+  size: number; // base sprite size, px
+  seed: number; // PRNG seed → reproducible layout
+  sizeJitter?: number; // 0..1 per-particle size variance
+  color?: string; // sprite colour (warm gold default)
+  /** Second sprite colour — particles interpolate between `color` and this by their seed (two-tone dust). */
+  color2?: string;
+  life?: number; // seconds per birth→death cycle
+  /** Motion-speed multiplier for the dust: how fast particles cycle + drift (1 = default, 0 = frozen).
+   *  Independent of the wave's own `speed` (which animates the surface the dust rides). Under a seamless
+   *  `loopSeconds` it snaps to a whole number of cycles so the loop stays seamless. */
+  speed?: number;
+  twinkle?: number; // 0..1 brightness flicker
+  /** Where on the wave particles spawn: 0 = across the whole SURFACE, 1 = the outer rim / EDGE only. */
+  edgeBias?: number;
+  /** How far particles drift outward from the wave centre as they age (world units). */
+  drift?: number;
+  /** −1..1 skew of the spawn along the edge width toward one flank (0 = even, −1 → one side, +1 → other). */
+  bias?: number;
+  /** Screen-vertical buoyancy over a lifetime, world units: + rises (embers), − falls (snow / ash). */
+  rise?: number;
+  /** Orbit around the wave centre in the screen plane, turns per lifetime (swirls the dust). */
+  swirl?: number;
+  /** Curl-noise turbulence: particles meander (fireflies / motes) instead of moving in straight lines. */
+  wander?: number;
+  /** Sprite render style. Default "glitter" (the soft round additive disc). */
+  shape?: ParticleShape;
 }
 
 /**
@@ -605,6 +666,12 @@ function defaultWave(): WaveConfig {
     helixRadius: 0,
     helixRoll: 0,
     helixPhase: 0,
+    // Radial off: amount 0 leaves the RADIAL block uncompiled (see waveDefines).
+    radialAmount: 0,
+    radialArc: 160,
+    radialSpread: 1,
+    radialRadius: 40,
+    radialCenter: 0,
     theme: "solid",
     lineAmount: 425, // wireframe-theme line params (defaults)
     lineThickness: 1,
@@ -694,6 +761,7 @@ export function createDefaultConfig(): StudioConfig {
     paperTextureScale: 2,
     halftoneCmyk: 0,
     halftoneCmykCell: 6,
+    // particles is deliberately absent (off = byte-identical).
     ambient: 0.45,
     lights: [], // hero has no lights — colour is the palette + the SrcColor² blend
     mirrorH: false,
@@ -857,6 +925,11 @@ export function normalizeWave(s: WaveConfig): void {
   if (!Number.isFinite(s.helixRadius)) s.helixRadius = 0;
   if (!Number.isFinite(s.helixRoll)) s.helixRoll = 0;
   if (!Number.isFinite(s.helixPhase)) s.helixPhase = 0;
+  if (!Number.isFinite(s.radialAmount)) s.radialAmount = 0;
+  if (!Number.isFinite(s.radialArc)) s.radialArc = 160;
+  if (!Number.isFinite(s.radialSpread)) s.radialSpread = 1;
+  if (!Number.isFinite(s.radialRadius)) s.radialRadius = 40;
+  if (!Number.isFinite(s.radialCenter)) s.radialCenter = 0;
   if (typeof s.theme !== "string") s.theme = "solid";
   if (!Number.isFinite(s.lineAmount)) s.lineAmount = 425;
   if (!Number.isFinite(s.lineThickness)) s.lineThickness = 1;
@@ -872,6 +945,7 @@ export function normalizeWave(s: WaveConfig): void {
   if (!Number.isFinite(s.opacity)) s.opacity = 1;
   if (!Number.isFinite(s.seed)) s.seed = 0;
   if (s.interaction) normalizeWaveInteraction(s); // present-only; absence stays inert
+  if (s.particles) normalizeParticles(s); // present-only; absence = no field for this wave
 }
 
 /** Backfill scene-level defaults (background/camera/post/lights/quality/mirror). */
@@ -905,6 +979,7 @@ export function ensureSceneDefaults(config: StudioConfig): void {
   if (!Number.isFinite(config.paperTextureScale)) config.paperTextureScale = 2;
   if (!Number.isFinite(config.halftoneCmyk)) config.halftoneCmyk = 0;
   if (!Number.isFinite(config.halftoneCmykCell)) config.halftoneCmykCell = 6;
+  // particles is present-only (like interaction): NOT backfilled here — absence is off.
   if (typeof config.showCameraRig !== "boolean") config.showCameraRig = false;
   if (typeof config.paused !== "boolean") config.paused = false;
   // Not clamped to the studio slider's 0..60: a driver stepping a paused scene frame by frame
@@ -1046,6 +1121,32 @@ export function normalizeSceneInteraction(config: StudioConfig): void {
   }
 }
 
+/**
+ * Present-only normalizer for the scene PARTICLES block: clamp the numerics that are present and
+ * repair the required fields, leaving absent optionals absent (so the block stays lean). NEVER call
+ * when the block is absent — absence is off and byte-identical (ensureStudioConfig gates on presence).
+ */
+export function normalizeParticles(wave: WaveConfig): void {
+  const p = wave.particles;
+  if (!p) return;
+  p.count = clampNumber(p.count, 0, 40000, 0);
+  p.size = clampNumber(p.size, 0, 200, 2);
+  p.seed = num(p.seed, 0);
+  if (p.sizeJitter !== undefined) p.sizeJitter = clampNumber(p.sizeJitter, 0, 1, 0);
+  if (p.color !== undefined && typeof p.color !== "string") p.color = "#ffcf8a";
+  if (p.life !== undefined) p.life = clampNumber(p.life, 0.1, 60, 6);
+  if (p.speed !== undefined) p.speed = clampNumber(p.speed, 0, 8, 1);
+  if (p.twinkle !== undefined) p.twinkle = clampNumber(p.twinkle, 0, 1, 0);
+  if (p.color2 !== undefined && typeof p.color2 !== "string") p.color2 = "#ffcf8a";
+  if (p.edgeBias !== undefined) p.edgeBias = clampNumber(p.edgeBias, 0, 1, 1);
+  if (p.drift !== undefined) p.drift = num(p.drift, 0);
+  if (p.bias !== undefined) p.bias = clampNumber(p.bias, -1, 1, 0);
+  if (p.rise !== undefined) p.rise = num(p.rise, 0);
+  if (p.swirl !== undefined) p.swirl = num(p.swirl, 0);
+  if (p.wander !== undefined) p.wander = num(p.wander, 0);
+  if (p.shape !== undefined && !PARTICLE_SHAPES.includes(p.shape)) p.shape = "glitter";
+}
+
 /** Normalize an ingested config to the wave model: backfill the scene + every wave, and drop in
  *  a default wave if none are present. Idempotent, so it is safe on the renderer's own config as
  *  well as freshly loaded save-states / share links. */
@@ -1055,9 +1156,10 @@ export function ensureStudioConfig(input: StudioConfig): StudioConfig {
   if (!Array.isArray(config.waves) || config.waves.length === 0) {
     config.waves = [makeWave()];
   }
-  config.waves.forEach(normalizeWave); // each wave's normalizeWave runs normalizeWaveInteraction
+  // each wave's normalizeWave runs normalizeWaveInteraction + normalizeParticles (both present-only)
+  config.waves.forEach(normalizeWave);
   config.waveCount = config.waves.length;
-  // Present-only: a config without a scene `interaction` block is left untouched (stays "off").
+  // Present-only: a config without a scene `interaction` block is left untouched ("off").
   if (config.interaction) normalizeSceneInteraction(config);
   return config;
 }

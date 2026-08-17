@@ -18,6 +18,7 @@ import {
   MAX_WAVES,
 } from "@wave3d/core";
 import type {
+  ParticleShape,
   StudioConfig,
   WaveConfig,
   WaveInteractionConfig,
@@ -42,6 +43,7 @@ import {
 import type { StudioWaveRenderer } from "@wave3d/core/studio";
 import { PALETTE_MAPS, buildPaletteCanvas, paletteMapCanvas } from "@wave3d/core/renderer";
 import { buildHeroPaletteCanvas } from "@wave3d/core/renderer";
+import { PARTICLE_PRESETS } from "@wave3d/core/presets";
 import { GradientEditor } from "./GradientEditor";
 import { MeshGradientEditor } from "./MeshGradientEditor";
 import { PaletteDropdown } from "./PaletteDropdown";
@@ -785,11 +787,11 @@ export class ControlPanel {
         }),
     );
     // Whole-composition mirror (scene-level world-space flip).
-    g.addButton({ title: "↔ mirror horizontal" }).on("click", () => {
+    g.addButton({ title: "↔ mirror / flip horizontal" }).on("click", () => {
       cfg.mirrorH = !cfg.mirrorH;
       refresh();
     });
-    g.addButton({ title: "↕ mirror vertical" }).on("click", () => {
+    g.addButton({ title: "↕ mirror / flip vertical" }).on("click", () => {
       cfg.mirrorV = !cfg.mirrorV;
       refresh();
     });
@@ -1320,6 +1322,165 @@ export class ControlPanel {
     this.renderer.setScrollPreview(scrollPrev.preview); // apply the rest state on (re)build
   }
 
+  /** Per-wave "Particles" sub-folder: the dust field emitted off THIS wave's deformed surface / edge.
+   *  Bound to a panel-local proxy (never `wave.particles` directly), so `sync()` writes the block only
+   *  when `count` > 0 and deletes it otherwise — absent = off for this wave, byte-identical (the
+   *  present-only idiom of the interaction folder). Returns the folder so buildWaveFolder can order it. */
+  private buildWaveParticlesFolder(
+    sf: FolderApi,
+    wave: WaveConfig,
+    refresh: () => void,
+  ): FolderApi {
+    const f = sf.addFolder({ title: "Particles", expanded: true });
+    const p = wave.particles;
+    const uiParticles = {
+      style: "—",
+      count: p?.count ?? 0,
+      size: p?.size ?? 2.4,
+      sizeJitter: p?.sizeJitter ?? 0,
+      color: p?.color ?? "#ffd597",
+      color2: p?.color2 ?? p?.color ?? "#ffd597",
+      shape: (p?.shape ?? "glitter") as ParticleShape,
+      twinkle: p?.twinkle ?? 0.6,
+      life: p?.life ?? 6,
+      speed: p?.speed ?? 1,
+      edgeBias: p?.edgeBias ?? 1,
+      drift: p?.drift ?? 300,
+      bias: p?.bias ?? 0,
+      rise: p?.rise ?? 0,
+      swirl: p?.swirl ?? 0,
+      wander: p?.wander ?? 0,
+      seed: p?.seed ?? 1,
+    };
+    const sync = (): void => {
+      if (uiParticles.count > 0) {
+        wave.particles = {
+          count: uiParticles.count,
+          size: uiParticles.size,
+          sizeJitter: uiParticles.sizeJitter,
+          color: uiParticles.color,
+          color2: uiParticles.color2,
+          shape: uiParticles.shape,
+          twinkle: uiParticles.twinkle,
+          life: uiParticles.life,
+          speed: uiParticles.speed,
+          seed: uiParticles.seed,
+          edgeBias: uiParticles.edgeBias,
+          drift: uiParticles.drift,
+          bias: uiParticles.bias,
+          rise: uiParticles.rise,
+          swirl: uiParticles.swirl,
+          wander: uiParticles.wander,
+        };
+      } else {
+        delete wave.particles;
+      }
+      refresh();
+    };
+    const onRelease = (ev: { last: boolean }): void => {
+      if (ev.last) sync(); // count / seed / edgeBias / bias rebuild the seeded buffer (quality idiom)
+    };
+    // Style picker: load a named particle LOOK (PARTICLE_PRESETS — embers / snow / sparks / …) into
+    // this wave's dust and reflect it in the sliders. The choice isn't persisted (no `style` on the
+    // config) — it just seeds the knobs, which stay fully editable afterward.
+    const styleOptions: Record<string, string> = { "—": "—" };
+    for (const name of Object.keys(PARTICLE_PRESETS)) styleOptions[name] = name;
+    f.addBinding(uiParticles, "style", { label: "preset style", options: styleOptions }).on(
+      "change",
+      (ev) => {
+        const preset = PARTICLE_PRESETS[String(ev.value)];
+        if (!preset) return;
+        Object.assign(uiParticles, {
+          count: preset.count,
+          size: preset.size,
+          sizeJitter: preset.sizeJitter ?? 0,
+          color: preset.color ?? "#ffd597",
+          color2: preset.color2 ?? preset.color ?? "#ffd597",
+          shape: preset.shape ?? "glitter",
+          twinkle: preset.twinkle ?? 0,
+          life: preset.life ?? 6,
+          speed: preset.speed ?? 1,
+          edgeBias: preset.edgeBias ?? 1,
+          drift: preset.drift ?? 0,
+          bias: preset.bias ?? 0,
+          rise: preset.rise ?? 0,
+          swirl: preset.swirl ?? 0,
+          wander: preset.wander ?? 0,
+          seed: preset.seed,
+        });
+        sync();
+        f.refresh(); // reflect the loaded values in the sliders
+      },
+    );
+    f.addBinding(uiParticles, "count", { min: 0, max: 20000, step: 100, label: "dust count" }).on(
+      "change",
+      onRelease,
+    );
+    f.addBinding(uiParticles, "size", { min: 0.5, max: 40, step: 0.5, label: "dust size" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiParticles, "sizeJitter", {
+      min: 0,
+      max: 1,
+      step: 0.01,
+      label: "size jitter",
+    }).on("change", sync);
+    f.addBinding(uiParticles, "color", { view: "color", label: "dust color" }).on("change", sync);
+    f.addBinding(uiParticles, "color2", { view: "color", label: "dust color 2" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiParticles, "shape", {
+      label: "shape",
+      options: { glitter: "glitter", soft: "soft", ring: "ring", star: "star", streak: "streak" },
+    }).on("change", sync);
+    f.addBinding(uiParticles, "twinkle", { min: 0, max: 1, step: 0.01, label: "twinkle" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiParticles, "life", { min: 0.5, max: 30, step: 0.5, label: "life (s)" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiParticles, "speed", { min: 0, max: 4, step: 0.05, label: "dust speed" }).on(
+      "change",
+      sync,
+    );
+    // Where the dust spawns on the wave: 0 = across the whole SURFACE, 1 = the outer rim / EDGE only.
+    f.addBinding(uiParticles, "edgeBias", { min: 0, max: 1, step: 0.01, label: "edge bias" }).on(
+      "change",
+      onRelease,
+    );
+    f.addBinding(uiParticles, "drift", { min: 0, max: 800, step: 5, label: "drift" }).on(
+      "change",
+      sync,
+    );
+    // Motion: buoyant rise/fall (embers/snow), swirl around the wave, curl-noise wander (fireflies).
+    f.addBinding(uiParticles, "rise", { min: -600, max: 600, step: 5, label: "rise / fall" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiParticles, "swirl", { min: -3, max: 3, step: 0.05, label: "swirl" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiParticles, "wander", { min: 0, max: 300, step: 5, label: "wander" }).on(
+      "change",
+      sync,
+    );
+    // Skew the spawn toward one flank of the edge (−1 → one side, +1 → the other, 0 → even).
+    f.addBinding(uiParticles, "bias", { min: -1, max: 1, step: 0.05, label: "flank bias" }).on(
+      "change",
+      onRelease,
+    );
+    f.addBinding(uiParticles, "seed", { min: 0, max: 999, step: 1, label: "dust seed" }).on(
+      "change",
+      onRelease,
+    );
+    return f;
+  }
+
   /** Per-wave interaction: how THIS wave reacts — a Hover field, Click & touch, and param Bindings
    *  (each source-selectable, including Scroll). Written to wave.interaction only when in use, so an
    *  untouched wave stays byte-identical. */
@@ -1722,6 +1883,7 @@ export class ControlPanel {
     camFolder = this.buildCameraFolder(mkFolder, cfg);
     this.buildLightsFolder(mkFolder, randomBtn, vec, cfg, refresh);
     this.buildSceneInteractionFolder(mkFolder, cfg, refresh);
+    // Particles are per-wave now (built inside buildWaveFolder), not a scene folder.
 
     // ---- Waves ----
     // Each WaveConfig is a COMPLETE wave: its own colour/gradient, finish, displacement, twist,
@@ -2207,12 +2369,33 @@ export class ControlPanel {
       hxF
         .addBinding(wave, "helixPhase", { min: -180, max: 180, step: 1, label: "phase °" })
         .on("change", refresh);
+
+      // --- Radial --- fan the ribbon into a plume from a source point; the combed fibers then read
+      // as the individual radial strands. Inert until "fan amount" is dialled up (RADIAL off at 0).
+      const raF = sf.addFolder({ title: "Radial", expanded: true });
+      raF
+        .addBinding(wave, "radialAmount", { min: 0, max: 1, step: 0.01, label: "fan amount" })
+        .on("change", refresh);
+      raF
+        .addBinding(wave, "radialArc", { min: 0, max: 360, step: 1, label: "arc °" })
+        .on("change", refresh);
+      raF
+        .addBinding(wave, "radialSpread", { min: 0, max: 3, step: 0.01, label: "spread" })
+        .on("change", refresh);
+      raF
+        .addBinding(wave, "radialRadius", { min: 0, max: 500, step: 1, label: "inner radius" })
+        .on("change", refresh);
+      raF
+        .addBinding(wave, "radialCenter", { min: -180, max: 180, step: 1, label: "center °" })
+        .on("change", refresh);
+      // This wave's dust field (emitted off its own deformed surface / edge).
+      const paF = this.buildWaveParticlesFolder(sf, wave, refresh);
       // Order the sub-sections: appearance (colour, finish) → shape (displacement, twist) → pose
-      // (transform) → advanced (noise bands) → interaction (this wave's reactivity, last — mirrors
-      // the global Interaction folder sitting last in the panel). DOM move so the blocks stay grouped.
+      // (transform) → advanced (noise bands) → particles → interaction (this wave's reactivity, last —
+      // mirrors the global Interaction folder sitting last in the panel). DOM move so blocks stay grouped.
       const waveContent =
         (sf.element.querySelector(":scope > .tp-fldv_c") as HTMLElement | null) ?? sf.element;
-      for (const f of [gradF, finF, dispF, twF, hxF, trF, bandsF, waveIx])
+      for (const f of [gradF, finF, dispF, twF, hxF, raF, trF, bandsF, paF, waveIx])
         waveContent.appendChild(f.element);
     };
 
@@ -2274,6 +2457,7 @@ export class ControlPanel {
       "Camera",
       "Waves",
       "Post FX",
+      "Particles",
       "Interaction",
       "Lights",
     ];
@@ -2415,6 +2599,10 @@ export class ControlPanel {
       // its shape at the size the panel actually renders. Deliberately unlike the Twist arrow
       // beside it, since the two sections are otherwise easy to confuse.
       Helix: svg('<path d="M4.2 3.4C12 4.1 12 7.5 4.2 8.2 12 8.9 12 12.3 4.2 13"/>'),
+      // A plume of spokes fanning up from one point — the radial sweep.
+      Radial: svg(
+        '<path d="M8 13.6 3.2 6M8 13.6 5.4 4.4M8 13.6 8 3.4M8 13.6 10.6 4.4M8 13.6 12.8 6"/>',
+      ),
       Finish: svg('<path d="m8 1.9 1.4 4.1 4.1 1-4.1 1L8 12.1 6.6 8l-4.1-1 4.1-1z"/>'),
       Lights: svg(
         '<circle cx="8" cy="8" r="2.9"/><path d="M8 1.6v1.7M8 12.7v1.7M1.6 8h1.7M12.7 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M3.6 12.4l1.2-1.2M11.2 4.8l1.2-1.2"/>',
@@ -2426,6 +2614,10 @@ export class ControlPanel {
       ),
       // A mouse-cursor — the interaction (pointer / scroll / touch reactivity) layer.
       Interaction: svg('<path d="M2.8 2.4 2.8 11.4 5.3 9.1 7.1 13.2 8.9 12.4 7.1 8.4 10.6 8.4Z"/>'),
+      // A scatter of dust motes — the particle layer.
+      Particles: svg(
+        '<circle cx="4" cy="5.4" r=".95" fill="currentColor" stroke="none"/><circle cx="8.4" cy="3.4" r=".95" fill="currentColor" stroke="none"/><circle cx="12" cy="6.2" r=".95" fill="currentColor" stroke="none"/><circle cx="5.8" cy="9.4" r=".95" fill="currentColor" stroke="none"/><circle cx="11.2" cy="10.8" r=".95" fill="currentColor" stroke="none"/><circle cx="3.4" cy="12.4" r=".95" fill="currentColor" stroke="none"/>',
+      ),
     };
     this.container.querySelectorAll(".tp-fldv_t").forEach((el) => {
       const txt = (el.textContent ?? "").trim();
