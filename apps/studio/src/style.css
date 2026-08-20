@@ -415,11 +415,15 @@ body {
   vertical-align: -2px;
   margin-left: 6px;
   cursor: help;
-  color: rgba(255, 255, 255, 0.42);
-  transition: color 120ms ease;
+  /* Deliberately NO colour: the glyph strokes with currentColor, so it inherits whatever foreground
+     its control uses and can never be invisible against that control's ground. These buttons are
+     near-black text on silver, where a hardcoded translucent white vanished. Dim with opacity, which
+     works on a light or a dark ground alike, and come up to full on hover. */
+  opacity: 0.65;
+  transition: opacity 120ms ease;
 }
 .wv-hint-info:hover {
-  color: rgba(157, 187, 255, 0.95);
+  opacity: 1;
 }
 
 /* Shared tooltip, rendered in the top layer via the Popover API so it escapes #panel's
