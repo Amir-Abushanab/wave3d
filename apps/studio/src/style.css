@@ -272,30 +272,24 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Left-align the label inside the two sprite-artwork buttons ("upload sprite…" / "clear"), so they
-   read as actions on the artwork slot below them. The button box itself is untouched.
-   NOTE: it must be `.tp-btnv_t`, the inner div Tweakpane wraps the label in — that div sets its own
-   `text-align: center`, so aligning the <button> alone inherits down and is then overridden. */
-.wv-sprite-btn .tp-btnv_b {
-  padding-left: 8px;
-}
-.wv-sprite-btn .tp-btnv_t {
-  text-align: left;
-}
-
-/* Preview of the uploaded particle-sprite artwork. Checkerboard behind it because sprites are
-   almost always light-on-transparent, which would vanish against the panel. The <img> is the only
-   place user SVG is rendered in the DOM, and <img> sandboxes scripts inside it — never innerHTML. */
+/* The particle-sprite artwork slot: a preview that doubles as replace (click the swatch) and remove
+   (the ×). It exists only while the field HAS artwork, so both affordances appear exactly when they
+   mean something, and the shape dropdown owns the upload instead of a standalone button.
+   Checkerboard behind the image because sprites are almost always light-on-transparent and would
+   otherwise vanish against the panel. The <img> is the only place user SVG is rendered in the DOM,
+   and <img> sandboxes scripts inside it — never innerHTML. */
 .wv-sprite-preview {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 5px 1px 2px;
 }
-.wv-sprite-preview img {
+.wv-sprite-swatch {
+  flex: none;
   width: 34px;
   height: 34px;
-  object-fit: contain;
+  padding: 0;
+  cursor: pointer;
   border-radius: 4px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   background-color: rgba(255, 255, 255, 0.06);
@@ -311,10 +305,39 @@ body {
     4px -4px,
     -4px 0;
 }
+.wv-sprite-swatch:hover,
+.wv-sprite-swatch:focus-visible {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+.wv-sprite-swatch img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
 .wv-sprite-preview span {
+  flex: 1;
   font-size: 0.5625rem;
   line-height: 1.35;
   color: rgba(255, 255, 255, 0.55);
+}
+.wv-sprite-remove {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  cursor: pointer;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.875rem;
+  line-height: 1;
+}
+.wv-sprite-remove:hover,
+.wv-sprite-remove:focus-visible {
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 /* Caption above a full-width picker (preset / palette): a touch larger/brighter than the group

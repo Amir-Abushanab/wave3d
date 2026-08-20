@@ -71,10 +71,15 @@ import type { ExportSize, ImageFormat, RecordFormat } from "../output/formats";
 /** Sprite size floor applied on upload — see the note at the call site. */
 const SPRITE_MIN_SIZE = 16;
 
-function pickImageDataUrl(onLoad: (url: string) => void): void {
+function pickImageDataUrl(onLoad: (url: string) => void, onCancel?: () => void): void {
   const input = document.createElement("input");
   input.type = "file";
   input.accept = "image/svg+xml,image/*";
+  // Dismissing the OS file dialog fires `cancel`, which is how the shape dropdown puts itself back
+  // instead of sitting on "sprite" with nothing to draw. Where `cancel` isn't supported nothing
+  // fires, so the dropdown reads "sprite" while the config still holds the previous shape — cosmetic
+  // only (nothing is written until a file arrives), and the next change to any control resolves it.
+  if (onCancel) input.addEventListener("cancel", onCancel, { once: true });
   input.addEventListener(
     "change",
     () => {
@@ -1470,57 +1475,81 @@ export class ControlPanel {
       "change",
       sync,
     );
-    f.addBinding(uiParticles, "shape", {
-      label: "shape",
-      options: {
-        glitter: "glitter",
-        soft: "soft",
-        ring: "ring",
-        star: "star",
-        streak: "streak",
-        sprite: "sprite (image)",
-      },
-    }).on("change", sync);
-    // Artwork for shape "sprite". Rasterized once into a square texture shared by the whole field,
-    // tinted by the dust colours. Until it loads (or if it fails) the field draws "glitter".
-    const uploadSpriteBtn = f
-      .addButton({ title: "upload sprite…", label: "sprite image" })
-      .on("click", () => {
-        pickImageDataUrl((url) => {
-          uiParticles.spriteUrl = url;
-          uiParticles.shape = "sprite";
-          // Artwork needs pixels to read. The built-in shapes are tuned for a 2-6px dot, so an upload
-          // onto a default-sized field renders as an unrecognisable smudge and looks broken; lift the
-          // size to something legible on first upload only (an already-large field is left alone).
-          if (uiParticles.size < SPRITE_MIN_SIZE) uiParticles.size = SPRITE_MIN_SIZE;
-          sync();
-          updateSpritePreview();
-          f.refresh(); // reflect the shape + size changes in the controls
-        });
+    // Picking "sprite" with no artwork yet opens the file picker straight away, so uploading is one
+    // step from the shape list instead of a separate button. `lastShape` lets a cancelled picker put
+    // the dropdown back where it was, rather than stranding the field on sprite-with-no-artwork.
+    let lastShape: ParticleShape = uiParticles.shape;
+    const applySpriteUpload = (url: string): void => {
+      uiParticles.spriteUrl = url;
+      uiParticles.shape = "sprite";
+      // Artwork needs pixels to read. The built-in shapes are tuned for a 2-6px dot, so an upload
+      // onto a default-sized field renders as an unrecognisable smudge and looks broken; lift the
+      // size to something legible on first upload only (an already-large field is left alone).
+      if (uiParticles.size < SPRITE_MIN_SIZE) uiParticles.size = SPRITE_MIN_SIZE;
+      lastShape = "sprite";
+      sync();
+      updateSpritePreview();
+      f.refresh(); // reflect the shape + size changes in the controls
+    };
+    const shapeRow = f
+      .addBinding(uiParticles, "shape", {
+        label: "shape",
+        // Tweakpane reads this as { label: value } — the KEY is what the list shows, the VALUE is
+        // what lands in the config. The five procedural shapes are spelt the same either way; the
+        // sprite entry is not, so it must be written label-first or an invalid shape gets stored.
+        options: {
+          glitter: "glitter",
+          soft: "soft",
+          ring: "ring",
+          star: "star",
+          streak: "streak",
+          "sprite (image)\u2026": "sprite",
+        },
+      })
+      .on("change", () => {
+        if (uiParticles.shape === "sprite" && !uiParticles.spriteUrl) {
+          pickImageDataUrl(applySpriteUpload, () => {
+            uiParticles.shape = lastShape; // cancelled — don't strand it on sprite with no artwork
+            f.refresh();
+          });
+          return; // sync() runs from whichever callback fires, once the outcome is known
+        }
+        lastShape = uiParticles.shape;
+        sync();
       });
-    const clearSpriteBtn = f.addButton({ title: "clear", label: "" }).on("click", () => {
+    // The artwork slot: previews the current sprite AND is where you replace or remove it, so
+    // "sprite" isn't an opaque setting (at dust size the rendered particles are far too small to
+    // check what actually got uploaded). No artwork, no row.
+    // The <img> src is the data: URI itself: user SVG must reach the DOM only this way (an <img>
+    // sandboxes any script inside it), never through innerHTML.
+    const spritePreview = document.createElement("div");
+    spritePreview.className = "wv-sprite-preview";
+    const spriteSwatch = document.createElement("button");
+    spriteSwatch.type = "button";
+    spriteSwatch.className = "wv-sprite-swatch";
+    spriteSwatch.title = "Replace artwork\u2026";
+    const spriteImg = document.createElement("img");
+    spriteImg.alt = "";
+    spriteSwatch.append(spriteImg);
+    const spriteNote = document.createElement("span");
+    const spriteRemove = document.createElement("button");
+    spriteRemove.type = "button";
+    spriteRemove.className = "wv-sprite-remove";
+    spriteRemove.title = "Remove artwork";
+    spriteRemove.setAttribute("aria-label", "Remove artwork");
+    spriteRemove.textContent = "\u00d7"; // ×
+    spritePreview.append(spriteSwatch, spriteNote, spriteRemove);
+    spriteSwatch.addEventListener("click", () => pickImageDataUrl(applySpriteUpload));
+    spriteRemove.addEventListener("click", () => {
       if (!uiParticles.spriteUrl) return;
       uiParticles.spriteUrl = "";
-      if (uiParticles.shape === "sprite") uiParticles.shape = "glitter";
+      // Nothing left to draw, so fall back to the default procedural shape rather than leaving the
+      // field on "sprite" with no artwork.
+      if (uiParticles.shape === "sprite") uiParticles.shape = lastShape = "glitter";
       sync();
       updateSpritePreview();
       f.refresh();
     });
-    // Left-align the LABEL inside both sprite buttons (see .wv-sprite-btn in style.css) — the button
-    // boxes stay as they are; only the text ranges left, so they read as actions on the artwork slot
-    // below them rather than as the panel's standalone centred action buttons.
-    uploadSpriteBtn.element.classList.add("wv-sprite-btn");
-    clearSpriteBtn.element.classList.add("wv-sprite-btn");
-    // Preview of the current artwork, so "sprite" isn't an opaque setting — at dust size the
-    // rendered particles are far too small to check what actually got uploaded. Hidden when there
-    // is none. The <img> src is the data: URI itself: user SVG must reach the DOM only this way
-    // (an <img> sandboxes any script inside it), never through innerHTML.
-    const spritePreview = document.createElement("div");
-    spritePreview.className = "wv-sprite-preview";
-    const spriteImg = document.createElement("img");
-    spriteImg.alt = "";
-    const spriteNote = document.createElement("span");
-    spritePreview.append(spriteImg, spriteNote);
     const updateSpritePreview = (): void => {
       const url = uiParticles.spriteUrl;
       spritePreview.style.display = url ? "flex" : "none";
@@ -1588,10 +1617,10 @@ export class ControlPanel {
       "change",
       onRelease,
     );
-    // Park the sprite preview under its two buttons. This has to happen AFTER every control is
-    // added, not beside the buttons at build time: Tweakpane APPENDS each new row to the folder, so
+    // Park the artwork slot directly under the shape row. This has to happen AFTER every control is
+    // added, not beside the dropdown at build time: Tweakpane APPENDS each new row to the folder, so
     // anything inserted mid-build gets left behind at the bottom as the later rows land after it.
-    clearSpriteBtn.element.insertAdjacentElement("afterend", spritePreview);
+    shapeRow.element.insertAdjacentElement("afterend", spritePreview);
     return f;
   }
 
