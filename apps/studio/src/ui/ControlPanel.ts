@@ -1483,19 +1483,21 @@ export class ControlPanel {
     }).on("change", sync);
     // Artwork for shape "sprite". Rasterized once into a square texture shared by the whole field,
     // tinted by the dust colours. Until it loads (or if it fails) the field draws "glitter".
-    f.addButton({ title: "upload sprite…", label: "sprite image" }).on("click", () => {
-      pickImageDataUrl((url) => {
-        uiParticles.spriteUrl = url;
-        uiParticles.shape = "sprite";
-        // Artwork needs pixels to read. The built-in shapes are tuned for a 2-6px dot, so an upload
-        // onto a default-sized field renders as an unrecognisable smudge and looks broken; lift the
-        // size to something legible on first upload only (an already-large field is left alone).
-        if (uiParticles.size < SPRITE_MIN_SIZE) uiParticles.size = SPRITE_MIN_SIZE;
-        sync();
-        updateSpritePreview();
-        f.refresh(); // reflect the shape + size changes in the controls
+    const uploadSpriteBtn = f
+      .addButton({ title: "upload sprite…", label: "sprite image" })
+      .on("click", () => {
+        pickImageDataUrl((url) => {
+          uiParticles.spriteUrl = url;
+          uiParticles.shape = "sprite";
+          // Artwork needs pixels to read. The built-in shapes are tuned for a 2-6px dot, so an upload
+          // onto a default-sized field renders as an unrecognisable smudge and looks broken; lift the
+          // size to something legible on first upload only (an already-large field is left alone).
+          if (uiParticles.size < SPRITE_MIN_SIZE) uiParticles.size = SPRITE_MIN_SIZE;
+          sync();
+          updateSpritePreview();
+          f.refresh(); // reflect the shape + size changes in the controls
+        });
       });
-    });
     const clearSpriteBtn = f.addButton({ title: "clear", label: "" }).on("click", () => {
       if (!uiParticles.spriteUrl) return;
       uiParticles.spriteUrl = "";
@@ -1504,6 +1506,11 @@ export class ControlPanel {
       updateSpritePreview();
       f.refresh();
     });
+    // Left-align the LABEL inside both sprite buttons (see .wv-sprite-btn in style.css) — the button
+    // boxes stay as they are; only the text ranges left, so they read as actions on the artwork slot
+    // below them rather than as the panel's standalone centred action buttons.
+    uploadSpriteBtn.element.classList.add("wv-sprite-btn");
+    clearSpriteBtn.element.classList.add("wv-sprite-btn");
     // Preview of the current artwork, so "sprite" isn't an opaque setting — at dust size the
     // rendered particles are far too small to check what actually got uploaded. Hidden when there
     // is none. The <img> src is the data: URI itself: user SVG must reach the DOM only this way
