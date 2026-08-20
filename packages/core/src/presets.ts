@@ -4,7 +4,12 @@
  * "Stripe *" display names) on top; see apps/studio/src/presets.ts.
  */
 import { createDefaultConfig, makeStops, makeWaveSpread } from "./config/model";
-import type { ParticlesConfig, StudioConfig, NoiseBand } from "./config/model";
+import type {
+  NoiseBand,
+  ParticlesConfig,
+  StudioConfig,
+  WaveInteractionConfig,
+} from "./config/model";
 
 const RAD = 180 / Math.PI;
 
@@ -101,6 +106,11 @@ export const PARTICLE_PRESETS: Record<string, ParticlesConfig> = {
 
 /** Degrees → radians (for the Particle Zoo's per-wave rotation, authored in degrees). */
 const rad = (deg: number): number => (deg * Math.PI) / 180;
+
+/** Identity, but it pins a Zoo entry's inline interaction literal to {@link WaveInteractionConfig}:
+ *  without it the entries are merely INFERRED, so `source` / `target` widen to `string` (needing an
+ *  `as const` per field) and a misspelt knob would slip through unchecked. */
+const interaction = (it: WaveInteractionConfig): WaveInteractionConfig => it;
 
 /** Clamp a signed magnitude to ±m (used to cap the Zoo's long-range particle motion terms). */
 const capMag = (v: number | undefined, m: number): number | undefined =>
@@ -426,6 +436,10 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     // too (dome / flat sheet / radial fan / helix coil / twist curl), spread apart so none overlap and
     // the frame stays full. The showcase for the per-wave particle system; styles come from
     // PARTICLE_PRESETS (the studio "preset style" picker).
+    //
+    // Each specimen also answers the cursor a DIFFERENT way — agitate / push / click-ripple /
+    // param-binding / drag-wake — so the scene doubles as the interactivity showcase, and each one
+    // shows its dust reacting alongside its ribbon.
     const c = createDefaultConfig();
     c.background = "#05070d";
     c.backgroundMode = "color";
@@ -437,6 +451,11 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     c.cameraPosition = { x: 100, y: 0, z: 5000 };
     c.cameraTarget = { x: 0, y: 0, z: 0 };
     c.cameraZoom = 0.6;
+    // Shared cursor. A TIGHT radius so hovering one specimen doesn't stir its neighbours: the waves
+    // sit ~700-1400 world units apart in a 1250-tall frame, and radius is a fraction of viewport
+    // height doubled into NDC-y, so 0.22 → 0.44 NDC-y ≈ one specimen. Touch is opt-in and this is a
+    // showcase, so turn it on (listeners are passive — it does not block page scrolling).
+    c.interaction = { enabled: true, radius: 0.22, ribbonFlow: 0.5, touch: true };
     // Five well-separated waves, each a DIFFERENT shape family so the silhouettes read as distinct,
     // not five copies of one ribbon. Frame at cameraZoom 0.6 spans ~2222×1250 world units centred on
     // the origin (x ∈ [-1111, 1111], y ∈ [-625, 625], orthographic → screen-xy = world-xy), so the
@@ -446,6 +465,10 @@ export const PRESETS: Record<string, () => StudioConfig> = {
       {
         // Embers rising off a broad DOME — low-frequency, high-amplitude displacement mound.
         style: "Embers",
+        // STIR THE FIRE — cursor agitation. The churn octave stirs the mound and the embers riding
+        // it scatter; shove high so the ones already airborne get swept along too.
+        interact: interaction({ hover: { agitate: 34, lighten: 0.25 } }),
+        shove: 2.5,
         palette: ["#ff7a1e", "#ffd27a", "#c23a12"],
         pos: [-720, 285],
         scale: [1.0, 1.0, 1.0],
@@ -460,6 +483,11 @@ export const PRESETS: Record<string, () => StudioConfig> = {
       {
         // Snow settling on a near-flat drifting SHEET — tilted toward the camera, barely rippled.
         style: "Snow",
+        // PRESS INTO THE DRIFT — a NEGATIVE push, so the cursor dents the sheet away from you like a
+        // palm in deep snow, and the settled flakes sink into the hollow with it. Slow smoothing so
+        // the hollow follows heavily; low shove because falling snow shouldn't whip around.
+        interact: interaction({ hover: { push: -22, smoothing: 0.45 } }),
+        shove: 0.6,
         palette: ["#8fb8e8", "#e8f1fb", "#aeb9d6"],
         pos: [700, 320],
         scale: [1.1, 1.0, 0.9],
@@ -475,6 +503,11 @@ export const PRESETS: Record<string, () => StudioConfig> = {
         // Sparks bursting off a RADIAL FAN — the one spiky, fanned silhouette; dimmed so it glows
         // without blowing the centre out.
         style: "Sparks",
+        // STRIKE IT — click/tap only, no hover field. A ring radiates from the hit and, at full
+        // shove, visibly blows OUT through the spark burst instead of stopping at the ribbon: the
+        // clearest demo of dust reacting to the pointer.
+        interact: interaction({ press: { ripple: 46 } }),
+        shove: 4,
         palette: ["#ffd27a", "#fff4d0", "#c8853a"],
         pos: [0, -30],
         scale: [0.85, 0.85, 0.85],
@@ -492,6 +525,13 @@ export const PRESETS: Record<string, () => StudioConfig> = {
       {
         // Fireflies wandering around a HELIX coil — a screw-thread column of light.
         style: "Fireflies",
+        // WIND THE COIL — a BINDING, not a pointer field. Hovering turns the helix a full rotation
+        // and the fireflies ride round with it, because each field mirrors its wave's live shape
+        // uniforms every frame. Deliberately the one specimen with no `hover` block: its particle
+        // program never compiles the pointer path, yet its dust still follows the wave.
+        interact: interaction({
+          bindings: [{ source: "hover", target: "helixPhase", to: 360, smoothing: 0.5 }],
+        }),
         palette: ["#3d5a24", "#7bd23a", "#40521f"],
         pos: [-560, -300],
         scale: [1.25, 1.25, 1.25],
@@ -508,6 +548,11 @@ export const PRESETS: Record<string, () => StudioConfig> = {
       {
         // Bubbles rising off a strongly TWISTED curl — an S-ribbon coiling on its length.
         style: "Bubbles",
+        // DRAG THROUGH THE WATER — the drag-wake. Sweep the cursor and the ribbon behind it is
+        // pulled into a trailing trough that heals when you stop, with the bubbles streaming into
+        // the wake; `thin` adds a watery translucency right under the cursor.
+        interact: interaction({ hover: { wake: 30, thin: 0.45 } }),
+        shove: 1.6,
         palette: ["#2e8fb0", "#7fd4e8", "#1a5a6e"],
         pos: [660, -270],
         scale: [1.0, 1.15, 1.0],
@@ -550,7 +595,11 @@ export const PRESETS: Record<string, () => StudioConfig> = {
       if (p.rise != null) p.rise = capMag(p.rise * PULL, 28);
       if (p.wander != null) p.wander = capMag(p.wander * PULL, 15);
       if (p.swirl != null) p.swirl = capMag(p.swirl * PULL, 0.05);
+      if (z.shove != null) p.pointerShove = z.shove;
       w.particles = p;
+      // One distinct interaction per specimen (agitate / push / ripple / binding / wake) — see each
+      // entry above. Absent would mean inert, so only assign what the entry authored.
+      if (z.interact) w.interaction = structuredClone(z.interact);
       return w;
     });
     c.waveCount = c.waves.length;
