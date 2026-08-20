@@ -34,6 +34,10 @@ const TWIST_POWER_WID =
 
 /** Hints keyed by the rendered label text. */
 const CONTROL_HINTS: Record<string, string> = {
+  // --- Actions ---
+  "Tasteful Randomize":
+    "Rerolls the look: new palette, surface finish, displacement and twist for EVERY wave independently (so a stack comes out varied), plus fresh grain and blur. Background, camera, lights and quality are left alone — so the result always lands in frame. Undo brings the old one back.",
+
   // --- Global / scene ---
   "noise phase": "Scrubs the animation's noise forward/back to freeze a chosen still frame.",
   "loop (s, 0=off)":
@@ -428,22 +432,30 @@ export function applyControlHints(container: HTMLElement): void {
   ensureGlobalListeners();
   container.querySelectorAll<HTMLElement>(".tp-lblv").forEach((row) => {
     if (row.dataset.wvHinted) return;
+    // A labelled row hangs its hint off the label. A BUTTON row has no label (Tweakpane marks it
+    // `tp-lblv-nol`), so fall back to the button's own text — both as the lookup key and as the
+    // anchor, which also means the whole button is the hover target. Safe to read the text here:
+    // applyIcons() has already swapped each leading emoji for an <svg>, which contributes none.
     const labelEl = row.querySelector<HTMLElement>(".tp-lblv_l");
-    if (!labelEl) return;
-    const label = (labelEl.textContent ?? "").trim();
+    const anchor =
+      (labelEl?.textContent ?? "").trim() !== ""
+        ? labelEl
+        : row.querySelector<HTMLElement>(".tp-btnv_t");
+    if (!anchor) return;
+    const label = (anchor.textContent ?? "").trim();
     if (!label) return;
     const text = lookupHint(label, row);
     if (!text) return;
 
     row.dataset.wvHinted = "1";
-    labelEl.classList.add("wv-has-hint");
-    labelEl.addEventListener("pointerenter", () => show(labelEl, text));
-    labelEl.addEventListener("pointerleave", scheduleHide);
+    anchor.classList.add("wv-has-hint");
+    anchor.addEventListener("pointerenter", () => show(anchor, text));
+    anchor.addEventListener("pointerleave", scheduleHide);
     // Keyboard bonus: reveal the hint when the row's own control (already a tab stop, so no new
     // ones) receives focus via the keyboard. Gated on modality so it doesn't pop when a slider is
     // clicked/dragged with the mouse.
     row.addEventListener("focusin", () => {
-      if (keyboardModality) show(labelEl, text);
+      if (keyboardModality) show(anchor, text);
     });
     row.addEventListener("focusout", scheduleHide);
   });

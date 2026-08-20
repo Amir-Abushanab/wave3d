@@ -1334,7 +1334,7 @@ export class ControlPanel {
       .on("change", sync);
     folder.addBinding(uiInputs, "touch").on("change", sync);
 
-    const bindingsF = folder.addFolder({ title: "Scene reactions", expanded: false });
+    const bindingsF = folder.addFolder({ title: "Scene reactions", expanded: true });
     this.renderBindingSlots(bindingsF, slots, IX_SCENE_TARGETS, "timeOffset", sync);
 
     // Scroll preview: the studio page never scrolls, so one slider fakes the scroll position (0 = at
@@ -1685,11 +1685,11 @@ export class ControlPanel {
     hoverF.addBinding(uiHover, "lighten", { min: -1, max: 1, step: 0.01 }).on("change", sync);
     hoverF.addBinding(uiHover, "smoothing", { min: 0, max: 1, step: 0.01 }).on("change", sync);
 
-    const pressF = ix.addFolder({ title: "Click & touch", expanded: false });
+    const pressF = ix.addFolder({ title: "Click & touch", expanded: true });
     pressF.addBinding(on, "press", { label: "enabled" }).on("change", sync);
     pressF.addBinding(uiPress, "ripple", { min: 0, max: 20, step: 0.1 }).on("change", sync);
 
-    const bindingsF = ix.addFolder({ title: "Reactions", expanded: false });
+    const bindingsF = ix.addFolder({ title: "Reactions", expanded: true });
     this.renderBindingSlots(bindingsF, slots, IX_WAVE_TARGETS, "displaceAmount", sync);
     return ix; // caller slots this into the wave's sub-section order (kept last)
   }

@@ -406,6 +406,18 @@ body {
   text-decoration-color: rgba(157, 187, 255, 0.85);
 }
 
+/* A hinted BUTTON row carries the hint on the button's own label. Same dotted marker, but keep the
+   pointer cursor — the control is still primarily a button, so `cursor: help` would misreport it. */
+.tp-btnv_t.wv-has-hint {
+  text-decoration: underline dotted rgba(255, 255, 255, 0.38);
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+  transition: text-decoration-color 120ms ease;
+}
+.tp-btnv_t.wv-has-hint:hover {
+  text-decoration-color: rgba(157, 187, 255, 0.85);
+}
+
 /* Shared tooltip, rendered in the top layer via the Popover API so it escapes #panel's
    overflow/scroll clipping and the canvas. Positioned in JS (fixed coords from the label rect). */
 #wv-tooltip {
