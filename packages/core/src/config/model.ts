@@ -428,14 +428,17 @@ export interface SceneInteractionConfig {
  * scrub / loopSeconds / paused all hold). Particles spawn on the OWNING wave's DEFORMED surface / edge
  * (via the shared waveShape) and drift outward from the wave centre.
  */
-/** How each particle sprite is drawn (a per-field render style, not per-particle). */
-export type ParticleShape = "glitter" | "soft" | "ring" | "star" | "streak";
+/** How each particle sprite is drawn (a per-field render style, not per-particle). All but
+ *  "sprite" are drawn procedurally from `gl_PointCoord`; "sprite" samples {@link
+ *  ParticlesConfig.spriteUrl} and falls back to "glitter" until that image has rasterized. */
+export type ParticleShape = "glitter" | "soft" | "ring" | "star" | "streak" | "sprite";
 export const PARTICLE_SHAPES: readonly ParticleShape[] = [
   "glitter",
   "soft",
   "ring",
   "star",
   "streak",
+  "sprite",
 ];
 
 export interface ParticlesConfig {
@@ -466,6 +469,20 @@ export interface ParticlesConfig {
   wander?: number;
   /** Sprite render style. Default "glitter" (the soft round additive disc). */
   shape?: ParticleShape;
+  /**
+   * Artwork for `shape: "sprite"` — an SVG (or raster) `data:` URI or URL, rasterized ONCE into a
+   * square texture shared by every particle in the field, so the cost is one texture per field and
+   * not per particle. Ignored unless `shape` is "sprite"; until it has loaded the field draws
+   * "glitter", so a slow or broken image degrades instead of blanking.
+   *
+   * The sprite is TINTED by `color` / `color2` (multiplied), so the field's colour knobs keep
+   * working — supply WHITE artwork to take the tint literally, or coloured artwork to modulate it.
+   * Non-square art is letterboxed, because a point sprite is always square.
+   *
+   * Prefer SVG: it is a fraction of the bytes of an equivalent PNG, and the whole config (this
+   * string included) is embedded in save-states and share links.
+   */
+  spriteUrl?: string;
   /**
    * How hard the cursor shoves dust that has already drifted OFF the surface, as a multiple of the
    * displacement the wave's own {@link WaveHoverConfig} field applies. Default 1; 0 = airborne motes
@@ -1157,6 +1174,9 @@ export function normalizeParticles(wave: WaveConfig): void {
   if (p.swirl !== undefined) p.swirl = num(p.swirl, 0);
   if (p.wander !== undefined) p.wander = num(p.wander, 0);
   if (p.shape !== undefined && !PARTICLE_SHAPES.includes(p.shape)) p.shape = "glitter";
+  // Untrusted configs (share links / imported JSON) reach here — keep the url a string, but do not
+  // validate the scheme: the renderer only ever hands it to an <img>, which sandboxes SVG scripts.
+  if (p.spriteUrl !== undefined && typeof p.spriteUrl !== "string") delete p.spriteUrl;
   if (p.pointerShove !== undefined) p.pointerShove = clampNumber(p.pointerShove, 0, 4, 1);
 }
 

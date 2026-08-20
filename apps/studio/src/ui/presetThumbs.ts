@@ -36,6 +36,9 @@ function asyncImageUrls(cfg: StudioConfig): string[] {
   const urls: string[] = [];
   for (const w of cfg.waves ?? []) {
     if (w.usePaletteTexture && w.paletteImageUrl) urls.push(w.paletteImageUrl);
+    // Particle sprite artwork loads the same async way, so a field using one snapshots as bare
+    // "glitter" dust unless its image is primed too.
+    if (w.particles?.shape === "sprite" && w.particles.spriteUrl) urls.push(w.particles.spriteUrl);
   }
   if (cfg.backgroundMode === "image" && cfg.backgroundImageUrl) urls.push(cfg.backgroundImageUrl);
   return urls;

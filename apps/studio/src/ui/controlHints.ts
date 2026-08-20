@@ -87,7 +87,9 @@ const CONTROL_HINTS: Record<string, string> = {
   "dust color 2":
     "A second dust colour — each particle picks a blend between this and 'dust color', so the field reads two-tone.",
   shape:
-    "How each sprite is drawn: glitter (soft dot), soft (diffuse blob), ring (bubble), star (sparkle), or streak (a comet along its motion).",
+    "How each sprite is drawn: glitter (soft dot), soft (diffuse blob), ring (bubble), star (sparkle), streak (a comet along its motion), or sprite (your own uploaded image).",
+  "sprite image":
+    "Upload your own artwork for the dust — SVG is best (a fraction of a PNG's size, and it travels inside share links). It's rasterized once into one square texture shared by every particle, so a big count costs no more memory than the built-in shapes. Tinted by the dust colours, so use white artwork to keep the tint literal. Raise 'dust size' — artwork needs far more pixels than a 3px dot to read.",
   drift: "How far the dust drifts outward from the wave as it ages, in world units.",
   "rise / fall":
     "Buoyancy: positive floats the dust UP the screen (embers), negative sinks it DOWN (snow / ash). 0 = no vertical drift.",

@@ -64,6 +64,37 @@ import {
 } from "../output/formats";
 import type { ExportSize, ImageFormat, RecordFormat } from "../output/formats";
 
+/** Pick an IMAGE only, as a data: URI. Separate from pickMediaDataUrl (which also takes video)
+ *  because particle artwork has no video path — and SVG is listed first to advertise it as the
+ *  preferred format: it is a fraction of a PNG's bytes, and this string is embedded in save-states
+ *  and share links. */
+/** Sprite size floor applied on upload — see the note at the call site. */
+const SPRITE_MIN_SIZE = 16;
+
+function pickImageDataUrl(onLoad: (url: string) => void): void {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/svg+xml,image/*";
+  input.addEventListener(
+    "change",
+    () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.addEventListener(
+        "load",
+        () => {
+          if (typeof reader.result === "string") onLoad(reader.result);
+        },
+        { once: true },
+      );
+      reader.readAsDataURL(file);
+    },
+    { once: true },
+  );
+  input.click();
+}
+
 function pickMediaDataUrl(onLoad: (url: string, kind: "image" | "video") => void): void {
   const input = document.createElement("input");
   input.type = "file";
@@ -1351,6 +1382,7 @@ export class ControlPanel {
       swirl: p?.swirl ?? 0,
       wander: p?.wander ?? 0,
       pointerShove: p?.pointerShove ?? 1,
+      spriteUrl: p?.spriteUrl ?? "",
       seed: p?.seed ?? 1,
     };
     const sync = (): void => {
@@ -1373,6 +1405,8 @@ export class ControlPanel {
           swirl: uiParticles.swirl,
           wander: uiParticles.wander,
           pointerShove: uiParticles.pointerShove,
+          // Absent unless actually set, so a field that never used artwork keeps a lean config.
+          ...(uiParticles.spriteUrl ? { spriteUrl: uiParticles.spriteUrl } : {}),
         };
       } else {
         delete wave.particles;
@@ -1409,6 +1443,7 @@ export class ControlPanel {
           swirl: preset.swirl ?? 0,
           wander: preset.wander ?? 0,
           pointerShove: preset.pointerShove ?? 1,
+          spriteUrl: preset.spriteUrl ?? "", // built-in looks are procedural — drop any stale artwork
           seed: preset.seed,
         });
         sync();
@@ -1436,8 +1471,36 @@ export class ControlPanel {
     );
     f.addBinding(uiParticles, "shape", {
       label: "shape",
-      options: { glitter: "glitter", soft: "soft", ring: "ring", star: "star", streak: "streak" },
+      options: {
+        glitter: "glitter",
+        soft: "soft",
+        ring: "ring",
+        star: "star",
+        streak: "streak",
+        sprite: "sprite (image)",
+      },
     }).on("change", sync);
+    // Artwork for shape "sprite". Rasterized once into a square texture shared by the whole field,
+    // tinted by the dust colours. Until it loads (or if it fails) the field draws "glitter".
+    f.addButton({ title: "upload sprite…", label: "sprite image" }).on("click", () => {
+      pickImageDataUrl((url) => {
+        uiParticles.spriteUrl = url;
+        uiParticles.shape = "sprite";
+        // Artwork needs pixels to read. The built-in shapes are tuned for a 2-6px dot, so an upload
+        // onto a default-sized field renders as an unrecognisable smudge and looks broken; lift the
+        // size to something legible on first upload only (an already-large field is left alone).
+        if (uiParticles.size < SPRITE_MIN_SIZE) uiParticles.size = SPRITE_MIN_SIZE;
+        sync();
+        f.refresh(); // reflect the shape + size changes in the controls
+      });
+    });
+    f.addButton({ title: "clear", label: "" }).on("click", () => {
+      if (!uiParticles.spriteUrl) return;
+      uiParticles.spriteUrl = "";
+      if (uiParticles.shape === "sprite") uiParticles.shape = "glitter";
+      sync();
+      f.refresh();
+    });
     f.addBinding(uiParticles, "twinkle", { min: 0, max: 1, step: 0.01, label: "twinkle" }).on(
       "change",
       sync,

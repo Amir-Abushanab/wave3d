@@ -1712,7 +1712,11 @@ export class WaveRenderer {
       const cfg = sc?.particles;
       if (cfg && cfg.count > 0) {
         if (!wave.particleField) {
-          wave.particleField = new ParticleField();
+          // The callback fires when a sprite image finishes rasterizing: a paused / settled
+          // renderer has no next frame to pick it up, so it has to be asked to draw one.
+          wave.particleField = new ParticleField(() => {
+            if (!this.running) this.renderOnce();
+          });
           this.scene.add(wave.particleField.points);
         }
         wave.particleField.sync(cfg, loop);

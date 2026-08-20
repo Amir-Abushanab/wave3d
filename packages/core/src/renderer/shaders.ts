@@ -1184,7 +1184,24 @@ uniform float uShape; // 0 glitter · 1 soft · 2 ring · 3 star · 4 streak
 varying float vAlpha;
 varying vec3 vColor;
 varying vec2 vDir;
+// User artwork (shape "sprite"), behind a define so a field without one compiles the exact same
+// program — and so the sampler only exists once a texture is actually bound to it. ONE texture is
+// shared by every particle in the field; see ParticleField.loadSprite for the rasterization.
+#ifdef PARTICLE_SPRITE
+uniform sampler2D uSprite;
+#endif
 void main(){
+#ifdef PARTICLE_SPRITE
+  // gl_PointCoord's origin is the sprite's TOP-left with y running DOWN, so it has to be flipped or
+  // every sprite draws upside down. The procedural shapes below never needed this — they are all
+  // symmetric about y, which is exactly why the bug would have gone unnoticed.
+  vec4 tex = texture2D(uSprite, vec2(gl_PointCoord.x, 1.0 - gl_PointCoord.y));
+  float a = tex.a * vAlpha;
+  if (a <= 0.0) discard;
+  // Tinted by the dust colour so color / color2 keep working: white artwork takes the tint
+  // exactly, coloured artwork multiplies it.
+  gl_FragColor = vec4(vColor * tex.rgb, a);
+#else
   vec2 pc = gl_PointCoord - 0.5;
   float d = length(pc);
   int s = int(uShape + 0.5);
@@ -1207,5 +1224,6 @@ void main(){
   a *= vAlpha;
   if (a <= 0.0) discard;
   gl_FragColor = vec4(vColor, a); // AdditiveBlending (src = SrcAlpha) → adds vColor·a
+#endif
 }
 `;

@@ -46,6 +46,18 @@ function setLinear(target: THREE.Vector3, hex: string): void {
 
 const DEFAULT_COLOR = "#ffcf8a"; // warm gold
 
+/**
+ * Edge of the square canvas a {@link ParticlesConfig.spriteUrl} is rasterized into. SVG has no
+ * intrinsic pixel size, so something has to choose one — this is it.
+ *
+ * 256² RGBA is ~256 KB (~350 KB with mipmaps), which is LESS than the per-particle attribute
+ * buffers a 20k field already uploads (~800 KB): one texture serves every particle in the field, so
+ * sprite artwork is not what makes a dust field expensive. 256 also covers the largest sprite the
+ * hardware will draw — gl.ALIASED_POINT_SIZE_RANGE tops out around 511 px, and `size` clamps to 200
+ * before the pixel-ratio multiply.
+ */
+const SPRITE_PX = 256;
+
 /** Sprite-shape name → the int the fragment shader branches on (see particleFragmentShader). */
 const SHAPE_INDEX: Record<string, number> = { glitter: 0, soft: 1, ring: 2, star: 3, streak: 4 };
 
@@ -145,8 +157,20 @@ export class ParticleField {
   private readonly material: THREE.ShaderMaterial;
   /** Layout signature — only these rebuild the seeded buffers; the rest are live uniforms. */
   private sig = "";
+  /** Rasterized user artwork for shape "sprite", and the url it came from (so a repeat sync is a
+   *  no-op). `spriteFailedUrl` latches a broken image so a bad url is not retried every frame. */
+  private sprite?: THREE.CanvasTexture;
+  private spriteUrl = "";
+  private spriteFailedUrl = "";
+  private disposed = false;
+  /** Defines this field owns (currently just PARTICLE_SPRITE), merged over the wave's in configure().
+   *  Set only once a texture is actually bound, so the sampler never compiles without one. */
+  private ownDefines: Record<string, string> = {};
+  /** Called when a sprite finishes rasterizing, so a paused/settled renderer redraws with it. */
+  private readonly onReady?: () => void;
 
-  constructor() {
+  constructor(onReady?: () => void) {
+    this.onReady = onReady;
     this.material = new THREE.ShaderMaterial({
       uniforms: {
         uTime: { value: 0 },
@@ -210,6 +234,8 @@ export class ParticleField {
         uRippleAmp: { value: Array.from({ length: RIPPLE_SLOTS }, () => 0) },
         uPointerRipple: { value: 0 },
         uPartShove: { value: 1 },
+        // User artwork (read only under PARTICLE_SPRITE, which is set only once this is non-null).
+        uSprite: { value: null as THREE.Texture | null },
       },
       vertexShader: particleVertexShader,
       fragmentShader: particleFragmentShader,
@@ -257,6 +283,7 @@ export class ParticleField {
     u.uWander.value = cfg.wander ?? 0;
     u.uShape.value = SHAPE_INDEX[cfg.shape ?? "glitter"] ?? 0;
     u.uPartShove.value = cfg.pointerShove ?? 1;
+    this.syncSprite(cfg.shape === "sprite" ? (cfg.spriteUrl ?? "") : "");
     setLinear(u.uColor.value as THREE.Vector3, cfg.color ?? DEFAULT_COLOR);
     setLinear(u.uColor2.value as THREE.Vector3, cfg.color2 ?? cfg.color ?? DEFAULT_COLOR);
   }
@@ -282,7 +309,7 @@ export class ParticleField {
     speed: number;
     seed: number;
   }): void {
-    const want = shape.defines;
+    const want = { ...shape.defines, ...this.ownDefines };
     const cur = (this.material.defines ?? {}) as Record<string, string>;
     if (Object.keys(want).sort().join(",") !== Object.keys(cur).sort().join(",")) {
       this.material.defines = { ...want };
@@ -294,6 +321,90 @@ export class ParticleField {
     (u.uShedModel.value as THREE.Matrix4).copy(shape.matrixWorld);
     u.uShedSpeed.value = shape.speed;
     u.uShedSeed.value = shape.seed;
+  }
+
+  /** Reconcile the sprite texture to `url` ("" = none). Cheap and idempotent: a repeat call with the
+   *  same url does nothing, and a url that already failed is never retried. */
+  private syncSprite(url: string): void {
+    if (url === this.spriteUrl) return;
+    this.spriteUrl = url;
+    this.clearSprite();
+    if (url && url !== this.spriteFailedUrl) this.loadSprite(url);
+  }
+
+  /** Drop the current sprite and fall back to the procedural shapes (which is what `uShape` still
+   *  holds, so a field mid-load or with a broken image draws "glitter" rather than nothing). */
+  private clearSprite(): void {
+    if (!this.sprite) return;
+    this.sprite.dispose();
+    this.sprite = undefined;
+    this.material.uniforms.uSprite.value = null;
+    if (this.ownDefines.PARTICLE_SPRITE !== undefined) {
+      this.ownDefines = {};
+      this.material.needsUpdate = true; // configure() will also notice, but a paused field may not tick
+    }
+  }
+
+  /**
+   * Rasterize `url` into a square {@link SPRITE_PX} texture and bind it.
+   *
+   * Deliberately the BACKGROUND-image pattern (load → apply → ask for a redraw) rather than
+   * loadPaletteImage's fire-and-forget TextureLoader: a thumbnail or poster snapshotted while the
+   * texture was still in flight would capture blank dust — the same class of bug that made
+   * image-driven preset thumbnails render empty.
+   */
+  private loadSprite(url: string): void {
+    const img = new Image();
+    img.decoding = "async";
+    // data:/blob: are same-origin already; anything else must be CORS-clean or the canvas taints
+    // and readback (thumbnails, posters, captureImage) throws.
+    if (!url.startsWith("data:") && !url.startsWith("blob:")) img.crossOrigin = "anonymous";
+    img.addEventListener(
+      "load",
+      () => {
+        // The config may have moved on (or the field been disposed) while this was decoding.
+        if (this.disposed || this.spriteUrl !== url) return;
+        const canvas = document.createElement("canvas");
+        canvas.width = SPRITE_PX;
+        canvas.height = SPRITE_PX;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        // CONTAIN the artwork: a point sprite is always square (gl_PointCoord spans 0..1 on both
+        // axes), so non-square art has to be letterboxed or it draws stretched. An SVG with no
+        // intrinsic size reports 0 in some browsers — fall back to filling the square.
+        const iw = img.naturalWidth || SPRITE_PX;
+        const ih = img.naturalHeight || SPRITE_PX;
+        const fit = Math.min(SPRITE_PX / iw, SPRITE_PX / ih);
+        const w = iw * fit;
+        const h = ih * fit;
+        ctx.drawImage(img, (SPRITE_PX - w) / 2, (SPRITE_PX - h) / 2, w, h);
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        // Mipmaps matter here in a way they do not for the palette: `sizeJitter` and the birth/death
+        // fade draw the SAME texture at wildly different pixel sizes, and gl_PointCoord's
+        // derivatives across a point sprite are well defined, so the GPU picks a sane level.
+        tex.generateMipmaps = true;
+        tex.minFilter = THREE.LinearMipmapLinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        tex.wrapS = THREE.ClampToEdgeWrapping;
+        tex.wrapT = THREE.ClampToEdgeWrapping;
+        this.sprite = tex;
+        this.material.uniforms.uSprite.value = tex;
+        this.ownDefines = { PARTICLE_SPRITE: "" };
+        this.material.needsUpdate = true; // sampler appears → recompile the point program
+        this.onReady?.(); // a paused / settled renderer would otherwise never draw it
+      },
+      { once: true },
+    );
+    // Latch the failure so a broken url is not re-requested on every sync.
+    img.addEventListener(
+      "error",
+      () => {
+        this.spriteFailedUrl = url;
+      },
+      { once: true },
+    );
+    img.src = url;
   }
 
   /** Copy one uniform across from the owning wave: numbers by value, vectors/matrices in place, and
@@ -315,6 +426,8 @@ export class ParticleField {
   }
 
   dispose(): void {
+    this.disposed = true;
+    this.sprite?.dispose();
     this.geometry.dispose();
     this.material.dispose();
   }

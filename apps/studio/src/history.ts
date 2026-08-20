@@ -47,19 +47,23 @@ export interface HistoryDeps {
   onChange: () => void;
 }
 
-// The four large media-URL fields. They are only ever *reassigned* (never mutated in place) and
-// strings are immutable, so history snapshots share them by reference — N snapshots keep one copy
-// of a multi-MB data URL instead of N. They are also excluded from the no-op fingerprint so that
-// comparing two states never re-serializes megabytes.
+// The large media-URL fields. They are only ever *reassigned* (never mutated in place) and strings
+// are immutable, so history snapshots share them by reference — N snapshots keep one copy of a
+// multi-MB data URL instead of N. They are also excluded from the no-op fingerprint so that
+// comparing two states never re-serializes megabytes. `spriteUrl` (particle artwork) sits one level
+// deeper, on `wave.particles`, so it is shared separately below — but it goes in MEDIA_KEYS with
+// the rest, since the fingerprint replacer matches on key name at any depth.
 const SCENE_MEDIA = ["backgroundImageUrl", "backgroundVideoUrl"] as const;
 const WAVE_MEDIA = ["paletteImageUrl", "paletteVideoUrl"] as const;
-const MEDIA_KEYS = new Set<string>([...SCENE_MEDIA, ...WAVE_MEDIA]);
+const MEDIA_KEYS = new Set<string>([...SCENE_MEDIA, ...WAVE_MEDIA, "spriteUrl"]);
 
 function historyClone(c: StudioConfig): StudioConfig {
   const clone = structuredClone(c);
   for (const k of SCENE_MEDIA) clone[k] = c[k];
   clone.waves.forEach((w, i) => {
     for (const k of WAVE_MEDIA) w[k] = c.waves[i][k];
+    const src = c.waves[i].particles?.spriteUrl;
+    if (w.particles && src !== undefined) w.particles.spriteUrl = src;
   });
   return clone;
 }
@@ -77,7 +81,10 @@ function mediaRefsEqual(a: StudioConfig, b: StudioConfig): boolean {
   return a.waves.every(
     (w, i) =>
       w.paletteImageUrl === b.waves[i].paletteImageUrl &&
-      w.paletteVideoUrl === b.waves[i].paletteVideoUrl,
+      w.paletteVideoUrl === b.waves[i].paletteVideoUrl &&
+      // MUST be compared here: the fingerprint above drops every MEDIA_KEYS field, so swapping only
+      // the particle artwork would otherwise read as a no-op and never commit to the timeline.
+      w.particles?.spriteUrl === b.waves[i].particles?.spriteUrl,
   );
 }
 
