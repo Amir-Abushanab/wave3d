@@ -276,6 +276,110 @@ WaveShape waveShape(vec3 position, vec2 uv, float t, vec2 loopOff){
 }
 `;
 
+// The POINTER FIELD, shared by the wave vertex shader and the particle emitter (particleVertexShader)
+// exactly as waveShapeChunk shares the deform — so a wave's dust reacts to the cursor through the SAME
+// footprint, falloff and displacement its ribbon does instead of staying pinned to the un-poked
+// surface. The whole chunk is interpolated INSIDE `#ifdef POINTER_FX` in both callers, so a wave with
+// no interaction config compiles the exact same program as before (JS-side uniform entries are always
+// present — see makeUniforms — but three only uploads uniforms the compiled program declares).
+// Requires simplexNoise and the uDispFreqX / uDispFreqZ shape uniforms declared above.
+const pointerFieldChunk = /* glsl */ `
+uniform vec2  uPointer;        // smoothed pointer, NDC (-1..1)
+uniform float uPointerActive;  // presence ramp 0..1 × per-wave influence
+uniform float uPointerRadius;  // falloff radius in NDC-y units (config radius × 2)
+uniform float uPointerAspect;  // drawing-buffer dw/dh (circular screen falloff)
+uniform float uPointerAgitate;
+uniform float uPointerPush;    // signed membrane dome at the cursor (+ repel / − attract)
+uniform float uPointerWake;    // drag-wake trough amplitude (behind the moving cursor)
+uniform vec2  uPointerVel;     // smoothed pointer velocity, NDC/s (drag-wake direction)
+// Ribbon flow: stretch the falloff along the strip's length axis so the field reaches ALONG the
+// ribbon rather than as a screen disc. 0 = the plain circular smoothstep (byte-identical when off).
+uniform float uShapeFlow;
+#ifdef POINTER_RIPPLES
+uniform vec2  uRippleOrigin[4]; // NDC
+uniform float uRippleAge[4];    // seconds since spawn (CPU-computed)
+uniform float uRippleAmp[4];    // shared 0..1 decay envelope per slot (CPU-computed; 0 = slot free)
+uniform float uPointerRipple;   // THIS wave's ripple amplitude (scales the shared envelope)
+const float RIPPLE_WAVE_SPEED = 0.85; // NDC/s the ring crest travels outward
+const float RIPPLE_SIGMA = 0.14;      // gaussian half-width of the travelling packet (NDC)
+const float RIPPLE_FREQ = 11.0;       // oscillation within the packet (one crest + faint troughs)
+const float RIPPLE_MAX_R = 1.2;       // reach where the crest has fully left the frame
+#endif
+
+// fall = screen falloff × presence (the wave's vPointerFall, which both fragment themes consume);
+// disp = the signed displacement along the surface's own up-axis, which the CALLER applies (the wave
+// in its local space, the dust through the wave's world matrix).
+struct PointerHit { float fall; float disp; };
+
+// Sample the field for ONE point. ndc is that point's screen position; mvp the clip transform of the
+// space rotA/rotB/rotC and churnPos live in (the owning wave's local space); t / loopOff the caller's
+// linear / orbit time — only the one selected by LOOP_MOTION is read.
+PointerHit pointerField(vec2 ndc, mat4 mvp, mat4 rotA, mat4 rotB, mat4 rotC, vec3 churnPos,
+                        float t, vec2 loopOff){
+  // Screen-space offset from the cursor (aspect-corrected → round in pixels). The DEFAULT metric.
+  vec2 dp = (ndc - uPointer) * vec2(uPointerAspect, 1.0);
+  // Ribbon flow: stretch the metric along the strip's own LENGTH axis so the field reaches ALONG the
+  // ribbon and stays tight across it — the "flows with the material" feel, per-vertex (so it follows
+  // the strip's curve) with no CPU surface pick. The length axis is local +X (uv.x runs with x)
+  // carried through the SAME twist as the surface. The camera is orthographic (affine, w=1), so the
+  // axis's screen image is the linear map of the DIRECTION (w=0): one mat·dir, no second
+  // point-projection and no perspective divide. (A true per-pixel uv would need GPU picking — the
+  // visible surface is shader-displaced, so a CPU raycast of the base geometry misses.)
+  if (uShapeFlow > 0.0) {
+    vec3 tangentLocal = (((vec4(1.0, 0.0, 0.0, 0.0) * rotA) * rotB) * rotC).xyz;
+    vec2 tang = (mvp * vec4(tangentLocal, 0.0)).xy * vec2(uPointerAspect, 1.0);
+    float tl = length(tang);
+    if (tl > 1.0e-6) {
+      tang /= tl;
+      vec2 nrm = vec2(-tang.y, tang.x);
+      dp = vec2(dot(dp, tang) / (1.0 + uShapeFlow * 2.5), dot(dp, nrm)); // up to 3.5× reach along length
+    }
+  }
+  float fall = smoothstep(uPointerRadius, 0.0, length(dp)) * uPointerActive;
+  // Agitation: a fast churn octave near the cursor (additive — never rewrites base noise t, which
+  // would force restructuring the shared path). Loop-safe under both time variants.
+#ifdef LOOP_MOTION
+  float disp = uPointerAgitate * fall
+        * simplexNoise(vec2(churnPos.x * uDispFreqX * 3.0, churnPos.z * uDispFreqZ * 3.0) + loopOff * 4.0);
+#else
+  float disp = uPointerAgitate * fall
+        * simplexNoise(vec2(churnPos.x * uDispFreqX * 3.0 + t * 4.0, churnPos.z * uDispFreqZ * 3.0));
+#endif
+  // Membrane push/pull: a smooth dome (fall is the falloff) that swells toward you (+ repel) or dents
+  // away (− attract) at the cursor, riding along with the sprung field.
+  disp += uPointerPush * fall;
+  // Drag-wake: pull the surface just BEHIND the moving cursor into a trailing trough. dp points
+  // from cursor to vertex; "behind" is how far the vertex sits opposite the velocity (0 ahead → 1 a
+  // radius behind), gated by speed so it only forms while dragging and heals when the cursor stops.
+  vec2 velC = uPointerVel * vec2(uPointerAspect, 1.0);
+  float wakeSpeed = length(velC);
+  if (uPointerWake != 0.0 && wakeSpeed > 1.0e-4) {
+    float behind = clamp(dot(-dp, velC) / (wakeSpeed * uPointerRadius), 0.0, 1.0);
+    disp -= uPointerWake * fall * behind * smoothstep(0.05, 0.6, wakeSpeed);
+  }
+#ifdef POINTER_RIPPLES
+  for (int i = 0; i < 4; i++) {
+    if (uRippleAmp[i] > 0.0) {
+      float rd = length((ndc - uRippleOrigin[i]) * vec2(uPointerAspect, 1.0));
+      // A wave PACKET whose crest travels outward at RIPPLE_WAVE_SPEED: a gaussian window centred on
+      // the moving front carrying a short oscillation (a raised ring with faint trailing troughs),
+      // so the energy radiates instead of throbbing at the click point. The shared uRippleAmp
+      // envelope fades the whole packet over its lifetime; reach fades it as the crest leaves frame.
+      float front = uRippleAge[i] * RIPPLE_WAVE_SPEED;
+      float band  = rd - front;
+      float packet = exp(-band * band / (2.0 * RIPPLE_SIGMA * RIPPLE_SIGMA)) * cos(band * RIPPLE_FREQ);
+      float reach = 1.0 - smoothstep(RIPPLE_MAX_R * 0.7, RIPPLE_MAX_R, front);
+      disp += uPointerRipple * uRippleAmp[i] * packet * reach;
+    }
+  }
+#endif
+  PointerHit hit;
+  hit.fall = fall;
+  hit.disp = disp;
+  return hit;
+}
+`;
+
 export const vertexShader = /* glsl */ `
 ${simplex2d}
 
@@ -309,32 +413,12 @@ varying vec3 vWorldPos;
 varying vec3 vViewDir;
 varying vec4 vClipPosition; // = gl_Position, for the wireframe theme's depth fade
 
-// Pointer field (optional, additive). ALL declarations here sit behind POINTER_FX so a wave with
-// no interaction config compiles the exact same program (JS-side uniform entries are always present
-// — see makeUniforms — but three only uploads uniforms the compiled program actually declares).
+// Pointer field (optional, additive) — the shared chunk, gated so a wave with no interaction config
+// compiles the exact same program. The particle emitter interpolates the SAME chunk, so dust reacts
+// through one implementation of the footprint / falloff / displacement.
 #ifdef POINTER_FX
-uniform vec2  uPointer;        // smoothed pointer, NDC (-1..1)
-uniform float uPointerActive;  // presence ramp 0..1 × per-wave influence
-uniform float uPointerRadius;  // falloff radius in NDC-y units (config radius × 2)
-uniform float uPointerAspect;  // drawing-buffer dw/dh (circular screen falloff)
-uniform float uPointerAgitate;
-uniform float uPointerPush;    // signed membrane dome at the cursor (+ repel / − attract)
-uniform float uPointerWake;    // drag-wake trough amplitude (behind the moving cursor)
-uniform vec2  uPointerVel;     // smoothed pointer velocity, NDC/s (drag-wake direction)
-// Ribbon flow: stretch the falloff along the strip's length axis so the field reaches ALONG the
-// ribbon rather than as a screen disc. 0 = the plain circular smoothstep (byte-identical when off).
-uniform float uShapeFlow;
+${pointerFieldChunk}
 varying float vPointerFall;    // falloff × presence — consumed by both fragment themes
-#ifdef POINTER_RIPPLES
-uniform vec2  uRippleOrigin[4]; // NDC
-uniform float uRippleAge[4];    // seconds since spawn (CPU-computed)
-uniform float uRippleAmp[4];    // shared 0..1 decay envelope per slot (CPU-computed; 0 = slot free)
-uniform float uPointerRipple;   // THIS wave's ripple amplitude (scales the shared envelope)
-const float RIPPLE_WAVE_SPEED = 0.85; // NDC/s the ring crest travels outward
-const float RIPPLE_SIGMA = 0.14;      // gaussian half-width of the travelling packet (NDC)
-const float RIPPLE_FREQ = 11.0;       // oscillation within the packet (one crest + faint troughs)
-const float RIPPLE_MAX_R = 1.2;       // reach where the crest has fully left the frame
-#endif
 #endif
 
 ${waveShapeChunk}
@@ -369,75 +453,20 @@ void main(){
   // Pointer field: displace along the wave's own (post-twist) up-axis, weighted by a screen-space
   // falloff around the smoothed cursor — a circle at uShapeFlow 0, stretched along the ribbon as it
   // rises. Everything here is ADDITIVE and fenced, so the shared path above/below is untouched and
-  // byte-identical when POINTER_FX is off.
+  // byte-identical when POINTER_FX is off. The field itself lives in pointerFieldChunk, which the
+  // particle emitter also calls — so dust reacts through this exact footprint and falloff.
   // Shared clip-space transform, computed once and reused for the cursor metric and the ribbon
   // tangent (the compiler is not guaranteed to CSE the triple product otherwise). Associativity is
   // unchanged, so preClip is bit-for-bit what the plain P*V*M*v product produced.
   mat4 mvp = projectionMatrix * viewMatrix * modelMatrix;
   vec4 preClip = mvp * vec4(pos, 1.0);
-  // Screen-space offset from the cursor (aspect-corrected → round in pixels). The DEFAULT metric.
-  vec2 ndcHere = preClip.xy / max(preClip.w, 1.0e-6);
-  vec2 dp = (ndcHere - uPointer) * vec2(uPointerAspect, 1.0);
-  // Ribbon flow: stretch the metric along the strip's own LENGTH axis so the field reaches ALONG the
-  // ribbon and stays tight across it — the "flows with the material" feel, per-vertex (so it follows
-  // the strip's curve) with no CPU surface pick. The length axis is local +X (uv.x runs with x)
-  // carried through the SAME twist as the surface. The camera is orthographic (affine, w=1), so the
-  // axis's screen image is the linear map of the DIRECTION (w=0): one mat·dir, no second
-  // point-projection and no perspective divide. (A true per-pixel uv would need GPU picking — the
-  // visible surface is shader-displaced, so a CPU raycast of the base geometry misses.)
-  if (uShapeFlow > 0.0) {
-    vec3 tangentLocal = (((vec4(1.0, 0.0, 0.0, 0.0) * ws.rotA) * ws.rotB) * ws.rotC).xyz;
-    vec2 tang = (mvp * vec4(tangentLocal, 0.0)).xy * vec2(uPointerAspect, 1.0);
-    float tl = length(tang);
-    if (tl > 1.0e-6) {
-      tang /= tl;
-      vec2 nrm = vec2(-tang.y, tang.x);
-      dp = vec2(dot(dp, tang) / (1.0 + uShapeFlow * 2.5), dot(dp, nrm)); // up to 3.5× reach along length
-    }
-  }
-  float fall = smoothstep(uPointerRadius, 0.0, length(dp));
-  vPointerFall = fall * uPointerActive;
+  PointerHit hit = pointerField(preClip.xy / max(preClip.w, 1.0e-6), mvp,
+                                ws.rotA, ws.rotB, ws.rotC, pos, t, loopOff);
+  vPointerFall = hit.fall;
   // Displacement axis = local +Y carried through the SAME three twist rotations as pos (row-vector
   // convention). Rotations are linear, so post-twist axis displacement equals pre-twist Y displacement.
   vec3 dispAxis = (((vec4(0.0, 1.0, 0.0, 0.0) * ws.rotA) * ws.rotB) * ws.rotC).xyz;
-  // Agitation: a fast churn octave near the cursor (additive — never rewrites base noise t, which
-  // would force restructuring the shared path). Loop-safe under both time variants.
-#ifdef LOOP_MOTION
-  float disp = uPointerAgitate * vPointerFall
-        * simplexNoise(vec2(pos.x * uDispFreqX * 3.0, pos.z * uDispFreqZ * 3.0) + loopOff * 4.0);
-#else
-  float disp = uPointerAgitate * vPointerFall
-        * simplexNoise(vec2(pos.x * uDispFreqX * 3.0 + t * 4.0, pos.z * uDispFreqZ * 3.0));
-#endif
-  // Membrane push/pull: a smooth dome (vPointerFall is the falloff) that swells toward you (+ repel)
-  // or dents away (− attract) at the cursor, riding along with the sprung field.
-  disp += uPointerPush * vPointerFall;
-  // Drag-wake: pull the surface just BEHIND the moving cursor into a trailing trough. dp points
-  // from cursor to vertex; "behind" is how far the vertex sits opposite the velocity (0 ahead → 1 a
-  // radius behind), gated by speed so it only forms while dragging and heals when the cursor stops.
-  vec2 velC = uPointerVel * vec2(uPointerAspect, 1.0);
-  float wakeSpeed = length(velC);
-  if (uPointerWake != 0.0 && wakeSpeed > 1.0e-4) {
-    float behind = clamp(dot(-dp, velC) / (wakeSpeed * uPointerRadius), 0.0, 1.0);
-    disp -= uPointerWake * vPointerFall * behind * smoothstep(0.05, 0.6, wakeSpeed);
-  }
-#ifdef POINTER_RIPPLES
-  for (int i = 0; i < 4; i++) {
-    if (uRippleAmp[i] > 0.0) {
-      float rd = length((preClip.xy / max(preClip.w, 1.0e-6) - uRippleOrigin[i]) * vec2(uPointerAspect, 1.0));
-      // A wave PACKET whose crest travels outward at RIPPLE_WAVE_SPEED: a gaussian window centred on
-      // the moving front carrying a short oscillation (a raised ring with faint trailing troughs),
-      // so the energy radiates instead of throbbing at the click point. The shared uRippleAmp
-      // envelope fades the whole packet over its lifetime; reach fades it as the crest leaves frame.
-      float front = uRippleAge[i] * RIPPLE_WAVE_SPEED;
-      float band  = rd - front;
-      float packet = exp(-band * band / (2.0 * RIPPLE_SIGMA * RIPPLE_SIGMA)) * cos(band * RIPPLE_FREQ);
-      float reach = 1.0 - smoothstep(RIPPLE_MAX_R * 0.7, RIPPLE_MAX_R, front);
-      disp += uPointerRipple * uRippleAmp[i] * packet * reach;
-    }
-  }
-#endif
-  pos += dispAxis * disp;
+  pos += dispAxis * hit.disp;
 #endif
 
   // The scale / rotation / position transform lives on the mesh (modelMatrix), so the
@@ -1035,6 +1064,14 @@ uniform mat4 uShedModel;              // the wave's matrixWorld (deformed LOCAL 
 uniform float uShedSpeed, uShedSeed;
 ${waveShapeChunk}
 
+// The cursor. Same chunk the ribbon uses, mirrored onto this material in ParticleField.configure(),
+// and behind the same POINTER_FX gate — a wave with no hover field compiles the point program it
+// always did. uPartShove is the one particle-only knob (see the two samples in main).
+#ifdef POINTER_FX
+${pointerFieldChunk}
+uniform float uPartShove; // how hard the cursor shoves dust that has already drifted free (0 = off)
+#endif
+
 varying float vAlpha;
 varying vec3 vColor;
 varying vec2 vDir; // screen-space motion direction (for the streak sprite)
@@ -1063,17 +1100,43 @@ void main(){
   // Approximate the base hairpin point for this uv (length from uv.y; width centre), then deform it
   // exactly as the wave does. Good enough for dust — the fan / displacement dominate.
   vec3 base = vec3((aUv.y - 0.5) * 400.0, 0.0, ${RIBBON_Z_CENTER.toFixed(1)});
-  vec3 origin = (uShedModel * vec4(waveShape(base, aUv, ts, loopOff).pos, 1.0)).xyz;
+  WaveShape ws = waveShape(base, aUv, ts, loopOff);
+  vec3 origin = (uShedModel * vec4(ws.pos, 1.0)).xyz;
   vec3 outward = normalize(origin - uCenter + vec3(1e-4));
+
+#ifdef POINTER_FX
+  // WELD (applied below, once the mote's own motion is known). The ribbon displaces its surface by
+  // pointerField() along its own post-twist up-axis; a mote sitting ON that surface has to take the
+  // same ride, or the cursor's dome lifts the silk out from under its own glitter. Sampled at the
+  // SPAWN point and carried through the local→world matrix exactly as the ribbon's own
+  // pos += dispAxis * disp is, so the two land on the same place. Sampling at the spawn point also
+  // leaves outward derived from the UNDISPLACED origin, so a poke never bends the drift direction.
+  mat4 pMvp = projectionMatrix * viewMatrix * uShedModel;
+  vec4 originClip = pMvp * vec4(ws.pos, 1.0);
+  vec3 dispAxis = mat3(uShedModel) * (((vec4(0.0, 1.0, 0.0, 0.0) * ws.rotA) * ws.rotB) * ws.rotC).xyz;
+  PointerHit weld = pointerField(originClip.xy / max(originClip.w, 1.0e-6), pMvp,
+                                 ws.rotA, ws.rotB, ws.rotC, ws.pos, ts, loopOff);
+#endif
+
   vec3 p = origin + outward * age * uDrift + (aRnd.xyz - 0.5) * age * uDrift * 0.35;
 
   // Motion styles, each 0 = off, all riding age so they stay loop-safe (the age wrap is hidden by
   // fade→0 at birth/death). rise = screen-vertical buoyancy (embers up / snow down); swirl = orbit
   // around the wave centre in the screen plane; wander = curl-noise turbulence (fireflies / motes).
   p += uUp * age * uRise;
+  // How far this mote travels away from its birth patch over a WHOLE life — the straight-line terms
+  // plus, under swirl, the arc it sweeps at its own orbit radius. Only the pointer weld reads it
+  // (0 for dust that merely clings to the surface, which is exactly the case age would get wrong),
+  // so it is fenced like everything else the cursor drives.
+#ifdef POINTER_FX
+  float span = abs(uDrift) * 1.35 + abs(uRise) + uWander;
+#endif
   if (uSwirl != 0.0) {
     vec3 nrm = cross(uRight, uUp);
     vec3 rel = p - uCenter;
+#ifdef POINTER_FX
+    span += abs(uSwirl) * TAU * length(rel);
+#endif
     float rx = dot(rel, uRight), ry = dot(rel, uUp), rz = dot(rel, nrm);
     float a = age * uSwirl * TAU;
     float ca = cos(a), sa = sin(a);
@@ -1084,6 +1147,25 @@ void main(){
                     simplexNoise(vec2(age * 3.0, aSeed * 23.0)));
     p += (uRight * wan.x + uUp * wan.y) * uWander;
   }
+
+#ifdef POINTER_FX
+  // How attached to its birth patch this mote still is: 1 while it sits on the surface, 0 once it
+  // has travelled a full life's worth away. Measured from the DISTANCE it actually moved rather than
+  // from age, because dust with no drift / rise / swirl / wander never leaves the surface at all —
+  // an age fade would quietly stop that dust from following the ribbon halfway through its life.
+  float attach = span > 1.0e-4 ? 1.0 - clamp(length(p - origin) / span, 0.0, 1.0) : 1.0;
+  p += dispAxis * (weld.disp * attach);
+  // SHOVE: the exact complement. The same field sampled at the mote's OWN screen position, so the
+  // cursor also pushes dust that has already left the surface — and a click ripple visibly blows
+  // through the cloud instead of stopping dead at the ribbon. Uniform branch (warp-coherent), so
+  // uPartShove 0 costs nothing.
+  if (uPartShove != 0.0) {
+    vec4 pClip = projectionMatrix * viewMatrix * vec4(p, 1.0);
+    PointerHit shove = pointerField(pClip.xy / max(pClip.w, 1.0e-6), pMvp,
+                                    ws.rotA, ws.rotB, ws.rotC, ws.pos, ts, loopOff);
+    p += dispAxis * (shove.disp * (1.0 - attach) * uPartShove);
+  }
+#endif
 
   float tw = 0.5 + 0.5 * sin((age * 9.0 + aSeed) * TAU); // loop-safe flicker (rides age)
   vAlpha = fade * mix(1.0, tw, clamp(uTwinkle, 0.0, 1.0));

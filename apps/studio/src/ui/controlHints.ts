@@ -97,6 +97,8 @@ const CONTROL_HINTS: Record<string, string> = {
   "flank bias":
     "Skews the spawn toward one flank of the edge instead of the whole rim — one side at −1, the other at +1, even at 0.",
   "dust seed": "Reseeds the random particle layout — the same seed reproduces the same field.",
+  "cursor shove":
+    "How hard the cursor pushes dust that has already drifted off the wave (0 = airborne motes ignore it). Dust still ON the surface always rides the wave's own cursor dent. Needs a hover field on this wave (Interaction folder) to do anything.",
 
   // --- Radial (fan the ribbon into a plume) ---
   "fan amount":

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { ParticlesConfig } from "../config/model";
+import { RIPPLE_SLOTS } from "./interaction";
 import { particleFragmentShader, particleVertexShader } from "./shaders";
 
 /**
@@ -71,6 +72,29 @@ const SHAPE_UNIFORMS = [
   "uRadialSpread",
   "uRadialRadius",
   "uRadialCenter",
+] as const;
+
+/** The owning wave's POINTER-FIELD uniforms, mirrored the same way so the dust reads the exact
+ *  cursor state the ribbon does (see pointerFieldChunk). Only uploaded under POINTER_FX — configure()
+ *  copies them regardless, which is a handful of scalars. The ripple entries are ARRAYS: those are
+ *  shared by reference (the wave owns them and applyPointerField mutates them in place), so a click
+ *  costs no per-frame copy. Mirroring rather than a second CPU write also keeps capture determinism
+ *  for free — applyInteractionRest zeroes the wave's uPointerActive / uRippleAmp, and the dust
+ *  inherits that rest state on the same frame (updateSceneFx runs after applyInteraction). */
+const POINTER_UNIFORMS = [
+  "uPointer",
+  "uPointerActive",
+  "uPointerRadius",
+  "uPointerAspect",
+  "uPointerAgitate",
+  "uPointerPush",
+  "uPointerWake",
+  "uPointerVel",
+  "uShapeFlow",
+  "uRippleOrigin",
+  "uRippleAge",
+  "uRippleAmp",
+  "uPointerRipple",
 ] as const;
 
 /** Build the seeded per-particle attribute buffers. Pure function of `(count, seed, edgeBias, bias)` —
@@ -169,6 +193,23 @@ export class ParticleField {
         uShedModel: { value: new THREE.Matrix4() },
         uShedSpeed: { value: 0 },
         uShedSeed: { value: 0 },
+        // Pointer field, mirrored from the owning wave in configure() (read only under POINTER_FX).
+        // The ripple arrays are sized to RIPPLE_SLOTS so the material is valid before the first
+        // configure(); configure() then swaps in the wave's own arrays by reference.
+        uPointer: { value: new THREE.Vector2() },
+        uPointerActive: { value: 0 },
+        uPointerRadius: { value: 0.6 },
+        uPointerAspect: { value: 1 },
+        uPointerAgitate: { value: 0 },
+        uPointerPush: { value: 0 },
+        uPointerWake: { value: 0 },
+        uPointerVel: { value: new THREE.Vector2() },
+        uShapeFlow: { value: 0 },
+        uRippleOrigin: { value: Array.from({ length: RIPPLE_SLOTS }, () => new THREE.Vector2()) },
+        uRippleAge: { value: Array.from({ length: RIPPLE_SLOTS }, () => 0) },
+        uRippleAmp: { value: Array.from({ length: RIPPLE_SLOTS }, () => 0) },
+        uPointerRipple: { value: 0 },
+        uPartShove: { value: 1 },
       },
       vertexShader: particleVertexShader,
       fragmentShader: particleFragmentShader,
@@ -215,6 +256,7 @@ export class ParticleField {
     u.uSwirl.value = cfg.swirl ?? 0;
     u.uWander.value = cfg.wander ?? 0;
     u.uShape.value = SHAPE_INDEX[cfg.shape ?? "glitter"] ?? 0;
+    u.uPartShove.value = cfg.pointerShove ?? 1;
     setLinear(u.uColor.value as THREE.Vector3, cfg.color ?? DEFAULT_COLOR);
     setLinear(u.uColor2.value as THREE.Vector3, cfg.color2 ?? cfg.color ?? DEFAULT_COLOR);
   }
@@ -228,9 +270,11 @@ export class ParticleField {
     u.uPixelRatio.value = pixelRatio;
   }
 
-  /** Bind the OWNING wave's shape: mirror its shape #defines + shape uniforms + world matrix so the
-   *  dust rides the SAME deform as the ribbon. Recompiles the point program only when the define set
-   *  changes. Called from refresh() each frame with the wave's live state. */
+  /** Bind the OWNING wave's shape AND cursor state: mirror its #defines + shape uniforms + pointer
+   *  uniforms + world matrix, so the dust rides the same deform as the ribbon and reacts to the same
+   *  pointer field. Recompiles the point program only when the define set changes — which is why the
+   *  defines must come from CONFIG only (shapeDefines), never from live input. Called from refresh()
+   *  each frame with the wave's live state. */
   configure(shape: {
     defines: Record<string, string>;
     uniforms: Record<string, THREE.IUniform>;
@@ -245,18 +289,24 @@ export class ParticleField {
       this.material.needsUpdate = true; // define set changed → recompile the point program
     }
     const u = this.material.uniforms;
-    for (const name of SHAPE_UNIFORMS) {
-      const src = shape.uniforms[name];
-      if (!src || u[name] === undefined) continue;
-      const dst = u[name].value;
-      if (typeof src.value === "number") u[name].value = src.value;
-      else if (dst && typeof (dst as { copy?: unknown }).copy === "function") {
-        (dst as THREE.Vector3).copy(src.value as THREE.Vector3);
-      }
-    }
+    for (const name of SHAPE_UNIFORMS) this.mirror(shape.uniforms, name);
+    for (const name of POINTER_UNIFORMS) this.mirror(shape.uniforms, name);
     (u.uShedModel.value as THREE.Matrix4).copy(shape.matrixWorld);
     u.uShedSpeed.value = shape.speed;
     u.uShedSeed.value = shape.seed;
+  }
+
+  /** Copy one uniform across from the owning wave: numbers by value, vectors/matrices in place, and
+   *  arrays (the ripple slots) by reference — the wave owns those and mutates them in place. */
+  private mirror(src: Record<string, THREE.IUniform>, name: string): void {
+    const from = src[name];
+    const to = this.material.uniforms[name];
+    if (!from || !to) return;
+    const dst = to.value;
+    if (typeof from.value === "number" || Array.isArray(from.value)) to.value = from.value;
+    else if (dst && typeof (dst as { copy?: unknown }).copy === "function") {
+      (dst as THREE.Vector3).copy(from.value as THREE.Vector3);
+    }
   }
 
   /** Advance the field to scene time `t` (= the same `t` the waves get). */

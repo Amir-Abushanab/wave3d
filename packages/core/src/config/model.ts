@@ -466,6 +466,18 @@ export interface ParticlesConfig {
   wander?: number;
   /** Sprite render style. Default "glitter" (the soft round additive disc). */
   shape?: ParticleShape;
+  /**
+   * How hard the cursor shoves dust that has already drifted OFF the surface, as a multiple of the
+   * displacement the wave's own {@link WaveHoverConfig} field applies. Default 1; 0 = airborne motes
+   * ignore the pointer. Only ever reads when the owning wave has a pointer field of its own — with
+   * no `interaction.hover` there is nothing to shove with, and the point program compiles without
+   * the pointer path at all.
+   *
+   * Dust still ATTACHED to the surface is not governed by this: a mote sitting on the ribbon always
+   * takes the ribbon's own displacement (weighted by how far it has drifted), because otherwise a
+   * cursor poke would lift the surface out from under its own glitter.
+   */
+  pointerShove?: number;
 }
 
 /**
@@ -1145,6 +1157,7 @@ export function normalizeParticles(wave: WaveConfig): void {
   if (p.swirl !== undefined) p.swirl = num(p.swirl, 0);
   if (p.wander !== undefined) p.wander = num(p.wander, 0);
   if (p.shape !== undefined && !PARTICLE_SHAPES.includes(p.shape)) p.shape = "glitter";
+  if (p.pointerShove !== undefined) p.pointerShove = clampNumber(p.pointerShove, 0, 4, 1);
 }
 
 /** Normalize an ingested config to the wave model: backfill the scene + every wave, and drop in

@@ -1759,12 +1759,22 @@ export class WaveRenderer {
     });
   }
 
-  /** The shape-affecting subset of waveDefines() (what the shared waveShape reads) — used to compile
-   *  each wave's particle shader to match its own deform. */
+  /** The subset of waveDefines() the particle program shares: the shape gates (what waveShape reads,
+   *  so the dust matches its wave's deform) plus the pointer gates (what pointerField reads, so the
+   *  dust reacts to the same cursor). Every one of these is derived from CONFIG alone — live input
+   *  must never reach here, or each frame would flip the define set and recompile the point program. */
   private shapeDefines(sc: WaveConfig): Record<string, string> {
     const all = this.waveDefines(sc);
     const out: Record<string, string> = {};
-    for (const k of ["LOOP_MOTION", "DETAIL_OCTAVE", "HELIX", "TWIST_MOTION", "RADIAL"]) {
+    for (const k of [
+      "LOOP_MOTION",
+      "DETAIL_OCTAVE",
+      "HELIX",
+      "TWIST_MOTION",
+      "RADIAL",
+      "POINTER_FX",
+      "POINTER_RIPPLES",
+    ]) {
       if (k in all) out[k] = "";
     }
     return out;

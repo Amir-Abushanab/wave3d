@@ -1350,6 +1350,7 @@ export class ControlPanel {
       rise: p?.rise ?? 0,
       swirl: p?.swirl ?? 0,
       wander: p?.wander ?? 0,
+      pointerShove: p?.pointerShove ?? 1,
       seed: p?.seed ?? 1,
     };
     const sync = (): void => {
@@ -1371,6 +1372,7 @@ export class ControlPanel {
           rise: uiParticles.rise,
           swirl: uiParticles.swirl,
           wander: uiParticles.wander,
+          pointerShove: uiParticles.pointerShove,
         };
       } else {
         delete wave.particles;
@@ -1406,6 +1408,7 @@ export class ControlPanel {
           rise: preset.rise ?? 0,
           swirl: preset.swirl ?? 0,
           wander: preset.wander ?? 0,
+          pointerShove: preset.pointerShove ?? 1,
           seed: preset.seed,
         });
         sync();
@@ -1469,6 +1472,15 @@ export class ControlPanel {
       "change",
       sync,
     );
+    // Cursor response for dust that has already drifted off the surface. Dust still ON the surface
+    // always rides the wave's own pointer displacement; this only scales the airborne shove. Inert
+    // unless this wave has a hover field (Interaction folder) to shove with.
+    f.addBinding(uiParticles, "pointerShove", {
+      min: 0,
+      max: 4,
+      step: 0.05,
+      label: "cursor shove",
+    }).on("change", sync);
     // Skew the spawn toward one flank of the edge (−1 → one side, +1 → the other, 0 → even).
     f.addBinding(uiParticles, "bias", { min: -1, max: 1, step: 0.05, label: "flank bias" }).on(
       "change",
