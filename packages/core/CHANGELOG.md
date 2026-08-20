@@ -1,5 +1,50 @@
 # @wave3d/core
 
+## 0.8.0
+
+### Minor Changes
+
+- [`d208e12`](https://github.com/Amir-Abushanab/wave3d/commit/d208e12a799bbf9ad05bdc0d5faf2686f11e2b00) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Particles now react to the pointer field, so a wave's dust belongs to its wave under the cursor instead of staying pinned to the un-poked surface.
+
+  The pointer-field math (screen falloff, ribbon-flow footprint, agitate / push / drag-wake / click-ripples) moved into one shared GLSL chunk that the wave vertex shader and the particle emitter both call — the same single-source-of-truth split already used for the wave deform. Two samples per mote:
+
+  - **Weld** — the field at the mote's spawn point, so dust still sitting on the surface takes the ribbon's own displacement. Weighted by how far the mote has actually travelled from its birth patch (not by age), so dust with no drift / rise / swirl / wander clings for its whole life.
+  - **Shove** — the field at the mote's own position, so the cursor also pushes dust that has drifted free and a click ripple blows through the cloud. Scaled by the new `particles.pointerShove` (default 1; 0 = airborne motes ignore the cursor), exposed as "cursor shove" in the studio.
+
+  Inert without a hover field on the wave: the particle program compiles without the pointer path at all, and a wave that renders pixel-identically today keeps doing so.
+
+- [`d590076`](https://github.com/Amir-Abushanab/wave3d/commit/d590076adf123e1e1bb87550023877948e78fe14) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Add `shape: "sprite"` — use your own artwork as the dust. Set `particles.spriteUrl` to an SVG (or raster) `data:` URI or URL and every particle in the field draws it.
+
+  SVG is the format to reach for: the whole config travels inside save-states and share links, and a usable sprite is under a kilobyte where a PNG would be tens of them.
+
+  **Cost is per field, not per particle.** The artwork is rasterized once into a single 256² texture that every particle samples, so a 20k-particle sprite field costs ~256 KB of texture — less than the per-particle attribute buffers that field already uploads (~800 KB). In the fragment shader a texture fetch replaces the procedural branch, so it is if anything cheaper than `star`.
+
+  Details worth knowing:
+
+  - **Tinted** by `color` / `color2`, so the field's colour knobs keep working. White artwork takes the tint exactly; coloured artwork multiplies it.
+  - **Letterboxed** into a square, because a point sprite always is. Mipmapped, since `sizeJitter` and the birth/death fade draw one texture across a wide range of pixel sizes.
+  - **Degrades, never blanks**: until the image rasterizes — or if it fails — the field draws "glitter". A failed URL is latched so it is not retried every frame.
+  - **Size matters**: the built-in shapes are tuned for a 2-6px dot, which is far too small for artwork to read. The studio lifts the size on first upload.
+  - Loading follows the background-image pattern (load → bind → request a redraw) rather than the palette's fire-and-forget loader, and preset thumbnails now preload sprite artwork — so a paused renderer, thumbnail, or poster does not capture blank dust.
+
+  Gallery submissions accept inline SVG, so a sprite wave can be published with its artwork attached; embedded raster and video are still rejected, and the 24 KB file cap still applies.
+
+### Patch Changes
+
+- [`3c80b31`](https://github.com/Amir-Abushanab/wave3d/commit/3c80b315e19ce54bea48a5b2e0e5c08d50eee442) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Give each "Particle Zoo" specimen its own way of answering the cursor, so the preset showcases the interactivity layer as well as the particle styles — and shows each dust field reacting alongside its ribbon.
+
+  | specimen            | mechanic                                                                        |
+  | ------------------- | ------------------------------------------------------------------------------- |
+  | Embers (dome)       | `hover.agitate` — stir the fire, embers scatter                                 |
+  | Snow (sheet)        | `hover.push` negative — press a hollow into the drift, flakes sink with it      |
+  | Sparks (radial fan) | `press.ripple` — a ring radiates from the click and blows out through the burst |
+  | Fireflies (helix)   | a `hover → helixPhase` binding — winds the coil, dust rides round with it       |
+  | Bubbles (twist)     | `hover.wake` + `thin` — drag a trough through the water, bubbles trail in it    |
+
+  Fireflies deliberately has no `hover` block: its particle program never compiles the pointer path at all, yet its dust still follows the wave, because each field mirrors its wave's live shape uniforms every frame. The other four set `particles.pointerShove` to taste (snow barely moves, sparks take the full ring).
+
+  Scene-level: a tight `radius` (0.22) so hovering one specimen doesn't stir its neighbours, and `touch: true` — it's a showcase, and the listeners are passive so it doesn't block page scrolling.
+
 ## 0.7.0
 
 ### Minor Changes
