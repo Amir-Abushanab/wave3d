@@ -6,8 +6,9 @@ const REPO = "Amir-Abushanab/wave3d";
 /**
  * "Publish to gallery": open GitHub's new-file page for gallery/waves/ with the current wave
  * prefilled (title + handle are placeholders to edit). Also copies the same JSON as a fallback for
- * when a big config overruns GitHub's URL length. The clipboard write starts before window.open so
- * it runs while this document still has focus.
+ * when a big config overruns GitHub's URL length — which an inline SVG particle sprite makes more
+ * likely, since encodeURIComponent roughly triples a base64 payload. The clipboard write starts
+ * before window.open so it runs while this document still has focus.
  *
  * If you have write access GitHub defaults to committing to `main`, so the toast nudges you to pick
  * "Create a new branch" (which opens a PR). Contributors without write access get an auto-fork + PR.
@@ -31,8 +32,11 @@ export function publishToGallery(config: StudioConfig): void {
   if (!fits) console.log(json);
 
   const steps = ' Set your title + handle, then pick "Create a new branch" to open a PR.';
-  const imgNote = /data:(image|video)\//i.test(json)
-    ? " (Custom images aren't allowed — the gallery is procedural.)"
+  // Mirrors scripts/validate-gallery.mjs: inline SVG (e.g. an uploaded particle sprite) travels with
+  // the wave, but raster and video do not. Keep the two patterns in step — this is the only warning
+  // an author sees before CI rejects the PR, so it has to name the fix, not just the rule.
+  const imgNote = /data:(?:video\/|image\/(?!svg\+xml))/i.test(json)
+    ? " (Heads up: embedded images/video are rejected — use a built-in map, a hosted URL, or an SVG.)"
     : "";
   showToast({
     message: (fits ? "Wave prefilled." : "Config copied — paste it in.") + steps + imgNote,

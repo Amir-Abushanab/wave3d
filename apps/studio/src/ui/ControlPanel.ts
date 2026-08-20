@@ -1447,6 +1447,7 @@ export class ControlPanel {
           seed: preset.seed,
         });
         sync();
+        updateSpritePreview(); // a built-in style clears any artwork — drop its preview too
         f.refresh(); // reflect the loaded values in the sliders
       },
     );
@@ -1491,16 +1492,43 @@ export class ControlPanel {
         // size to something legible on first upload only (an already-large field is left alone).
         if (uiParticles.size < SPRITE_MIN_SIZE) uiParticles.size = SPRITE_MIN_SIZE;
         sync();
+        updateSpritePreview();
         f.refresh(); // reflect the shape + size changes in the controls
       });
     });
-    f.addButton({ title: "clear", label: "" }).on("click", () => {
+    const clearSpriteBtn = f.addButton({ title: "clear", label: "" }).on("click", () => {
       if (!uiParticles.spriteUrl) return;
       uiParticles.spriteUrl = "";
       if (uiParticles.shape === "sprite") uiParticles.shape = "glitter";
       sync();
+      updateSpritePreview();
       f.refresh();
     });
+    // Preview of the current artwork, so "sprite" isn't an opaque setting — at dust size the
+    // rendered particles are far too small to check what actually got uploaded. Hidden when there
+    // is none. The <img> src is the data: URI itself: user SVG must reach the DOM only this way
+    // (an <img> sandboxes any script inside it), never through innerHTML.
+    const spritePreview = document.createElement("div");
+    spritePreview.className = "wv-sprite-preview";
+    const spriteImg = document.createElement("img");
+    spriteImg.alt = "";
+    const spriteNote = document.createElement("span");
+    spritePreview.append(spriteImg, spriteNote);
+    const updateSpritePreview = (): void => {
+      const url = uiParticles.spriteUrl;
+      spritePreview.style.display = url ? "flex" : "none";
+      if (!url) {
+        spriteImg.removeAttribute("src");
+        return;
+      }
+      spriteImg.src = url;
+      // Bytes of the payload that rides along in save-states and share links — the one number that
+      // decides whether a wave is still publishable, so show it rather than make people guess.
+      const bytes = url.length;
+      spriteNote.textContent =
+        bytes < 1024 ? `${bytes} B in-config` : `${(bytes / 1024).toFixed(1)} KB in-config`;
+    };
+    updateSpritePreview();
     f.addBinding(uiParticles, "twinkle", { min: 0, max: 1, step: 0.01, label: "twinkle" }).on(
       "change",
       sync,
@@ -1553,6 +1581,10 @@ export class ControlPanel {
       "change",
       onRelease,
     );
+    // Park the sprite preview under its two buttons. This has to happen AFTER every control is
+    // added, not beside the buttons at build time: Tweakpane APPENDS each new row to the folder, so
+    // anything inserted mid-build gets left behind at the bottom as the later rows land after it.
+    clearSpriteBtn.element.insertAdjacentElement("afterend", spritePreview);
     return f;
   }
 

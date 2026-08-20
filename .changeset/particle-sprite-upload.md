@@ -16,4 +16,4 @@ Details worth knowing:
 - **Size matters**: the built-in shapes are tuned for a 2-6px dot, which is far too small for artwork to read. The studio lifts the size on first upload.
 - Loading follows the background-image pattern (load → bind → request a redraw) rather than the palette's fire-and-forget loader, and preset thumbnails now preload sprite artwork — so a paused renderer, thumbnail, or poster does not capture blank dust.
 
-Note the existing gallery rule is unchanged: submissions still reject embedded `data:` URIs, so sprite-based waves cannot be published to the gallery as-is.
+Gallery submissions accept inline SVG, so a sprite wave can be published with its artwork attached; embedded raster and video are still rejected, and the 24 KB file cap still applies.

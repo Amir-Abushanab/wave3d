@@ -27,7 +27,9 @@ CI validates every submission (`pnpm gallery:validate`); a maintainer reviews an
 
 ## Rules
 
-- **Procedural only.** No embedded images or video (`data:` URIs). Reference the built-in
-  palettes/maps or a hosted image URL. This keeps files small and the rights clean.
+- **No embedded photos or video** (`data:image/png`, `data:video/…`, and friends). Reference the
+  built-in palettes/maps or a hosted URL instead. This keeps files small and the rights clean.
+  **Inline SVG is fine** — an uploaded particle sprite is vector text, usually well under a
+  kilobyte, so it can travel with the wave.
 - One wave per file, filename in `kebab-case`, under 24 KB.
 - Keep it SFW, and submit your own work.

@@ -2,8 +2,8 @@
 /**
  * Validate every gallery/waves/*.json submission. Wired into `pnpm check`, so a malformed
  * submission fails CI before a maintainer reviews the PR. Structural + safety checks only
- * (no rendering): required fields, procedural-only (no embedded `data:` URIs), a size cap,
- * and a unique kebab-case slug per file.
+ * (no rendering): required fields, no embedded raster/video (inline SVG is fine — see below),
+ * a size cap, and a unique kebab-case slug per file.
  */
 import { readdirSync, readFileSync } from "node:fs";
 
@@ -46,10 +46,19 @@ for (const file of files.sort()) {
   if (wave.config == null || typeof wave.config !== "object" || Array.isArray(wave.config))
     flag(file, "`config` must be a StudioConfig object");
 
-  // Procedural only: reject embedded media. Keeps files small and sidesteps the copyright and
-  // storage concerns — reference a built-in map or a hosted image URL instead.
-  if (/data:(image|video)\//i.test(raw))
-    flag(file, "embedded data: URI — waves must be procedural (built-in maps or a hosted URL)");
+  // Reject embedded RASTER media (and video): it is what makes a submission heavy, and it carries
+  // the copyright and storage concerns — reference a built-in map or a hosted URL instead.
+  //
+  // Inline SVG is allowed, so an uploaded particle sprite can ship with the wave: it is vector text
+  // measured in hundreds of bytes, which is the same order as the config around it. The MAX_KB cap
+  // above is the real guard — including against an SVG that smuggles a raster in via <image
+  // href="data:image/png;...">, which this pattern deliberately catches on its own. Rendering is
+  // safe regardless: sprite artwork only ever reaches an <img>, which sandboxes scripts in SVG.
+  if (/data:(?:video\/|image\/(?!svg\+xml))/i.test(raw))
+    flag(
+      file,
+      "embedded raster/video data: URI — waves must be procedural (built-in maps, a hosted URL, or inline SVG)",
+    );
 }
 
 if (problems.length) {
