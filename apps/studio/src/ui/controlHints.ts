@@ -91,7 +91,7 @@ const CONTROL_HINTS: Record<string, string> = {
   "dust color 2":
     "A second dust colour — each particle picks a blend between this and 'dust color', so the field reads two-tone.",
   shape:
-    "How each sprite is drawn: glitter (soft dot), soft (diffuse blob), ring (bubble), star (sparkle), streak (a comet along its motion), or sprite (your own uploaded image).",
+    "How each sprite is drawn: glitter (soft dot), soft (diffuse blob), ring (bubble), star (sparkle), or streak (a comet along its motion). Pick \"sprite (upload image)\" to use your own artwork — SVG is best, since it's a fraction of a PNG's size and rides along inside share links. It's rasterized once into a single square texture shared by every particle, so a big dust count costs no more memory than the built-in shapes. Tinted by the dust colours, so use white artwork to keep the tint literal. Once set, click the swatch to replace it or the × to remove it.",
   drift: "How far the dust drifts outward from the wave as it ages, in world units.",
   "rise / fall":
     "Buoyancy: positive floats the dust UP the screen (embers), negative sinks it DOWN (snow / ash). 0 = no vertical drift.",
@@ -277,6 +277,16 @@ const supportsPopover = typeof HTMLElement !== "undefined" && "popover" in HTMLE
 const prefersReducedMotion = (): boolean =>
   typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+/** The affordance a hinted BUTTON gets: buttons can't wear the label's dotted underline without
+ *  implying the whole control is hoverable-for-help, so they get a small info glyph instead —
+ *  a separate, deliberate target, so hovering to read never competes with clicking to act.
+ *  Drawn to match the panel's other inline icons (16 viewBox, currentColor stroke). */
+const INFO_ICON =
+  '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" ' +
+  'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<circle cx="8" cy="8" r="6.2"/><path d="M8 7.4v3.6"/>' +
+  '<circle cx="8" cy="5" r=".9" fill="currentColor" stroke="none"/></svg>';
+
 let tooltipEl: HTMLElement | null = null;
 let currentAnchor: HTMLElement | null = null;
 let hideTimer = 0;
@@ -433,22 +443,42 @@ export function applyControlHints(container: HTMLElement): void {
   container.querySelectorAll<HTMLElement>(".tp-lblv").forEach((row) => {
     if (row.dataset.wvHinted) return;
     // A labelled row hangs its hint off the label. A BUTTON row has no label (Tweakpane marks it
-    // `tp-lblv-nol`), so fall back to the button's own text — both as the lookup key and as the
-    // anchor, which also means the whole button is the hover target. Safe to read the text here:
-    // applyIcons() has already swapped each leading emoji for an <svg>, which contributes none.
+    // `tp-lblv-nol`), so key off the button's own text instead. Safe to read here: applyIcons() has
+    // already swapped each leading emoji for an <svg>, which contributes no text.
     const labelEl = row.querySelector<HTMLElement>(".tp-lblv_l");
-    const anchor =
-      (labelEl?.textContent ?? "").trim() !== ""
-        ? labelEl
-        : row.querySelector<HTMLElement>(".tp-btnv_t");
-    if (!anchor) return;
-    const label = (anchor.textContent ?? "").trim();
+    const btnLabel =
+      (labelEl?.textContent ?? "").trim() === ""
+        ? row.querySelector<HTMLElement>(".tp-btnv_t")
+        : null;
+    const keyEl = btnLabel ?? labelEl;
+    if (!keyEl) return;
+    const label = (keyEl.textContent ?? "").trim();
     if (!label) return;
     const text = lookupHint(label, row);
     if (!text) return;
 
     row.dataset.wvHinted = "1";
-    anchor.classList.add("wv-has-hint");
+    let anchor: HTMLElement;
+    if (btnLabel) {
+      // Give the button its own info glyph and anchor there, so hovering anywhere else on the
+      // button — the whole point of which is to be clicked — stays quiet.
+      const info = document.createElement("span");
+      info.className = "wv-hint-info";
+      info.innerHTML = INFO_ICON; // a constant, never user content
+      info.setAttribute("role", "img");
+      info.setAttribute("aria-label", `About ${label}`);
+      // The glyph sits INSIDE the button, so a click on it would fire the button's action.
+      info.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        show(info, text); // also makes it usable where there is no hover (touch)
+      });
+      btnLabel.append(info);
+      anchor = info;
+    } else {
+      anchor = keyEl;
+      anchor.classList.add("wv-has-hint");
+    }
     anchor.addEventListener("pointerenter", () => show(anchor, text));
     anchor.addEventListener("pointerleave", scheduleHide);
     // Keyboard bonus: reveal the hint when the row's own control (already a tab stop, so no new

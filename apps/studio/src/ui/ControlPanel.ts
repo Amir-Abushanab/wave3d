@@ -1503,7 +1503,7 @@ export class ControlPanel {
           ring: "ring",
           star: "star",
           streak: "streak",
-          "sprite (image)\u2026": "sprite",
+          "sprite (upload image)": "sprite",
         },
       })
       .on("change", () => {
