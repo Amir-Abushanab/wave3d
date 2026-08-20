@@ -74,8 +74,6 @@ const CONTROL_HINTS: Record<string, string> = {
   "light y": "Vertical position of the god-ray light point (0 = bottom edge, 1 = top).",
 
   // --- Particles (this wave's dust field) ---
-  "preset style":
-    "Load a ready-made dust look onto this wave (embers, snow, sparks, fireflies, bubbles, glitter) — then tweak any knob from there.",
   "dust count":
     "Number of sparkle particles shed off THIS wave. 0 removes the field entirely (no cost).",
   "dust size": "Base sprite size in pixels (each particle also varies a little).",

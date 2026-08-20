@@ -47,6 +47,7 @@ import { PARTICLE_PRESETS } from "@wave3d/core/presets";
 import { GradientEditor } from "./GradientEditor";
 import { MeshGradientEditor } from "./MeshGradientEditor";
 import { PaletteDropdown } from "./PaletteDropdown";
+import { buildParticleStyleCanvas } from "./particleStyleThumb";
 import type { PaletteOption } from "./PaletteDropdown";
 import { getPresetThumb } from "./presetThumbs";
 import { applyControlHints, hideControlHint } from "./controlHints";
@@ -1423,14 +1424,26 @@ export class ControlPanel {
     };
     // Style picker: load a named particle LOOK (PARTICLE_PRESETS — embers / snow / sparks / …) into
     // this wave's dust and reflect it in the sliders. The choice isn't persisted (no `style` on the
-    // config) — it just seeds the knobs, which stay fully editable afterward.
-    const styleOptions: Record<string, string> = { "—": "—" };
-    for (const name of Object.keys(PARTICLE_PRESETS)) styleOptions[name] = name;
-    f.addBinding(uiParticles, "style", { label: "preset style", options: styleOptions }).on(
-      "change",
-      (ev) => {
-        const preset = PARTICLE_PRESETS[String(ev.value)];
+    // config) — it just seeds the knobs, which stay fully editable afterward, so once you touch one
+    // the picker reads "Custom (edited)".
+    // A thumbnail list rather than a text list: these styles differ by colour, sprite shape and
+    // density, and "Embers" vs "Sparks" tells you none of that. Matches the Color & Gradient picker.
+    const styleCap = document.createElement("div");
+    styleCap.className = "wv-ctl-cap wv-picker-cap";
+    styleCap.textContent = "PRESET STYLE";
+    const styleDropdown = new PaletteDropdown(f.element, {
+      options: Object.keys(PARTICLE_PRESETS).map((name) => ({
+        id: name,
+        label: name,
+        group: "Dust styles",
+      })),
+      thumbFor: (id) => buildParticleStyleCanvas(PARTICLE_PRESETS[id]),
+      selectedId: () => (uiParticles.style === "—" ? null : uiParticles.style),
+      customLabel: () => (uiParticles.style === "—" ? "Custom (edited)" : null),
+      onSelect: (id) => {
+        const preset = PARTICLE_PRESETS[id];
         if (!preset) return;
+        uiParticles.style = id;
         Object.assign(uiParticles, {
           count: preset.count,
           size: preset.size,
@@ -1451,11 +1464,12 @@ export class ControlPanel {
           spriteUrl: preset.spriteUrl ?? "", // built-in looks are procedural — drop any stale artwork
           seed: preset.seed,
         });
+        lastShape = uiParticles.shape;
         sync();
-        updateSpritePreview(); // a built-in style clears any artwork — drop its preview too
+        updateSpritePreview();
         f.refresh(); // reflect the loaded values in the sliders
       },
-    );
+    });
     f.addBinding(uiParticles, "count", { min: 0, max: 20000, step: 100, label: "dust count" }).on(
       "change",
       onRelease,
@@ -1617,6 +1631,12 @@ export class ControlPanel {
       "change",
       onRelease,
     );
+    // Lift the style picker + its caption to the top of the folder: PaletteDropdown appends itself
+    // on construction, and Tweakpane appends each row after that, so built in place it would sink
+    // to the bottom.
+    const fContent = (f.element.querySelector(".tp-fldv_c") as HTMLElement | null) ?? f.element;
+    fContent.insertBefore(styleDropdown.element, fContent.firstChild);
+    fContent.insertBefore(styleCap, styleDropdown.element);
     // Park the artwork slot directly under the shape row. This has to happen AFTER every control is
     // added, not beside the dropdown at build time: Tweakpane APPENDS each new row to the folder, so
     // anything inserted mid-build gets left behind at the bottom as the later rows land after it.
@@ -2186,7 +2206,14 @@ export class ControlPanel {
         },
       });
       this.wavePaletteDropdowns.push(paletteDropdown);
+      // Caption it. Unlabelled, this picker just sat at the top of the folder with no indication
+      // that it was the palette PRESET list rather than some property of the controls under it.
+      // Same wording as the Particles folder's dust picker, since they do the same job.
+      const paletteCap = document.createElement("div");
+      paletteCap.className = "wv-ctl-cap wv-picker-cap";
+      paletteCap.textContent = "PRESET STYLE";
       gradContent.insertBefore(paletteDropdown.element, gradContent.firstChild);
+      gradContent.insertBefore(paletteCap, paletteDropdown.element);
       const loadPaletteBtn = gradF
         .addButton({ title: "📂 load palette image / video…" })
         .on("click", () => {
