@@ -10,6 +10,12 @@ name: Release
 #   2. On each package's npm settings add a Trusted Publisher: repo Amir-Abushanab/wave3d,
 #      workflow release.yml. After that, CI publishes tokenlessly.
 # The preflight job skips publishing until the packages exist on npm, so runs before step 1 stay green.
+#
+# changesets/action@v2, not @v1: v1 grepped the publish output for "New tag:" lines to learn
+# what shipped, and the changesets v3 CLI doesn't always print them — liquid-glass-js 0.5.0
+# hit npm on 2026-08-24 from a green run that pushed no tags and created no GitHub releases.
+# v2 reads the CLI's CHANGESETS_OUTPUT file instead and pushes tags + releases via the
+# GitHub API.
 
 on:
   push:
@@ -72,17 +78,18 @@ jobs:
         # empty, so `Error.toString()` degrades to just the name. That tells you nothing and kills
         # the run. The guard step below decides the real outcome and prints the actual API error.
         continue-on-error: true
-        uses: changesets/action@v1
+        uses: changesets/action@v2
         with:
           # `pnpm run version` = changeset version + sync the skill's library_version, so the skill
           # bump rides this same PR instead of drifting behind the packages.
-          version: pnpm run version
+          version-script: pnpm run version
           # Empty until the packages exist on npm (see preflight) → PR-only, no publish attempt.
-          publish: ${{ needs.preflight.outputs.publish }}
-          commit: "chore: version packages"
-          title: "chore: version packages"
+          publish-script: ${{ needs.preflight.outputs.publish }}
+          commit-message: "chore: version packages"
+          pr-title: "chore: version packages"
+        # No GITHUB_TOKEN env: v2 only reads its github-token input, which already
+        # defaults to this workflow's token.
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: "true"
           # Fallback if OIDC publishing misbehaves (pnpm's OIDC support is still maturing):
           # add a granular NPM_TOKEN secret and uncomment the next line.
