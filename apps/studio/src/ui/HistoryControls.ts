@@ -57,6 +57,13 @@ interface DragState {
   top: number;
 }
 
+/** One line of the camera-controls cheatsheet: an inline-SVG glyph and the gesture it stands for. */
+export interface HelpRow {
+  /** Inline SVG markup — see `gestureIcons.ts`. */
+  icon: string;
+  text: string;
+}
+
 export class HistoryControls {
   private readonly el: HTMLDivElement;
   private readonly bar: HTMLDivElement;
@@ -137,13 +144,40 @@ export class HistoryControls {
    *  data-tip tooltip). Lets the app park the camera-controls hint here — out of the way at
    *  bottom-left — instead of floating it over the export frame. Clicking it is a no-op (onClick
    *  only handles undo/redo/toggle/jump). */
-  addHelpButton(tip: string): void {
+  /**
+   * The camera-controls cheatsheet, as an icon per gesture.
+   *
+   * Not a `data-tip`: that tooltip is `content: attr(data-tip)`, and generated content can only be
+   * a string — there is nowhere to put an icon. So this one is a real element inside the button,
+   * shown on hover/focus like the others. It grows rightward from the button (`left:0`, same as
+   * `.wv-hist-panel`), which is the direction with room while the bar sits at bottom-left.
+   */
+  addHelpButton(rows: readonly HelpRow[]): void {
     const btn = HistoryControls.mkBtn(
       "help",
       '<span style="font-weight:700;font-size:15px">?</span>',
       "Camera controls",
-      tip,
+      // No data-tip — the popover below IS this button's tooltip, and having both would show two.
+      "",
     );
+    btn.removeAttribute("data-tip");
+    const help = document.createElement("div");
+    help.className = "wv-hist-help";
+    help.id = "wv-controls-help";
+    help.setAttribute("role", "tooltip");
+    for (const row of rows) {
+      const line = document.createElement("div");
+      line.className = "wv-hist-help-row";
+      const icon = document.createElement("span");
+      icon.className = "wv-hist-help-ic";
+      icon.innerHTML = row.icon;
+      const text = document.createElement("span");
+      text.textContent = row.text;
+      line.append(icon, text);
+      help.append(line);
+    }
+    btn.append(help);
+    btn.setAttribute("aria-describedby", help.id);
     this.bar.append(btn);
   }
 
@@ -371,6 +405,18 @@ export class HistoryControls {
 .wv-hist-bar [data-tip]:hover::after,.wv-hist-btn[data-tip]:focus-visible::after{opacity:1;
   transform:translateX(-50%) translateY(0);}
 .wv-hist--dragging [data-tip]::after{opacity:0 !important;}
+/* Camera-controls cheatsheet. A real element (icons cannot ride in an attr() content string), so
+   it needs the show/hide the ::after tooltips get for free. Width is content-driven but capped,
+   and the text wraps — a nowrap strip of gestures is wider than most viewports. */
+.wv-hist-help{position:absolute;bottom:calc(100% + 9px);left:0;z-index:3;display:none;
+  flex-direction:column;gap:5px;width:max-content;max-width:250px;padding:8px 10px;border-radius:8px;
+  text-align:left;background:rgba(10,10,14,0.97);color:#e8e8ee;font-size:11px;line-height:1.35;
+  border:1px solid rgba(255,255,255,0.14);box-shadow:0 4px 14px rgba(0,0,0,0.42);pointer-events:none;}
+.wv-hist-btn:hover .wv-hist-help,.wv-hist-btn:focus-visible .wv-hist-help{display:flex;}
+.wv-hist--dragging .wv-hist-help{display:none !important;}
+.wv-hist-help-row{display:flex;align-items:center;gap:8px;}
+.wv-hist-help-ic{flex:0 0 16px;display:inline-flex;align-items:center;justify-content:center;
+  opacity:0.92;}
 .wv-hist-panel{position:absolute;left:0;bottom:calc(100% + 8px);width:240px;max-height:min(46vh,340px);
   display:flex;flex-direction:column;border-radius:12px;overflow:hidden;background:rgba(18,18,26,0.86);
   border:1px solid rgba(255,255,255,0.12);box-shadow:0 8px 28px rgba(0,0,0,0.44);

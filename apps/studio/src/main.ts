@@ -13,6 +13,7 @@ import type { ConfigEditorDialog } from "./ui/ConfigEditorDialog";
 import { publishToGallery } from "./publishToGallery";
 import { OutputResizeHandle } from "./ui/OutputResizeHandle";
 import { RecordingOverlay } from "./ui/RecordingOverlay";
+import { GESTURE_ICONS } from "./ui/gestureIcons";
 import { HistoryControls } from "./ui/HistoryControls";
 import { AgentHandoffCard } from "./ui/AgentHandoffCard";
 import { buildAgentBrief } from "./export/agentBrief";
@@ -303,7 +304,12 @@ const historyControls = new HistoryControls(workspace, {
 });
 // Park the camera-controls hint here (bottom-left, out of the way) as a "?" whose hover/focus
 // reveals it — rather than floating it over the export frame.
-historyControls.addHelpButton("drag to move · scroll to zoom · right-drag or arrow keys to rotate");
+historyControls.addHelpButton([
+  { icon: GESTURE_ICONS.left, text: "Drag to move" },
+  { icon: GESTURE_ICONS.wheel, text: "Scroll to zoom" },
+  { icon: GESTURE_ICONS.right, text: "Right-drag to rotate" },
+  { icon: GESTURE_ICONS.keys, text: "Arrow keys to rotate" },
+]);
 // One-time nudge (bottom-right) that the designed wave can be handed to a coding agent. Copying or
 // dismissing retires it for good; the same button lives permanently in the Export-code dialog.
 const agentCard = new AgentHandoffCard(workspace, () => buildAgentBrief(config));
