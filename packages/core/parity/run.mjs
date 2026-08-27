@@ -102,8 +102,8 @@ async function main() {
       // Both renders happen in this page load: same GPU, same driver, same config object shape.
       const backend = MODE === "self" ? "webgl" : "webgpu";
       const expected = await page.evaluate(
-        (n) => window.waveParity.render(n, { backend: "webgl" }),
-        name,
+        ([n, np]) => window.waveParity.render(n, { backend: "webgl", noPost: np }),
+        [name, NO_POST],
       );
       const actual = await page.evaluate(
         ([n, b, np]) => window.waveParity.render(n, { backend: b, noPost: np }),

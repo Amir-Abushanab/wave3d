@@ -13,13 +13,13 @@
  */
 import * as THREE from "three";
 import { WebGPURenderer, RenderPipeline, WebGPUCoordinateSystem } from "three/webgpu";
-import { pass } from "three/tsl";
+import { pass, texture, screenUV } from "three/tsl";
 import type { WaveConfig } from "../config/model";
 import { WaveRenderer, type WaveMaterial } from "./WaveRenderer";
 import { makeTslUniforms, type WaveTslUniforms } from "./tsl/uniforms";
 import { buildWaveMaterial, type WaveMaterialFlags } from "./tsl/waveMaterial";
-import { buildBasePost, type PostUniforms } from "./tsl/post";
-import { floatUniform } from "./tsl/types";
+import { buildPostChain, type PostChainUniforms, type PostFlags } from "./tsl/postChain";
+import { floatUniform, vec2Uniform } from "./tsl/types";
 
 /** The flag set that decides a wave's node graph — the TSL twin of `waveDefines()`. */
 function variantKey(f: WaveMaterialFlags): string {
@@ -49,7 +49,10 @@ export class WaveRendererGPU extends WaveRenderer {
    * returns, and the base constructor already renders (buildWaves → resize → renderOnce), so a
    * field here would still be `undefined` at first draw.
    */
-  private postUniformsCache?: PostUniforms;
+  private postUniformsCache?: PostChainUniforms;
+  /** The effect set the current chain was built for; a change rebuilds it, as the WebGL path
+   *  inserts and removes passes. */
+  private postFlagsKey = "";
 
   protected override createRenderer(): THREE.WebGLRenderer {
     // Called from the BASE constructor, which is the only hook that runs early enough to stop the
@@ -76,6 +79,24 @@ export class WaveRendererGPU extends WaveRenderer {
       uBlurAmount: floatUniform(0),
       uBlurSamples: floatUniform(6),
       uGrainAmount: floatUniform(0),
+      uBloomStrength: floatUniform(0),
+      uBloomRadius: floatUniform(0.4),
+      uBloomThreshold: floatUniform(0.85),
+      uInnerLight: floatUniform(0),
+      uInnerLightDensity: floatUniform(0.5),
+      uInnerLightDecay: floatUniform(0.95),
+      uInnerLightCenter: vec2Uniform(0.5, 0.15),
+      uHalftone: floatUniform(0),
+      uHalftoneCell: floatUniform(6),
+      uHalftoneAngle: floatUniform(0.4),
+      uHeatmap: floatUniform(0),
+      uHalftoneCmyk: floatUniform(0),
+      uHalftoneCmykCell: floatUniform(6),
+      uPaper: floatUniform(0),
+      uPaperScale: floatUniform(2),
+      uDitherStrength: floatUniform(0),
+      uDitherScale: floatUniform(2),
+      uDitherSteps: floatUniform(4),
     };
     return this.postUniformsCache;
   }
@@ -158,15 +179,62 @@ export class WaveRendererGPU extends WaveRenderer {
 
   // ---- Post chain --------------------------------------------------------------------------
 
+  /** Which effects the config currently asks for — the node twin of applyPost()'s pass juggling. */
+  private postFlags(): PostFlags {
+    const c = this.config;
+    return {
+      bloom: (c.bloomStrength ?? 0) > 0,
+      innerLight: (c.innerLight ?? 0) > 0,
+      halftone: (c.halftone ?? 0) > 0,
+      heatmap: (c.heatmap ?? 0) > 0,
+      halftoneCmyk: (c.halftoneCmyk ?? 0) > 0,
+      paperTexture: (c.paperTexture ?? 0) > 0,
+      dither: (c.dither ?? 0) > 0,
+    };
+  }
+
+  /** Push the config into the post uniforms. Mirrors applyPost() / the per-effect apply* methods. */
+  private syncPostUniforms(): void {
+    const c = this.config;
+    const u = this.postUniforms;
+    u.uBlurAmount.value = c.blur;
+    u.uGrainAmount.value = c.grain;
+    u.uBlurSamples.value = Math.round(c.blurSamples ?? 6);
+    u.uBloomStrength.value = c.bloomStrength ?? 0;
+    u.uBloomRadius.value = c.bloomRadius ?? 0.4;
+    u.uBloomThreshold.value = c.bloomThreshold ?? 0.85;
+    u.uInnerLight.value = c.innerLight ?? 0;
+    u.uInnerLightDensity.value = c.innerLightDensity ?? 0.5;
+    u.uInnerLightDecay.value = c.innerLightDecay ?? 0.95;
+    u.uInnerLightCenter.value.set(c.innerLightX ?? 0.5, c.innerLightY ?? 0.15);
+    u.uHalftone.value = c.halftone ?? 0;
+    u.uHalftoneCell.value = Math.max(2, c.halftoneCell ?? 6);
+    u.uHalftoneAngle.value = c.halftoneAngle ?? 0.4;
+    u.uHeatmap.value = c.heatmap ?? 0;
+    u.uHalftoneCmyk.value = c.halftoneCmyk ?? 0;
+    u.uHalftoneCmykCell.value = Math.max(2, c.halftoneCmykCell ?? 6);
+    u.uPaper.value = c.paperTexture ?? 0;
+    u.uPaperScale.value = Math.max(0.5, c.paperTextureScale ?? 2);
+    u.uDitherStrength.value = c.dither ?? 0;
+    u.uDitherScale.value = Math.max(1, c.ditherScale ?? 2);
+    u.uDitherSteps.value = Math.max(2, Math.round(c.ditherSteps ?? 4));
+  }
+
   private ensurePost(): RenderPipeline {
+    const flags = this.postFlags();
+    const key = JSON.stringify(flags);
+    if (this.post && key !== this.postFlagsKey) this.disposePost();
     if (!this.post) {
-      const scenePass = pass(this.scene, this.camera);
-      const sceneTexture = scenePass.getTextureNode();
+      this.postFlagsKey = key;
       this.post = new RenderPipeline(this.renderer as unknown as WebGPURenderer);
-      this.post.outputNode = buildBasePost(
-        (at) => sceneTexture.sample(at) as never,
+      // The chain places renderOutput() itself, so the finish-zone effects see display-space
+      // colour exactly as they do after OutputPass on the WebGL path.
+      this.post.outputColorTransform = false;
+      this.post.outputNode = buildPostChain(
+        pass(this.scene, this.camera),
         this.postUniforms,
-      );
+        flags,
+      ) as never;
     }
     return this.post;
   }
@@ -178,8 +246,7 @@ export class WaveRendererGPU extends WaveRenderer {
     for (const wave of this.waves) {
       (wave.material as TslMaterial).userData.tsl.packed.sync();
     }
-    this.postUniforms.uBlurAmount.value = this.config.blur;
-    this.postUniforms.uGrainAmount.value = this.config.grain;
+    this.syncPostUniforms();
     this.ensurePost().render();
   }
 
@@ -225,6 +292,17 @@ export class WaveRendererGPU extends WaveRenderer {
    * cheap; rebuilding every frame (which also works) is not.
    */
   protected override onBackgroundChanged(): void {
+    // The node renderer does NOT support a plain Texture background. Background.update() handles
+    // exactly three cases — null, `isColor`, and `isNode` — and anything else hits
+    // "Renderer: Unsupported background configuration." So the gradient / image / video backgrounds,
+    // which the WebGL renderer takes as `scene.background = texture`, have to be re-expressed as a
+    // node. `getBackgroundNode(scene) || scene.background` means backgroundNode wins where set, so
+    // `scene.background` can be left alone for the WebGL path's benefit.
+    const bg = this.scene.background as THREE.Texture | THREE.Color | null;
+    const isTexture = !!bg && (bg as THREE.Texture).isTexture === true;
+    this.scene.backgroundNode = isTexture
+      ? (texture(bg as THREE.Texture).sample(screenUV) as never)
+      : null;
     this.disposePost();
   }
 }

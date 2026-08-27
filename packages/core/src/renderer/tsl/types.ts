@@ -7,6 +7,7 @@
  * system into the eager bundle instead of the lazy backend chunk. `src/index.ts` keeps three out
  * the same way.
  */
+import { Vector2 } from "three";
 import { uniform } from "three/tsl";
 import type { Node } from "three/webgpu";
 
@@ -39,3 +40,10 @@ export type FloatUniform = FloatNode & { value: number };
 
 /** {@link FloatUniform} constructor. */
 export const floatUniform = (v: number): FloatUniform => uniform(v) as unknown as FloatUniform;
+
+/** A vec2 uniform with a live, mutable `.value`. */
+export type Vec2Uniform = Vec2Node & { value: Vector2 };
+
+/** {@link Vec2Uniform} constructor. */
+export const vec2Uniform = (x: number, y: number): Vec2Uniform =>
+  uniform(new Vector2(x, y)) as unknown as Vec2Uniform;

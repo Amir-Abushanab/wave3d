@@ -68,7 +68,7 @@ async function render(name: string, opts: RenderOpts = {}): Promise<string> {
   if (opts.noPost) {
     config.blur = 0;
     config.grain = 0;
-    config.bloom = 0;
+    config.bloomStrength = 0; // NOT `bloom` — that key does not exist, and silently did nothing
     config.dither = 0;
     config.innerLight = 0;
     config.halftone = 0;
@@ -255,6 +255,8 @@ declare global {
   interface Window {
     waveParity: {
       names: () => string[];
+      features: () => string;
+      inspect: (name: string) => string;
       render: typeof render;
       diff: typeof diff;
       ready: true;
@@ -264,6 +266,34 @@ declare global {
 
 window.waveParity = {
   names: () => Object.keys(CONFIGS),
+  /** Diagnostic: what the resolved config says about background and post, for one config. */
+  inspect: (name: string) => {
+    const c = CONFIGS[name]();
+    return JSON.stringify(
+      {
+        backgroundMode: c.backgroundMode,
+        background: c.background,
+        transparentBackground: c.transparentBackground,
+        backgroundPalette: c.backgroundPalette?.length,
+        bloomStrength: c.bloomStrength,
+        innerLight: c.innerLight,
+        blur: c.blur,
+        grain: c.grain,
+        waves: c.waves?.length,
+      },
+      null,
+      1,
+    );
+  },
+  /** Diagnostic: per-config feature summary, for correlating parity failures against features. */
+  features: () =>
+    Object.entries(CONFIGS)
+      .map(([name, make]) => {
+        const c = make();
+        const w = c.waves ?? [];
+        return `${name.padEnd(34)} waves=${w.length} themes=${[...new Set(w.map((x) => x.theme ?? "solid"))].join("/")} blend=${[...new Set(w.map((x) => x.blendMode ?? "squared"))].join("/")} grad=${[...new Set(w.map((x) => x.gradientType ?? "linear"))].join("/")}`;
+      })
+      .join("\n"),
   render,
   diff,
   ready: true,
