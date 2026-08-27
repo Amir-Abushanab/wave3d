@@ -1,0 +1,23 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>wave3d preset parity</title>
+<style>
+  body {
+    margin: 0;
+    background: #111;
+    color: #ddd;
+    font:
+      13px ui-monospace,
+      monospace;
+  }
+</style>
+<pre id="log">loading harness…</pre>
+<script type="module">
+  import("./harness.ts")
+    .then(() => {
+      document.getElementById("log").textContent = "harness ready";
+    })
+    .catch((e) => {
+      document.getElementById("log").textContent = "HARNESS ERROR\n" + (e?.stack ?? e);
+    });
+</script>

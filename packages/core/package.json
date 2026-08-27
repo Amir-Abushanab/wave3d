@@ -66,11 +66,15 @@
     "skill:stale": "intent stale skills",
     "skill:validate": "intent validate skills",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "parity": "node parity/run.mjs",
+    "parity:capture": "node parity/run.mjs --capture",
+    "parity:serve": "vite --config parity/vite.config.ts"
   },
   "devDependencies": {
     "@tanstack/intent": "^0.3.6",
     "@types/three": "^0.185.0",
+    "playwright": "^1.62.1",
     "three": "^0.185.0",
     "vite": "^8.1.0",
     "vitest": "^4.1.10"
