@@ -69,3 +69,38 @@ Two traps this check walked into, both worth knowing before writing another comp
   `renderer.outputColorSpace = NoColorSpace` on the WebGPU side for any numeric comparison.
 - **`QuadMesh` has its own fullscreen-triangle UV setup.** Render both sides through the same
   geometry and camera, or the two shaders sample different points and every value disagrees.
+
+## Current state of the port
+
+Both backends render all 22 configs. Fourteen sit at `mae` 0.7–3.1 with 2–7% of interior pixels
+differing by more than 8/255, and a mean signed bias under ±1 — i.e. symmetric rounding, not a
+systematic error. That is the precision floor: the fiber texture is sampled at ~600x frequency, so
+last-bit differences in uv interpolation land on either side of a quantisation boundary.
+
+The outliers all trace to work that is not done yet, not to the shaders:
+
+| config                      | interior >8 | cause                                                           |
+| --------------------------- | ----------- | --------------------------------------------------------------- |
+| `Particle Zoo`              | 100 %       | particle field not ported (WebGPU has no point size)            |
+| `rainbow-mesh-double-helix` | 99 %        | `innerLight` post effect not ported                             |
+| `dna-double-helix`          | 50 %        | bloom not ported                                                |
+| `Neon Dark Multistrand`     | 25 %        | bloom not ported                                                |
+| `Wireframe`                 | 23 %        | bloom; only 1.2% differ by >24, the rest is strand-width jitter |
+
+`--no-post` renders both backends with every effect zeroed, which is what separates "the shader is
+wrong" from "the post chain is wrong" — two bugs that look identical in a whole-frame diff.
+
+The thresholds above are the target, not the present state; they stay where they are until the post
+chain and particles land, so the gate keeps pointing at real work.
+
+## What the shader-math check has confirmed
+
+`simplexNoise`, `expStep`, the three-axis twist, the helix, and uniform-count `Loop`/`Break` all
+agree with the GLSL to 0 or ~1e-7. Two findings worth keeping:
+
+- **`dFdy` is NOT sign-flipped between the backends** — both report `+1` for a quad whose uv rises
+  with screen Y. Worth knowing, because the Y-axis convention does differ elsewhere and `crease`
+  (`dFdy(vUv).y` through `mapLinear(v, -1, 1, 0, 1)`) would invert the whole surface if it applied.
+- **`screenCoordinate` DOES differ**: it follows WebGPU's top-left origin and flips Y on WebGL to
+  match, where `gl_FragCoord` is bottom-left. The film grain keys off it, so unflipped it produced
+  a completely different grain pattern — visually similar, speckle across every pixel of a diff.

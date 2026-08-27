@@ -13,29 +13,50 @@
  *     render (`updateType = RENDER`), so mutating the shared elements in place propagates with no
  *     explicit invalidation — matching how the GLSL path already mutates its Vector3s.
  */
-import { Vector2, Vector3, Vector4 } from "three";
-import { uniform, uniformArray, texture } from "three/tsl";
-import type { Texture } from "three";
+import { DataTexture, RGBAFormat, UnsignedByteType, Vector2, Vector3, Vector4 } from "three";
+import { uniform, texture } from "three/tsl";
+import { PackedArrays } from "./packedArray";
 import { MAX_COLORS, MAX_LIGHTS, MAX_MESH_POINTS, MAX_NOISE_BANDS } from "../../config/model";
 import { RIPPLE_SLOTS } from "../interaction";
 
-/** An array-valued uniform: `value` is the array the renderer mutates, `node` goes in the graph. */
-interface ArrayUniform<T> {
-  value: T[];
-  readonly node: ReturnType<typeof uniformArray>;
+/**
+ * A 1x1 opaque-white stand-in for the palette texture.
+ *
+ * The GLSL picks between the palette sample and the procedural gradient with a ternary, which still
+ * compiles both sides; the node graph likewise builds the sample unconditionally, so this uniform
+ * can never hold `null` the way the GLSL registry's `uPalette` does. `uUsePalette` still decides
+ * which result is used — this only guarantees there is something valid to sample.
+ */
+function makeFallbackPalette(): DataTexture {
+  const tex = new DataTexture(
+    new Uint8Array([255, 255, 255, 255]),
+    1,
+    1,
+    RGBAFormat,
+    UnsignedByteType,
+  );
+  tex.needsUpdate = true;
+  return tex;
 }
-
-const arr = <T>(value: T[], type: string): ArrayUniform<T> => ({
-  value,
-  node: uniformArray(value as never, type),
-});
-
-const fill = <T>(n: number, make: (i: number) => T): T[] =>
-  Array.from({ length: n }, (_, i) => make(i));
 
 /** Build one wave's uniform registry. Defaults mirror `makeUniforms()` exactly. */
 export function makeTslUniforms(drawingBufferSize: Vector2) {
+  // Every array-valued uniform shares ONE buffer — see PackedArrays for why (WebGPU allows only 12
+  // uniform buffers per shader stage, and TSL gives each uniformArray its own).
+  const packed = new PackedArrays();
+  const colorSlots = packed.reserve(MAX_COLORS);
+  const meshPosSlots = packed.reserve(MAX_MESH_POINTS);
+  const meshColorSlots = packed.reserve(MAX_MESH_POINTS);
+  const lightPosSlots = packed.reserve(MAX_LIGHTS);
+  const lightColorSlots = packed.reserve(MAX_LIGHTS);
+  const bandBoundsSlots = packed.reserve(MAX_NOISE_BANDS);
+  const bandParamsSlots = packed.reserve(MAX_NOISE_BANDS);
+  const bandParaSlots = packed.reserve(MAX_NOISE_BANDS);
+  const rippleSlots = packed.reserve(RIPPLE_SLOTS);
+
   return {
+    /** Folds every array view into the shared buffer. Called once per frame before drawing. */
+    packed,
     // ---- Deformation (vertex) ----
     uTime: uniform(0),
     uSpeed: uniform(0.05),
@@ -54,33 +75,23 @@ export function makeTslUniforms(drawingBufferSize: Vector2) {
     uLoopSeconds: uniform(0),
 
     // ---- Colour + light (fragment) ----
-    uColors: arr(
-      fill(MAX_COLORS, () => new Vector3(1, 1, 1)),
-      "vec3",
-    ),
-    uColorPos: arr(
-      fill(MAX_COLORS, (i) => (MAX_COLORS > 1 ? i / (MAX_COLORS - 1) : 0)),
-      "float",
+    uColors: packed.vec3(colorSlots, MAX_COLORS, () => new Vector3(1, 1, 1)),
+    uColorPos: packed.scalar(
+      colorSlots,
+      MAX_COLORS,
+      (i) => (MAX_COLORS > 1 ? i / (MAX_COLORS - 1) : 0),
+      "w",
     ),
     uColorCount: uniform(2, "int"),
     uGradType: uniform(0, "int"),
     uGradAngle: uniform(0),
     uGradShift: uniform(0.15),
-    uMeshPointPos: arr(
-      fill(MAX_MESH_POINTS, () => new Vector2(0.5, 0.5)),
-      "vec2",
-    ),
-    uMeshPointColor: arr(
-      fill(MAX_MESH_POINTS, () => new Vector3(1, 1, 1)),
-      "vec3",
-    ),
-    uMeshPointInfluence: arr(
-      fill(MAX_MESH_POINTS, () => 0.65),
-      "float",
-    ),
+    uMeshPointPos: packed.vec2(meshPosSlots, MAX_MESH_POINTS, () => new Vector2(0.5, 0.5)),
+    uMeshPointColor: packed.vec3(meshColorSlots, MAX_MESH_POINTS, () => new Vector3(1, 1, 1)),
+    uMeshPointInfluence: packed.scalar(meshPosSlots, MAX_MESH_POINTS, () => 0.65, "w"),
     uMeshPointCount: uniform(0, "int"),
     uMeshSoftness: uniform(0.62),
-    uPalette: texture(null as unknown as Texture),
+    uPalette: texture(makeFallbackPalette()),
     uUsePalette: uniform(1),
     uPaletteRaw: uniform(1),
     uPaletteScale: uniform(new Vector2(1, 1)),
@@ -110,31 +121,13 @@ export function makeTslUniforms(drawingBufferSize: Vector2) {
     uResolution: uniform(drawingBufferSize.clone()),
     uAmbient: uniform(0.45),
     uNumLights: uniform(1, "int"),
-    uLightPos: arr(
-      fill(MAX_LIGHTS, () => new Vector3()),
-      "vec3",
-    ),
-    uLightColor: arr(
-      fill(MAX_LIGHTS, () => new Vector3(1, 1, 1)),
-      "vec3",
-    ),
-    uLightIntensity: arr(
-      fill(MAX_LIGHTS, () => 0),
-      "float",
-    ),
+    uLightPos: packed.vec3(lightPosSlots, MAX_LIGHTS, () => new Vector3()),
+    uLightColor: packed.vec3(lightColorSlots, MAX_LIGHTS, () => new Vector3(1, 1, 1)),
+    uLightIntensity: packed.scalar(lightPosSlots, MAX_LIGHTS, () => 0, "w"),
     uNumNoiseBands: uniform(0, "int"),
-    uNoiseBandBounds: arr(
-      fill(MAX_NOISE_BANDS, () => new Vector4()),
-      "vec4",
-    ),
-    uNoiseBandParams: arr(
-      fill(MAX_NOISE_BANDS, () => new Vector4()),
-      "vec4",
-    ),
-    uNoiseBandParaPow: arr(
-      fill(MAX_NOISE_BANDS, () => 0),
-      "float",
-    ),
+    uNoiseBandBounds: packed.vec4(bandBoundsSlots, MAX_NOISE_BANDS, () => new Vector4()),
+    uNoiseBandParams: packed.vec4(bandParamsSlots, MAX_NOISE_BANDS, () => new Vector4()),
+    uNoiseBandParaPow: packed.scalar(bandParaSlots, MAX_NOISE_BANDS, () => 0, "x"),
 
     // ---- Wireframe thin-line theme ----
     uLineAmount: uniform(425),
@@ -170,18 +163,9 @@ export function makeTslUniforms(drawingBufferSize: Vector2) {
     uPointerHue: uniform(0),
     uPointerLighten: uniform(0),
     uPointerRipple: uniform(0),
-    uRippleOrigin: arr(
-      fill(RIPPLE_SLOTS, () => new Vector2()),
-      "vec2",
-    ),
-    uRippleAge: arr(
-      fill(RIPPLE_SLOTS, () => 0),
-      "float",
-    ),
-    uRippleAmp: arr(
-      fill(RIPPLE_SLOTS, () => 0),
-      "float",
-    ),
+    uRippleOrigin: packed.vec2(rippleSlots, RIPPLE_SLOTS, () => new Vector2()),
+    uRippleAge: packed.scalar(rippleSlots, RIPPLE_SLOTS, () => 0, "z"),
+    uRippleAmp: packed.scalar(rippleSlots, RIPPLE_SLOTS, () => 0, "w"),
   };
 }
 

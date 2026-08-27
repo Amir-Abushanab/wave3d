@@ -16,9 +16,9 @@ import {
   Mesh,
   PlaneGeometry,
 } from "three/webgpu";
-import { Fn, vec4, vec3, vec2, float } from "three/tsl";
+import { Fn, vec4, vec3, vec2, float, int, Loop, If, Break, uniform } from "three/tsl";
 import { simplexNoise } from "../src/renderer/tsl/noise";
-import { expStep, applyTwist } from "../src/renderer/tsl/waveShape";
+import { expStep, applyTwist, applyHelix } from "../src/renderer/tsl/waveShape";
 import type { FloatNode } from "../src/renderer/tsl/types";
 
 /** Shared GLSL prelude: the original implementations, verbatim from ../src/renderer/shaders.ts. */
@@ -48,6 +48,28 @@ float simplexNoise(in vec2 p){
   return dot(n, vec3(32.99));
 }
 float expStep(float x, float n){ return exp2(-exp2(n) * pow(max(x, 1.0e-3), n)); }
+// Mirrors the uniform-count loops in grad() / meshGradient() / surfaceStreaks(): iterate a
+// compile-time bound and break on a runtime count.
+const float RIBBON_Z = -8.0;
+vec3 applyHelix(vec3 pos, float uvY, float turns, float phaseDeg, float roll, float radius){
+  float hAng = 6.28318530718 * turns * uvY + radians(phaseDeg);
+  float rollA = hAng * roll;
+  float rollC = cos(rollA), rollS = sin(rollA);
+  vec2 rel = vec2(pos.y, pos.z - RIBBON_Z);
+  pos.y = rel.x * rollC - rel.y * rollS;
+  pos.z = RIBBON_Z + rel.x * rollS + rel.y * rollC;
+  pos.y += radius * cos(hAng);
+  pos.z += radius * sin(hAng);
+  return pos;
+}
+float countedLoop(int count){
+  float acc = 0.0;
+  for (int i = 0; i < 8; i++){
+    if (i >= count) break;
+    acc += float(i + 1) * 0.01;
+  }
+  return acc;
+}
 mat4 rotationMatrix(vec3 axis, float angle){
   axis = normalize(axis);
   float s = sin(angle), c = cos(angle), oc = 1.0 - c;
@@ -175,6 +197,54 @@ function cases(): Case[] {
         applyTwist(vec3(...v), { axis: vec3(...axis), angle: float(angle) })
           .dot(vec3(0.3178, -0.7413, 0.5891))
           .mul(0.02),
+    });
+  }
+
+  // The helix, probed the same way the twist is: it is the one shape block the two worst-diverging
+  // gallery presets have in common.
+  const helixCases = [
+    { pos: [10.0, 5.0, 60.0], uvY: 0.25, turns: 2.0, phase: 30.0, roll: 1.0, radius: 40.0 },
+    { pos: [-30.0, 12.0, 20.0], uvY: 0.75, turns: 3.5, phase: 0.0, roll: 0.5, radius: 15.0 },
+    { pos: [0.0, -8.0, 47.5], uvY: 1.0, turns: 1.0, phase: 180.0, roll: 0.0, radius: 25.0 },
+  ] as const;
+  for (const c of helixCases) {
+    const gp = `vec3(${c.pos.map((n) => n.toFixed(4)).join(", ")})`;
+    const gargs = `${c.uvY.toFixed(4)}, ${c.turns.toFixed(4)}, ${c.phase.toFixed(4)}, ${c.roll.toFixed(4)}, ${c.radius.toFixed(4)}`;
+    out.push({
+      name: `helix(uvY=${c.uvY}, turns=${c.turns}, roll=${c.roll})`,
+      glsl: `dot(applyHelix(${gp}, ${gargs}), ${PROBE}) * 0.01`,
+      tsl: () =>
+        applyHelix(
+          vec3(...c.pos),
+          float(c.uvY),
+          float(c.turns),
+          float(c.phase),
+          float(c.roll),
+          float(c.radius),
+        )
+          .dot(vec3(0.3178, -0.7413, 0.5891))
+          .mul(0.01),
+    });
+  }
+
+  // Uniform-count loops with an early break drive the palette stops, the mesh-gradient control
+  // points and the noise bands. If `Break()` does not actually terminate the loop, every unused
+  // slot contributes and the colour is wrong everywhere — so it is worth pinning directly.
+  for (const count of [0, 1, 3, 8]) {
+    out.push({
+      name: `counted loop, break at ${count}`,
+      glsl: `countedLoop(${count})`,
+      tsl: () => {
+        const n = uniform(count, "int");
+        const acc = float(0).toVar();
+        Loop({ start: 0, end: 8, type: "int" }, ({ i }) => {
+          If(float(i).greaterThanEqual(float(n)), () => {
+            Break();
+          });
+          acc.addAssign(float(int(i).add(1)).mul(0.01));
+        });
+        return acc;
+      },
     });
   }
 

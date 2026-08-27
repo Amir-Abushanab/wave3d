@@ -27,11 +27,12 @@ const OUT = resolve(HERE, "out");
 // A config passes when the two renders agree perceptually. maxDelta alone is a bad gate: a single
 // pixel on a hard edge legitimately flips far under a different MSAA resolve, so the mass metrics
 // carry the decision and maxDelta is reported for triage only.
-const THRESHOLDS = { mae: 2.0, pctOver8: 1.0, pctOver24: 0.25 };
+const THRESHOLDS = { mae: 2.0, interiorOver8: 1.0, interiorOver24: 0.25 };
 
 const args = process.argv.slice(2);
 const MODE = args.includes("--capture") ? "capture" : args.includes("--self") ? "self" : "compare";
 const ONLY = args.find((a) => a.startsWith("--only="))?.slice(7);
+const NO_POST = args.includes("--no-post"); // diagnostic: material only, post chain zeroed
 
 const dataUrlToBuffer = (u) => Buffer.from(u.slice(u.indexOf(",") + 1), "base64");
 const slug = (n) => n.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
@@ -105,19 +106,20 @@ async function main() {
         name,
       );
       const actual = await page.evaluate(
-        ([n, b]) => window.waveParity.render(n, { backend: b }),
-        [name, backend],
+        ([n, b, np]) => window.waveParity.render(n, { backend: b, noPost: np }),
+        [name, backend, NO_POST],
       );
 
       const d = await page.evaluate(([a, b]) => window.waveParity.diff(a, b), [expected, actual]);
       const pass =
         d.mae <= THRESHOLDS.mae &&
-        d.pctOver8 <= THRESHOLDS.pctOver8 &&
-        d.pctOver24 <= THRESHOLDS.pctOver24;
+        d.interiorOver8 <= THRESHOLDS.interiorOver8 &&
+        d.interiorOver24 <= THRESHOLDS.interiorOver24;
       rows.push({ name, status: pass ? "pass" : "FAIL", ...d, diffPng: undefined });
       console.log(
         `  ${pass ? "pass  " : "FAIL  "}  ${name.padEnd(34)} mae=${d.mae.toFixed(2)} ` +
-          `>8=${d.pctOver8.toFixed(2)}% >24=${d.pctOver24.toFixed(2)}% max=${d.maxDelta}`,
+          `interior>8=${d.interiorOver8.toFixed(2)}% >24=${d.interiorOver24.toFixed(2)}% ` +
+          `(edge ${d.pctEdge.toFixed(1)}%, bias ${d.interiorBias.map((v) => v.toFixed(2)).join("/")}, max=${d.maxDelta})`,
       );
       if (!pass) {
         await writeFile(resolve(OUT, `${slug(name)}.actual.png`), dataUrlToBuffer(actual));

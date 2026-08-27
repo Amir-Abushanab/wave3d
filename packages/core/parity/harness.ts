@@ -9,6 +9,7 @@
  * — see `diff()` — rather than by the SHA-256 digests used for same-backend refactor checks.
  */
 import { WaveRenderer } from "../src/renderer/WaveRenderer";
+import { WaveRendererGPU } from "../src/renderer/WaveRendererGPU";
 import { PRESETS } from "../src/presets";
 import { ensureStudioConfig, type StudioConfig } from "../src/config/model";
 
@@ -40,6 +41,12 @@ export interface RenderOpts {
   height?: number;
   /** Fixed animation time, seconds. captureImage() forces the intro ramp full at this time. */
   time?: number;
+  /**
+   * Zero every post-chain effect (blur, grain, bloom, dither, …), leaving just the wave material.
+   * Diagnostic only: it splits "the shader is wrong" from "the post chain is wrong", which are very
+   * different bugs that look identical in a whole-frame diff.
+   */
+  noPost?: boolean;
 }
 
 /**
@@ -58,6 +65,17 @@ async function render(name: string, opts: RenderOpts = {}): Promise<string> {
   // forces introTimeRamp to 1, so the frame is a pure function of the config.
   config.paused = true;
   config.timeOffset = 0;
+  if (opts.noPost) {
+    config.blur = 0;
+    config.grain = 0;
+    config.bloom = 0;
+    config.dither = 0;
+    config.innerLight = 0;
+    config.halftone = 0;
+    config.heatmap = 0;
+    config.paperTexture = 0;
+    config.halftoneCmyk = 0;
+  }
 
   const host = document.createElement("div");
   host.style.cssText = `position:fixed;left:-99999px;top:0;width:${width}px;height:${height}px`;
@@ -65,10 +83,9 @@ async function render(name: string, opts: RenderOpts = {}): Promise<string> {
 
   let renderer: WaveRenderer | undefined;
   try {
-    renderer = new WaveRenderer(host, config, { respectReducedMotion: false, skipIntroRamp: true });
-    if (typeof (renderer as { init?: () => Promise<void> }).init === "function") {
-      await (renderer as unknown as { init: () => Promise<void> }).init(); // WebGPU backend only
-    }
+    const Backend = opts.backend === "webgpu" ? WaveRendererGPU : WaveRenderer;
+    renderer = new Backend(host, config, { respectReducedMotion: false, skipIntroRamp: true });
+    await renderer.init(); // no-op on WebGL; starts the backend on WebGPU
     renderer.setOutputSize(width, height); // forces DPR 1 — parity must not depend on the display
     // Two captures: the first lets any theme/blend program compile, the second is the settled frame
     // (the studio's thumbnail path does the same for the same reason).
@@ -113,8 +130,66 @@ export interface DiffResult {
   pctOver8: number;
   /** Share of pixels whose max channel delta exceeds 24/255 — visible-to-the-eye disagreement. */
   pctOver24: number;
+  /** Share of pixels sitting on a silhouette (see `edgeMask`), excluded from the `interior*` figures. */
+  pctEdge: number;
+  /** `pctOver8` over non-silhouette pixels only — the number that reflects shading fidelity. */
+  interiorOver8: number;
+  /** `pctOver24` over non-silhouette pixels only. */
+  interiorOver24: number;
+  /**
+   * Mean SIGNED per-channel difference over interior pixels, as [r,g,b,a].
+   *
+   * Distinguishes the two failure shapes that look identical in an amplified diff: values near zero
+   * mean the disagreement is symmetric — high-frequency noise landing on either side, which is
+   * expected when a fiber texture is sampled at ~600x frequency and the two backends' interpolation
+   * differs in the last bit. A consistent bias means something systematic is wrong instead.
+   */
+  interiorBias: [number, number, number, number];
   /** Amplified difference image, for eyeballing a failure. */
   diffPng: string;
+}
+
+/**
+ * Mark pixels lying on a coverage boundary — anywhere the reference's alpha jumps between
+ * neighbours.
+ *
+ * Two rasterisers disagree at a silhouette for reasons that have nothing to do with the shader:
+ * which samples a triangle covers on a given edge is not specified to the last pixel. Those pixels
+ * are reported separately so a real shading regression cannot hide behind them, and so an edge
+ * difference cannot fail the gate on its own.
+ */
+function edgeMask(img: ImageData): Uint8Array {
+  const { width: w, height: h, data } = img;
+  const mask = new Uint8Array(w * h);
+  // Gradient over RGB *and* alpha: a capture composited onto an opaque background has uniform
+  // alpha, so the silhouette shows up only as a colour step.
+  const stepBetween = (x0: number, y0: number, x1: number, y1: number) => {
+    const i = (y0 * w + x0) * 4;
+    const j = (y1 * w + x1) * 4;
+    let m = 0;
+    for (let k = 0; k < 4; k++) m = Math.max(m, Math.abs(data[i + k] - data[j + k]));
+    return m;
+  };
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      let edge = false;
+      for (let dy = -1; dy <= 1 && !edge; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (stepBetween(x, y, x + dx, y + dy) > 24) {
+            edge = true;
+            break;
+          }
+        }
+      }
+      if (edge) {
+        // Dilate by one: a boundary pixel's immediate neighbours inherit the disagreement.
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) mask[(y + dy) * w + (x + dx)] = 1;
+        }
+      }
+    }
+  }
+  return mask;
 }
 
 /** Compare two PNG data URLs. Amplifies the delta 8x into `diffPng` so small drifts stay visible. */
@@ -124,10 +199,15 @@ async function diff(aUrl: string, bUrl: string): Promise<DiffResult> {
     throw new Error(`size mismatch: ${a.width}x${a.height} vs ${b.width}x${b.height}`);
   }
   const out = new ImageData(a.width, a.height);
+  const mask = edgeMask(a);
   let sum = 0;
   let maxDelta = 0;
   let over8 = 0;
   let over24 = 0;
+  let edgeCount = 0;
+  let interiorOver8 = 0;
+  let interiorOver24 = 0;
+  const bias = [0, 0, 0, 0];
   const px = a.width * a.height;
   for (let i = 0; i < a.data.length; i += 4) {
     let pixelMax = 0;
@@ -139,6 +219,13 @@ async function diff(aUrl: string, bUrl: string): Promise<DiffResult> {
     if (pixelMax > maxDelta) maxDelta = pixelMax;
     if (pixelMax > 8) over8++;
     if (pixelMax > 24) over24++;
+    if (mask[i >> 2]) {
+      edgeCount++;
+    } else {
+      if (pixelMax > 8) interiorOver8++;
+      if (pixelMax > 24) interiorOver24++;
+      for (let k = 0; k < 4; k++) bias[k] += b.data[i + k] - a.data[i + k];
+    }
     const amp = Math.min(255, pixelMax * 8);
     out.data[i] = amp;
     out.data[i + 1] = amp > 0 ? 255 - amp : 0;
@@ -148,6 +235,7 @@ async function diff(aUrl: string, bUrl: string): Promise<DiffResult> {
   const c = new OffscreenCanvas(a.width, a.height);
   c.getContext("2d")!.putImageData(out, 0, 0);
   const diffPng = await blobToDataUrl(await c.convertToBlob({ type: "image/png" }));
+  const interior = Math.max(1, px - edgeCount);
   return {
     width: a.width,
     height: a.height,
@@ -155,6 +243,10 @@ async function diff(aUrl: string, bUrl: string): Promise<DiffResult> {
     maxDelta,
     pctOver8: (over8 / px) * 100,
     pctOver24: (over24 / px) * 100,
+    pctEdge: (edgeCount / px) * 100,
+    interiorOver8: (interiorOver8 / interior) * 100,
+    interiorOver24: (interiorOver24 / interior) * 100,
+    interiorBias: bias.map((v) => v / interior) as [number, number, number, number],
     diffPng,
   };
 }
@@ -170,4 +262,9 @@ declare global {
   }
 }
 
-window.waveParity = { names: () => Object.keys(CONFIGS), render, diff, ready: true };
+window.waveParity = {
+  names: () => Object.keys(CONFIGS),
+  render,
+  diff,
+  ready: true,
+};

@@ -238,9 +238,20 @@ class WavePalette {
   }
 }
 
+/**
+ * The uniform surface both backends expose. The GLSL path holds `THREE.IUniform`s; the TSL path
+ * holds TSL uniform nodes and array wrappers. Both are written the same way — `u.uFoo.value = x`,
+ * `u.uColors.value[i].set(...)` — which is what lets the ~116 config-sync writes in `refresh()`
+ * stay backend-agnostic.
+ */
+export type WaveUniforms = Record<string, { value: unknown }>;
+
+/** A wave material, whichever backend built it. */
+export type WaveMaterial = THREE.Material & { uniforms: WaveUniforms };
+
 type Wave = {
   mesh: THREE.Mesh;
-  material: THREE.ShaderMaterial;
+  material: WaveMaterial;
   geometry: WaveGeometry;
   /** This wave's own 2D palette texture + optional video. */
   palette: WavePalette;
@@ -271,11 +282,17 @@ export function hexToLinearVec3(hex: string, target: THREE.Vector3): THREE.Vecto
  */
 export class WaveRenderer {
   readonly renderer: THREE.WebGLRenderer;
+  /**
+   * Whether this renderer can draw yet. The WebGL backend is ready the moment it is constructed;
+   * the WebGPU subclass has to `await renderer.init()` first, and `renderOnce()` throws before that.
+   * The base class is always ready, so the WebGL path is unaffected.
+   */
+  protected ready = true;
   protected readonly scene = new THREE.Scene();
   protected readonly camera: THREE.OrthographicCamera;
   protected readonly group = new THREE.Group();
-  private readonly composer: EffectComposer;
-  private readonly postPass: ShaderPass;
+  protected composer: EffectComposer;
+  protected postPass: ShaderPass;
   /** Optional bloom pass — created lazily when bloomStrength first goes >0, removed at 0. */
   private bloomPass?: UnrealBloomPass;
   private ditherPass?: ShaderPass;
@@ -359,14 +376,7 @@ export class WaveRenderer {
     this.respectReducedMotion = options.respectReducedMotion ?? true;
     this.skipIntroRamp = options.skipIntroRamp ?? false;
 
-    this.renderer = new THREE.WebGLRenderer({
-      // antialias smooths edges; preserveDrawingBuffer keeps the drawing buffer readable so we
-      // can export PNG/WebM. Both cost a little performance, but this authoring tool needs them.
-      antialias: true,
-      alpha: true,
-      preserveDrawingBuffer: true,
-      powerPreference: "high-performance",
-    });
+    this.renderer = this.createRenderer();
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.setClearColor(0x000000, 0);
     container.appendChild(this.renderer.domElement);
@@ -439,6 +449,28 @@ export class WaveRenderer {
     this.buildWaves();
     this.resize();
   }
+
+  /**
+   * Build the backing three renderer. Overridden by the WebGPU subclass; called from the
+   * constructor, so it must not depend on subclass FIELDS (prototype methods are available during
+   * `super()`, field initialisers are not).
+   */
+  protected createRenderer(): THREE.WebGLRenderer {
+    return new THREE.WebGLRenderer({
+      // antialias smooths edges; preserveDrawingBuffer keeps the drawing buffer readable so we
+      // can export PNG/WebM. Both cost a little performance, but this authoring tool needs them.
+      antialias: true,
+      alpha: true,
+      preserveDrawingBuffer: true,
+      powerPreference: "high-performance",
+    });
+  }
+
+  /**
+   * Await any asynchronous backend startup. A no-op on WebGL; the WebGPU subclass overrides it to
+   * `await renderer.init()` and then draw the first frame. Safe to call more than once.
+   */
+  async init(): Promise<void> {}
 
   private get segments(): number {
     // Scale detail down as waves multiply, so total geometry stays bounded.
@@ -639,19 +671,7 @@ export class WaveRenderer {
     // Initialise defines/fragment/blend from the wave this material will represent, so the
     // first refresh() doesn't force a needless program recompile. Falls back to the first wave.
     const sc = this.config.waves[this.waves.length] ?? this.config.waves[0];
-    const material = new THREE.ShaderMaterial({
-      uniforms: this.makeUniforms(),
-      // TWIST_MOTION / LOOP_MOTION select variant vertex-shader paths. Toggled live in refresh().
-      defines: this.waveDefines(sc),
-      vertexShader,
-      // solid theme = surfaceColor shader; wireframe theme = thin-line shader.
-      // Swapped live in refresh() when the wave's theme changes.
-      fragmentShader: sc?.theme === "wireframe" ? lineFragmentShader : fragmentShader,
-      transparent: true,
-      depthTest: true,
-      depthWrite: true,
-      side: THREE.DoubleSide,
-    });
+    const material = this.createWaveMaterial(sc);
     // Blending (incl. the squaring blend) is set from the wave's blendMode — see applyBlendMode —
     // so it survives refresh() instead of being a dead constructor flag.
     this.applyBlendMode(material, sc?.blendMode ?? "squared");
@@ -670,6 +690,54 @@ export class WaveRenderer {
   }
 
   /**
+   * Build the material for one wave. The GLSL backend compiles a ShaderMaterial with `#define`
+   * variants; the WebGPU subclass builds a TSL node graph instead. Both expose the same `uniforms`
+   * surface, so everything downstream in `refresh()` is shared.
+   */
+  protected createWaveMaterial(sc: WaveConfig | undefined): WaveMaterial {
+    return new THREE.ShaderMaterial({
+      uniforms: this.makeUniforms(),
+      // TWIST_MOTION / LOOP_MOTION select variant vertex-shader paths. Toggled live in refresh().
+      defines: this.waveDefines(sc),
+      vertexShader,
+      // solid theme = surfaceColor shader; wireframe theme = thin-line shader.
+      // Swapped live in refresh() when the wave's theme changes.
+      fragmentShader: sc?.theme === "wireframe" ? lineFragmentShader : fragmentShader,
+      transparent: true,
+      depthTest: true,
+      depthWrite: true,
+      side: THREE.DoubleSide,
+    }) as unknown as WaveMaterial;
+  }
+
+  /**
+   * Re-select this wave's shader variant when its config changes shape (theme, twist motion, helix,
+   * …). Returns true if the material needs recompiling. The GLSL backend swaps `defines` and the
+   * fragment source; the WebGPU subclass rebuilds the node graph, since a TSL variant is a
+   * different graph rather than a different define set.
+   */
+  protected applyWaveVariant(wave: Wave, sc: WaveConfig): boolean {
+    const material = wave.material as unknown as THREE.ShaderMaterial;
+    let changed = false;
+    // Recompile the program when its #define set changes: TWIST_MOTION / DETAIL_OCTAVE / DEPTH_TINT
+    // (per wave) and LOOP_MOTION (scene-level). Compare the whole set so any combination is handled.
+    const wantDefines = this.waveDefines(sc);
+    const curDefines = material.defines ?? {};
+    if (Object.keys(wantDefines).sort().join(",") !== Object.keys(curDefines).sort().join(",")) {
+      material.defines = wantDefines;
+      changed = true;
+    }
+    // Swap the fragment shader when this wave's theme changes: solid surfaceColor <->
+    // wireframe thin-line. Three recompiles the program on needsUpdate.
+    const wantFrag = sc.theme === "wireframe" ? lineFragmentShader : fragmentShader;
+    if (material.fragmentShader !== wantFrag) {
+      material.fragmentShader = wantFrag;
+      changed = true;
+    }
+    return changed;
+  }
+
+  /**
    * Apply config.blendMode to a material. "squared" (the default) is the hero blend:
    * CustomBlending with AddEquation, src = SrcColorFactor, dst = ZeroFactor, so the
    * framebuffer result is fragColor² — the squaring deepens the colours into the vivid
@@ -678,7 +746,7 @@ export class WaveRenderer {
    * fragment shaders premultiply their output when Three injects PREMULTIPLIED_ALPHA.
    * Returns true if material state changed (caller flags needsUpdate).
    */
-  private applyBlendMode(material: THREE.ShaderMaterial, mode: BlendMode): boolean {
+  protected applyBlendMode(material: WaveMaterial, mode: BlendMode): boolean {
     // "squared" is the deep hero look. It used to be a framebuffer-squaring CustomBlending
     // (src·src, dst×0) — which REPLACES the destination rather than compositing over it, so any
     // semi-transparent pixel (soft ribbon edges, and the large near-edge-on regions at oblique
@@ -774,21 +842,7 @@ export class WaveRenderer {
       const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
       const u = wave.material.uniforms;
       if (this.applyBlendMode(wave.material, sc.blendMode)) wave.material.needsUpdate = true;
-      // Recompile the program when its #define set changes: TWIST_MOTION / DETAIL_OCTAVE / DEPTH_TINT
-      // (per wave) and LOOP_MOTION (scene-level). Compare the whole set so any combination is handled.
-      const wantDefines = this.waveDefines(sc);
-      const curDefines = wave.material.defines ?? {};
-      if (Object.keys(wantDefines).sort().join(",") !== Object.keys(curDefines).sort().join(",")) {
-        wave.material.defines = wantDefines;
-        wave.material.needsUpdate = true;
-      }
-      // Swap the fragment shader when this wave's theme changes: solid surfaceColor <->
-      // wireframe thin-line. Three recompiles the program on needsUpdate.
-      const wantFrag = sc.theme === "wireframe" ? lineFragmentShader : fragmentShader;
-      if (wave.material.fragmentShader !== wantFrag) {
-        wave.material.fragmentShader = wantFrag;
-        wave.material.needsUpdate = true;
-      }
+      if (this.applyWaveVariant(wave, sc)) wave.material.needsUpdate = true;
 
       const stops = [...sc.palette].sort((a, b) => a.pos - b.pos);
       const colorCount = Math.max(1, Math.min(stops.length, MAX_COLORS));
@@ -823,8 +877,14 @@ export class WaveRenderer {
       }
       u.uMeshPointCount.value = meshPoints.length;
       u.uMeshSoftness.value = sc.meshGradientSoftness;
-      u.uPaletteScale.value.set(sc.paletteTextureScale?.x ?? 1, sc.paletteTextureScale?.y ?? 1);
-      u.uPaletteOffset.value.set(sc.paletteTextureOffset?.x ?? 0, sc.paletteTextureOffset?.y ?? 0);
+      (u.uPaletteScale.value as THREE.Vector2).set(
+        sc.paletteTextureScale?.x ?? 1,
+        sc.paletteTextureScale?.y ?? 1,
+      );
+      (u.uPaletteOffset.value as THREE.Vector2).set(
+        sc.paletteTextureOffset?.x ?? 0,
+        sc.paletteTextureOffset?.y ?? 0,
+      );
       u.uPaletteRotation.value = ((sc.paletteTextureRotation ?? 0) * Math.PI) / 180;
       u.uHueShift.value = sc.hueShift;
       u.uContrast.value = sc.colorContrast;
@@ -974,6 +1034,7 @@ export class WaveRenderer {
     if (this.config.transparentBackground) {
       this.scene.background = null;
       this.renderer.setClearColor(0x000000, 0);
+      this.onBackgroundChanged();
       return;
     }
 
@@ -981,6 +1042,7 @@ export class WaveRenderer {
     this.renderer.setClearColor(matte, 1);
     if (this.config.backgroundMode === "color") {
       this.applyColorBackground(matte);
+      this.onBackgroundChanged();
       return;
     }
     // Live video is redrawn every frame, so cap its staging canvas near 1080p. Still images
@@ -990,7 +1052,34 @@ export class WaveRenderer {
     );
     if (this.config.backgroundMode === "gradient") this.applyGradientBackground(width, height);
     else this.applyImageBackground(matte, width, height);
+    this.onBackgroundChanged();
   }
+
+  /**
+   * Whether this backend can render the particle field.
+   *
+   * The field is a `THREE.Points` sized through `gl_PointSize`, which WebGPU has no equivalent for
+   * — its point primitives are locked to one pixel. The TSL backend therefore reports false until
+   * the field is rebuilt as instanced sprites.
+   */
+  protected supportsParticles(): boolean {
+    return true;
+  }
+
+  /**
+   * Largest texture edge the backend will accept, used to cap the background canvas. WebGL reports
+   * it on `capabilities`; WebGPU has no such object, so the subclass reads the device limit.
+   */
+  protected maxTextureSize(): number {
+    return this.renderer.capabilities.maxTextureSize;
+  }
+
+  /**
+   * Called whenever the scene background changes. A no-op on WebGL, where `EffectComposer`'s
+   * RenderPass reads the scene afresh each frame; the WebGPU subclass rebuilds its post chain,
+   * because a `pass()` node captures the background state at the point its render context is built.
+   */
+  protected onBackgroundChanged(): void {}
 
   private applyColorBackground(matte: THREE.Color): void {
     this.clearBackgroundVideo();
@@ -1141,7 +1230,7 @@ export class WaveRenderer {
   private backgroundCanvasSize(maxRequestedEdge = 4096): { width: number; height: number } {
     const rawWidth = this.outputSize?.width ?? Math.max(1, this.container.clientWidth);
     const rawHeight = this.outputSize?.height ?? Math.max(1, this.container.clientHeight);
-    const maxEdge = Math.min(maxRequestedEdge, this.renderer.capabilities.maxTextureSize);
+    const maxEdge = Math.min(maxRequestedEdge, this.maxTextureSize());
     const scale = Math.min(1, maxEdge / Math.max(rawWidth, rawHeight));
     return {
       width: Math.max(1, Math.round(rawWidth * scale)),
@@ -1569,8 +1658,7 @@ export class WaveRenderer {
       this.renderer.domElement.style.width = "100%";
       this.renderer.domElement.style.height = "100%";
     }
-    this.composer.setPixelRatio(dpr);
-    this.composer.setSize(w, h);
+    this.resizePost(w, h, dpr);
     const dw = w * dpr;
     const dh = h * dpr;
     (this.postPass.uniforms.uResolution.value as THREE.Vector2).set(dw, dh);
@@ -1688,14 +1776,33 @@ export class WaveRenderer {
     for (const w of this.waves) w.particleField?.setTime(t);
   }
 
+  /** Draw the composed frame. WebGL runs the EffectComposer; WebGPU runs a node post chain. */
+  protected renderComposed(): void {
+    this.composer.render();
+  }
+
+  /** Resize the post chain's render targets. */
+  protected resizePost(w: number, h: number, dpr: number): void {
+    this.composer.setPixelRatio(dpr);
+    this.composer.setSize(w, h);
+  }
+
+  /** Release the post chain's GPU resources. */
+  protected disposePost(): void {
+    this.composer.dispose();
+  }
+
   /** Render exactly one frame at the current time. */
   renderOnce(): void {
+    // A backend with asynchronous startup (WebGPU) is not drawable until init() resolves; the base
+    // WebGL renderer sets `ready` at construction, so this never trips there.
+    if (!this.ready) return;
     this.updateBackgroundVideoFrame();
     this.updateTime();
     this.applyInteraction(); // write pointer + binding uniforms (no-op when off / capturing)
     this.updateSceneFx(); // feed the particle field (before clip fitting)
     this.updateClipPlanes(); // keep near/far bracketing the scene so no camera angle clips the wave
-    this.composer.render();
+    this.renderComposed();
     // Editor overlays (gizmo/helpers + camera-rig minimap) draw on top of the composed frame —
     // the studio subclass plugs them in here; the base renders nothing extra.
     this.onAfterRenderFrame();
@@ -1706,6 +1813,7 @@ export class WaveRenderer {
    *  rebuild only when the (count, seed, edgeBias, bias) signature changes; the rest are live uniforms.
    *  configure() (the wave-shape binding) runs later in updateSceneFx, once transforms are current. */
   private applyParticles(): void {
+    if (!this.supportsParticles()) return;
     const loop = this.config.loopSeconds ?? 0;
     this.waves.forEach((wave, i) => {
       const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
@@ -2192,7 +2300,7 @@ export class WaveRenderer {
     this.heatmapPass?.dispose();
     this.paperTexturePass?.dispose();
     this.halftoneCmykPass?.dispose();
-    this.composer.dispose();
+    this.disposePost();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }

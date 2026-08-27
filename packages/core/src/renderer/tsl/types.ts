@@ -7,6 +7,7 @@
  * system into the eager bundle instead of the lazy backend chunk. `src/index.ts` keeps three out
  * the same way.
  */
+import { uniform } from "three/tsl";
 import type { Node } from "three/webgpu";
 
 export type FloatNode = Node<"float">;
@@ -26,3 +27,15 @@ export type UVec2Node = Node<"uvec2">;
  */
 export const asUVec2 = (n: unknown): UVec2Node => n as UVec2Node;
 export const asFloat = (n: unknown): FloatNode => n as FloatNode;
+
+/**
+ * A float uniform with a live `.value`.
+ *
+ * `uniform()` is declared as `UniformNode<unknown, unknown>`, which carries neither the node
+ * operators nor a typed `value`. This narrows both, so call sites read as ordinary node maths and
+ * `.value = x` stays type-checked.
+ */
+export type FloatUniform = FloatNode & { value: number };
+
+/** {@link FloatUniform} constructor. */
+export const floatUniform = (v: number): FloatUniform => uniform(v) as unknown as FloatUniform;

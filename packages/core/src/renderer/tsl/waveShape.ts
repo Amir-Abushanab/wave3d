@@ -81,6 +81,39 @@ export const applyTwist = (v: Vec3Node, t: Twist): Vec3Node => {
     .add(k.mul(dot(k, v)).mul(float(1).sub(c)));
 };
 
+/**
+ * The helix: the periodic sweep the three twists (monotone falloffs) can't reach.
+ *
+ * Runs AFTER the displacement (so the noise still samples the undeformed position) and BEFORE the
+ * twist (so they compose). The roll is about the ribbon's width centre, not the origin — see
+ * RIBBON_Z_CENTER in WaveGeometry. Exported so `parity:math` can probe it against the GLSL.
+ */
+export function applyHelix(
+  pos: Vec3Node,
+  uvY: FloatNode,
+  turns: FloatNode,
+  phaseDeg: FloatNode,
+  roll: FloatNode,
+  radius: FloatNode,
+): Vec3Node {
+  const hAng = float(6.28318530718).mul(turns).mul(uvY).add(radians(phaseDeg)).toVar();
+  const rollA = hAng.mul(roll);
+  const rollC = cos(rollA);
+  const rollS = sin(rollA);
+  const rel = vec2(pos.y, pos.z.sub(RIBBON_Z_CENTER)).toVar();
+  return vec3(
+    pos.x,
+    rel.x
+      .mul(rollC)
+      .sub(rel.y.mul(rollS))
+      .add(radius.mul(cos(hAng))),
+    float(RIBBON_Z_CENTER)
+      .add(rel.x.mul(rollS))
+      .add(rel.y.mul(rollC))
+      .add(radius.mul(sin(hAng))),
+  );
+}
+
 /** Which optional blocks this material's graph includes — the JS twin of the GLSL `#ifdef` set. */
 export interface WaveShapeFlags {
   loopMotion: boolean;
