@@ -1,0 +1,201 @@
+/**
+ * Point-probe parity for the ported shader math.
+ *
+ * Each case evaluates the SAME quantity through the original GLSL and through the TSL port at fixed
+ * constant inputs, then compares. Constants (rather than a rendered field) keep UV orientation,
+ * quad winding and readback flipping entirely out of the comparison — see parity/README.md for the
+ * two traps that produced convincing false failures before this was pinned down.
+ */
+import * as THREE from "three";
+import {
+  WebGPURenderer,
+  NodeMaterial,
+  NoColorSpace,
+  Scene,
+  OrthographicCamera,
+  Mesh,
+  PlaneGeometry,
+} from "three/webgpu";
+import { Fn, vec4, vec3, vec2, float } from "three/tsl";
+import { simplexNoise } from "../src/renderer/tsl/noise";
+import { expStep, applyTwist } from "../src/renderer/tsl/waveShape";
+import type { FloatNode } from "../src/renderer/tsl/types";
+
+/** Shared GLSL prelude: the original implementations, verbatim from ../src/renderer/shaders.ts. */
+const GLSL_PRELUDE = /* glsl */ `
+float xxhash(vec2 x){
+  uvec2 t = floatBitsToUint(x);
+  uint h = 0xc2b2ae3du * t.x + 0x165667b9u;
+  h = (h << 17u | h >> 15u) * 0x27d4eb2fu;
+  h += 0xc2b2ae3du * t.y;
+  h = (h << 17u | h >> 15u) * 0x27d4eb2fu;
+  h ^= h >> 15u; h *= 0x85ebca77u;
+  h ^= h >> 13u; h *= 0xc2b2ae3du;
+  h ^= h >> 16u;
+  return uintBitsToFloat(h >> 9u | 0x3f800000u) - 1.0;
+}
+vec2 hash(vec2 x){ float k = 6.283185307 * xxhash(x); return vec2(cos(k), sin(k)); }
+float simplexNoise(in vec2 p){
+  const float K1 = 0.366025404; const float K2 = 0.211324865;
+  vec2 i = floor(p + (p.x + p.y) * K1);
+  vec2 a = p - i + (i.x + i.y) * K2;
+  float m = step(a.y, a.x);
+  vec2 o = vec2(m, 1.0 - m);
+  vec2 b = a - o + K2;
+  vec2 c = a - 1.0 + 2.0 * K2;
+  vec3 h = max(0.5 - vec3(dot(a,a), dot(b,b), dot(c,c)), 0.0);
+  vec3 n = h*h*h*vec3(dot(a, hash(i+0.0)), dot(b, hash(i+o)), dot(c, hash(i+1.0)));
+  return dot(n, vec3(32.99));
+}
+float expStep(float x, float n){ return exp2(-exp2(n) * pow(max(x, 1.0e-3), n)); }
+mat4 rotationMatrix(vec3 axis, float angle){
+  axis = normalize(axis);
+  float s = sin(angle), c = cos(angle), oc = 1.0 - c;
+  return mat4(
+    oc*axis.x*axis.x + c,        oc*axis.x*axis.y - axis.z*s, oc*axis.z*axis.x + axis.y*s, 0.0,
+    oc*axis.x*axis.y + axis.z*s, oc*axis.y*axis.y + c,        oc*axis.y*axis.z - axis.x*s, 0.0,
+    oc*axis.z*axis.x - axis.y*s, oc*axis.y*axis.z + axis.x*s, oc*axis.z*axis.z + c,        0.0,
+    0.0, 0.0, 0.0, 1.0
+  );
+}
+vec4 encode(float v){
+  float n = clamp(v * 0.5 + 0.5, 0.0, 1.0);
+  return vec4(floor(n*255.0)/255.0, floor(fract(n*255.0)*255.0)/255.0, floor(fract(n*65025.0)*255.0)/255.0, 1.0);
+}`;
+
+function readCentre(canvas: HTMLCanvasElement): number {
+  const c = document.createElement("canvas");
+  c.width = 4;
+  c.height = 4;
+  const ctx = c.getContext("2d", { willReadFrequently: true })!;
+  ctx.drawImage(canvas, 0, 0);
+  const d = ctx.getImageData(1, 1, 1, 1).data;
+  return (d[0] / 255 + d[1] / 65025 + d[2] / 16581375) * 2 - 1;
+}
+
+async function evalGlsl(expr: string): Promise<number> {
+  const r = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
+  r.setSize(4, 4, false);
+  const scene = new THREE.Scene();
+  const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  scene.add(
+    new THREE.Mesh(
+      new THREE.PlaneGeometry(2, 2),
+      new THREE.ShaderMaterial({
+        vertexShader: `void main(){ gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+        fragmentShader: `${GLSL_PRELUDE}\nvoid main(){ gl_FragColor = encode(${expr}); }`,
+      }),
+    ),
+  );
+  r.render(scene, cam);
+  const v = readCentre(r.domElement);
+  r.dispose();
+  return v;
+}
+
+async function evalTsl(build: () => FloatNode): Promise<number> {
+  const r = new WebGPURenderer({ antialias: false, alpha: false });
+  r.outputColorSpace = NoColorSpace; // the node path encodes output; ShaderMaterial does not
+  await r.init();
+  r.setSize(4, 4, false);
+  const m = new NodeMaterial();
+  m.fragmentNode = Fn(() => {
+    const n = build().mul(0.5).add(0.5).clamp(0, 1);
+    return vec4(
+      n.mul(255).floor().div(255),
+      n.mul(255).fract().mul(255).floor().div(255),
+      n.mul(65025).fract().mul(255).floor().div(255),
+      float(1),
+    );
+  })();
+  const scene = new Scene();
+  const cam = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  scene.add(new Mesh(new PlaneGeometry(2, 2), m));
+  r.render(scene, cam);
+  const v = readCentre(r.domElement as HTMLCanvasElement);
+  r.dispose();
+  return v;
+}
+
+/** Collapses a vec3 to one scalar so a single probe catches an error in any component. */
+const PROBE = "vec3(0.3178, -0.7413, 0.5891)";
+
+interface Case {
+  name: string;
+  glsl: string;
+  tsl: () => FloatNode;
+}
+
+function cases(): Case[] {
+  const out: Case[] = [];
+
+  for (const [x, y] of [
+    [0.3, 0.7],
+    [1.5, 2.25],
+    [7.3, 3.1],
+    [-2.4, 5.9],
+  ] as const) {
+    out.push({
+      name: `simplexNoise(${x}, ${y})`,
+      glsl: `simplexNoise(vec2(${x}, ${y}))`,
+      tsl: () => simplexNoise(vec2(x, y)),
+    });
+  }
+
+  // Includes a negative exponent (legal — it concentrates the twist toward the other end) and
+  // x = 0, which is exactly the pow(0, n) case the max() guard exists for.
+  for (const [x, n] of [
+    [0.0, 3.95],
+    [0.25, 5.85],
+    [0.8, 6.33],
+    [0.5, -2.0],
+  ] as const) {
+    out.push({
+      name: `expStep(${x}, ${n})`,
+      glsl: `expStep(${x.toFixed(4)}, ${n.toFixed(4)}) * 2.0 - 1.0`,
+      tsl: () => expStep(float(x), float(n)).mul(2).sub(1),
+    });
+  }
+
+  // The twist: the GLSL applies its Rodrigues matrix ROW-vector style, which is a rotation by MINUS
+  // the angle. applyTwist claims to reproduce that directly. These are the actual axes the wave uses.
+  const twistCases = [
+    { v: [12.5, -3.25, 7.75], axis: [0.5, 0.0, 0.5], angle: 0.077 },
+    { v: [-40.0, 18.0, 2.5], axis: [0.0, 0.5, 0.5], angle: -0.055 },
+    { v: [3.0, 9.0, -21.0], axis: [0.5, 0.0, 0.5], angle: -0.518 },
+    { v: [1.0, 1.0, 1.0], axis: [0.0, 0.5, 0.5], angle: 1.7 },
+  ] as const;
+  for (const { v, axis, angle } of twistCases) {
+    const gv = `vec3(${v.map((n) => n.toFixed(4)).join(", ")})`;
+    const ga = `vec3(${axis.map((n) => n.toFixed(4)).join(", ")})`;
+    out.push({
+      name: `twist(${v.join(",")} about ${axis.join(",")} @ ${angle})`,
+      glsl: `dot((vec4(${gv}, 1.0) * rotationMatrix(${ga}, ${angle.toFixed(4)})).xyz, ${PROBE}) * 0.02`,
+      tsl: () =>
+        applyTwist(vec3(...v), { axis: vec3(...axis), angle: float(angle) })
+          .dot(vec3(0.3178, -0.7413, 0.5891))
+          .mul(0.02),
+    });
+  }
+
+  return out;
+}
+
+export async function checkMath(): Promise<
+  { name: string; glsl: number; tsl: number; delta: number }[]
+> {
+  const out = [];
+  for (const c of cases()) {
+    const glsl = await evalGlsl(c.glsl);
+    const tsl = await evalTsl(c.tsl);
+    out.push({ name: c.name, glsl, tsl, delta: Math.abs(glsl - tsl) });
+  }
+  return out;
+}
+
+declare global {
+  interface Window {
+    waveMathCheck: typeof checkMath;
+  }
+}
+window.waveMathCheck = checkMath;

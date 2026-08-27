@@ -13,7 +13,7 @@
 </style>
 <pre id="log">loading harness…</pre>
 <script type="module">
-  Promise.all([import("./harness.ts"), import("./noise-check.ts")])
+  Promise.all([import("./harness.ts"), import("./noise-check.ts"), import("./math-check.ts")])
     .then(() => {
       document.getElementById("log").textContent = "harness ready";
     })

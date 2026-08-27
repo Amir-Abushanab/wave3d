@@ -43,17 +43,24 @@ WebGPU is only exposed to a **secure context**, which is why the runner drives a
 server rather than a `file://` or `about:blank` page — on `about:blank`, `navigator.gpu` is
 `undefined` even in a browser that fully supports it.
 
-## Noise check
+## Shader-math check
 
 ```sh
-pnpm --filter @wave3d/core parity:noise
+pnpm --filter @wave3d/core parity:math
 ```
 
-The wave's entire silhouette comes out of one simplex function, so the TSL port of it is verified
-on its own rather than through the presets — a mismatch there would surface as 22 confusing preset
-failures instead of one clear one. Both implementations are rendered to a 24-bit-encoded target and
-compared per sample; they currently agree at **max|Δ| = 0 over 65,536 samples**, i.e. bit-identical
-across the WGSL and GLSL backends.
+Verifies each ported shader function against the GLSL original directly, rather than waiting for a
+preset to look wrong — a mismatch in shared maths surfaces as 22 confusing preset failures instead
+of one clear one. Covers the simplex noise (whole field plus point probes), `expStep`, and the
+three-axis twist. Both implementations are rendered to a 24-bit-encoded target and
+compared per sample; noise currently agrees at **max|Δ| = 0 over 65,536 samples**, i.e.
+bit-identical across the WGSL and GLSL backends, and every point probe is at 0 bar one twist case
+at 1.2e-7 (float reassociation between the matrix and vector forms).
+
+This is not ceremony. It immediately caught a sign error in the twist: the GLSL applies its rotation
+row-vector style (`vec4(pos,1) * R`), and because `mat4(...)` fills column-major while that literal
+is written out by rows, the matrix is already the transpose — so the product is a **+angle**
+rotation, not the −angle it reads as. Every preset would have been subtly mis-shaped.
 
 Two traps this check walked into, both worth knowing before writing another comparison:
 
