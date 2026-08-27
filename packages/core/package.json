@@ -69,7 +69,8 @@
     "typecheck": "tsc --noEmit",
     "parity": "node parity/run.mjs",
     "parity:capture": "node parity/run.mjs --capture",
-    "parity:serve": "vite --config parity/vite.config.ts"
+    "parity:serve": "vite --config parity/vite.config.ts",
+    "parity:noise": "node parity/noise.mjs"
   },
   "devDependencies": {
     "@tanstack/intent": "^0.3.6",

@@ -42,3 +42,23 @@ targets never leak between configs.
 WebGPU is only exposed to a **secure context**, which is why the runner drives a localhost dev
 server rather than a `file://` or `about:blank` page — on `about:blank`, `navigator.gpu` is
 `undefined` even in a browser that fully supports it.
+
+## Noise check
+
+```sh
+pnpm --filter @wave3d/core parity:noise
+```
+
+The wave's entire silhouette comes out of one simplex function, so the TSL port of it is verified
+on its own rather than through the presets — a mismatch there would surface as 22 confusing preset
+failures instead of one clear one. Both implementations are rendered to a 24-bit-encoded target and
+compared per sample; they currently agree at **max|Δ| = 0 over 65,536 samples**, i.e. bit-identical
+across the WGSL and GLSL backends.
+
+Two traps this check walked into, both worth knowing before writing another comparison:
+
+- **The node pipeline applies an output color-space transfer; a raw `ShaderMaterial` does not.**
+  Comparing them directly measures sRGB encoding, not your shader. Set
+  `renderer.outputColorSpace = NoColorSpace` on the WebGPU side for any numeric comparison.
+- **`QuadMesh` has its own fullscreen-triangle UV setup.** Render both sides through the same
+  geometry and camera, or the two shaders sample different points and every value disagrees.
