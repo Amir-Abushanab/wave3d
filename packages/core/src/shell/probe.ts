@@ -24,6 +24,24 @@ export function hasWebGL(): boolean {
   }
 }
 
+/**
+ * Whether the browser exposes a usable WebGPU adapter.
+ *
+ * Async, unlike {@link hasWebGL}: requesting an adapter is inherently asynchronous, and
+ * `navigator.gpu` being present does not mean one can be acquired. Also note WebGPU is only exposed
+ * to a SECURE CONTEXT — on `about:blank` or plain http, `navigator.gpu` is `undefined` even in a
+ * browser that fully supports it.
+ */
+export async function hasWebGPU(): Promise<boolean> {
+  const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+  if (typeof navigator === "undefined" || !gpu) return false;
+  try {
+    return (await gpu.requestAdapter()) !== null;
+  } catch {
+    return false;
+  }
+}
+
 /** True when the OS/browser is set to reduce motion. */
 export function prefersReducedMotion(): boolean {
   return (

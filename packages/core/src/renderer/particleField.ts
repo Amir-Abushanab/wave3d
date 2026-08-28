@@ -39,12 +39,12 @@ function mulberry32(seed: number): () => number {
 // (the renderer imports this module): three's ColorManagement linearizes on parse, so read .r/.g/.b
 // directly — a second convertSRGBToLinear() would double-linearize.
 const HEX_SCRATCH = new THREE.Color();
-function setLinear(target: THREE.Vector3, hex: string): void {
+export function setLinear(target: THREE.Vector3, hex: string): void {
   const c = HEX_SCRATCH.set(hex);
   target.set(c.r, c.g, c.b);
 }
 
-const DEFAULT_COLOR = "#ffcf8a"; // warm gold
+export const DEFAULT_COLOR = "#ffcf8a"; // warm gold
 
 /**
  * Edge of the square canvas a {@link ParticlesConfig.spriteUrl} is rasterized into. SVG has no
@@ -59,7 +59,13 @@ const DEFAULT_COLOR = "#ffcf8a"; // warm gold
 const SPRITE_PX = 256;
 
 /** Sprite-shape name → the int the fragment shader branches on (see particleFragmentShader). */
-const SHAPE_INDEX: Record<string, number> = { glitter: 0, soft: 1, ring: 2, star: 3, streak: 4 };
+export const SHAPE_INDEX: Record<string, number> = {
+  glitter: 0,
+  soft: 1,
+  ring: 2,
+  star: 3,
+  streak: 4,
+};
 
 /** The owning wave's shape uniforms mirrored onto the particle material so the dust rides the same
  *  deform as the ribbon. Names match the wave material's uniforms 1:1 (copied by value in configure). */
@@ -151,8 +157,68 @@ export function buildParticleAttributes(
   return { position, aSeed, aRnd, aUv };
 }
 
+/**
+ * Rasterize `url` into a square {@link SPRITE_PX} texture.
+ *
+ * Deliberately the BACKGROUND-image pattern (load -> apply -> ask for a redraw) rather than a
+ * fire-and-forget TextureLoader: a thumbnail or poster snapshotted while the texture was still in
+ * flight would capture blank dust — the same class of bug that made image-driven preset thumbnails
+ * render empty.
+ *
+ * Shared by both backends' particle fields, so the CORS rule, the letterboxing and the mipmap
+ * settings have one home.
+ */
+export function loadSpriteTexture(
+  url: string,
+  onLoaded: (tex: THREE.CanvasTexture) => void,
+  onFailed: () => void,
+): void {
+  const img = new Image();
+  img.decoding = "async";
+  // data:/blob: are same-origin already; anything else must be CORS-clean or the canvas taints
+  // and readback (thumbnails, posters, captureImage) throws.
+  if (!url.startsWith("data:") && !url.startsWith("blob:")) img.crossOrigin = "anonymous";
+  img.addEventListener(
+    "load",
+    () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = SPRITE_PX;
+      canvas.height = SPRITE_PX;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      // CONTAIN the artwork: a point sprite is always square, so non-square art has to be
+      // letterboxed or it draws stretched. An SVG with no intrinsic size reports 0 in some
+      // browsers — fall back to filling the square.
+      const iw = img.naturalWidth || SPRITE_PX;
+      const ih = img.naturalHeight || SPRITE_PX;
+      const fit = Math.min(SPRITE_PX / iw, SPRITE_PX / ih);
+      const w = iw * fit;
+      const h = ih * fit;
+      ctx.drawImage(img, (SPRITE_PX - w) / 2, (SPRITE_PX - h) / 2, w, h);
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      // Mipmaps matter here in a way they do not for the palette: `sizeJitter` and the birth/death
+      // fade draw the SAME texture at wildly different pixel sizes.
+      tex.generateMipmaps = true;
+      tex.minFilter = THREE.LinearMipmapLinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.wrapS = THREE.ClampToEdgeWrapping;
+      tex.wrapT = THREE.ClampToEdgeWrapping;
+      onLoaded(tex);
+    },
+    { once: true },
+  );
+  img.addEventListener("error", onFailed, { once: true });
+  img.src = url;
+}
+
 export class ParticleField {
   readonly points: THREE.Points;
+  /** The scene node, named the same on both backends (the TSL field is a Sprite, not Points). */
+  get object(): THREE.Object3D {
+    return this.points;
+  }
+
   private readonly geometry = new THREE.BufferGeometry();
   private readonly material: THREE.ShaderMaterial;
   /** Layout signature — only these rebuild the seeded buffers; the rest are live uniforms. */
@@ -354,57 +420,22 @@ export class ParticleField {
    * image-driven preset thumbnails render empty.
    */
   private loadSprite(url: string): void {
-    const img = new Image();
-    img.decoding = "async";
-    // data:/blob: are same-origin already; anything else must be CORS-clean or the canvas taints
-    // and readback (thumbnails, posters, captureImage) throws.
-    if (!url.startsWith("data:") && !url.startsWith("blob:")) img.crossOrigin = "anonymous";
-    img.addEventListener(
-      "load",
-      () => {
+    loadSpriteTexture(
+      url,
+      (tex) => {
         // The config may have moved on (or the field been disposed) while this was decoding.
         if (this.disposed || this.spriteUrl !== url) return;
-        const canvas = document.createElement("canvas");
-        canvas.width = SPRITE_PX;
-        canvas.height = SPRITE_PX;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        // CONTAIN the artwork: a point sprite is always square (gl_PointCoord spans 0..1 on both
-        // axes), so non-square art has to be letterboxed or it draws stretched. An SVG with no
-        // intrinsic size reports 0 in some browsers — fall back to filling the square.
-        const iw = img.naturalWidth || SPRITE_PX;
-        const ih = img.naturalHeight || SPRITE_PX;
-        const fit = Math.min(SPRITE_PX / iw, SPRITE_PX / ih);
-        const w = iw * fit;
-        const h = ih * fit;
-        ctx.drawImage(img, (SPRITE_PX - w) / 2, (SPRITE_PX - h) / 2, w, h);
-        const tex = new THREE.CanvasTexture(canvas);
-        tex.colorSpace = THREE.SRGBColorSpace;
-        // Mipmaps matter here in a way they do not for the palette: `sizeJitter` and the birth/death
-        // fade draw the SAME texture at wildly different pixel sizes, and gl_PointCoord's
-        // derivatives across a point sprite are well defined, so the GPU picks a sane level.
-        tex.generateMipmaps = true;
-        tex.minFilter = THREE.LinearMipmapLinearFilter;
-        tex.magFilter = THREE.LinearFilter;
-        tex.wrapS = THREE.ClampToEdgeWrapping;
-        tex.wrapT = THREE.ClampToEdgeWrapping;
         this.sprite = tex;
         this.material.uniforms.uSprite.value = tex;
         this.ownDefines = { PARTICLE_SPRITE: "" };
-        this.material.needsUpdate = true; // sampler appears → recompile the point program
+        this.material.needsUpdate = true; // sampler appears -> recompile the point program
         this.onReady?.(); // a paused / settled renderer would otherwise never draw it
       },
-      { once: true },
-    );
-    // Latch the failure so a broken url is not re-requested on every sync.
-    img.addEventListener(
-      "error",
       () => {
+        // Latch the failure so a broken url is not re-requested on every sync.
         this.spriteFailedUrl = url;
       },
-      { once: true },
     );
-    img.src = url;
   }
 
   /** Copy one uniform across from the owning wave: numbers by value, vectors/matrices in place, and

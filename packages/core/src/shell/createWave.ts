@@ -1,6 +1,6 @@
 import type { StudioConfig } from "../config/model";
 import type { WaveRenderer, WaveRendererOptions } from "../renderer/WaveRenderer";
-import { hasWebGL, prefersReducedMotion, prefersReducedData } from "./probe";
+import { hasWebGL, hasWebGPU, prefersReducedMotion, prefersReducedData } from "./probe";
 import { setupPoster, ensurePositioned, type Poster, type PosterFit } from "./poster";
 
 export type { PosterFit } from "./poster";
@@ -32,6 +32,18 @@ export interface WaveOptions {
   rootMargin?: string;
   /** "auto" probes WebGL (with failIfMajorPerformanceCaveat); "force" skips the probe; "off" stays a poster. */
   webgl?: "auto" | "force" | "off";
+  /**
+   * Which renderer backend to use.
+   *
+   * - `"webgl"` (default) — the GLSL renderer. Nothing extra is downloaded.
+   * - `"webgpu"` — the TSL renderer, which itself falls back to a WebGL2 backend where WebGPU is
+   *   unavailable, so it always renders.
+   * - `"auto"` — WebGPU where an adapter can be acquired, else the GLSL renderer.
+   *
+   * Anything other than `"webgl"` fetches a separate ~197 KB (gzipped) chunk holding three's node
+   * system, so it is opt-in rather than the default. See `renderer/gpu-loader.ts`.
+   */
+  backend?: "webgl" | "webgpu" | "auto";
   /** Forward prefers-reduced-motion to the renderer (freezes to a full static frame). Default true. */
   respectReducedMotion?: boolean;
   /** With reduced motion: "static" upgrades to a frozen frame; "poster" stays a poster. Default "static". */
@@ -84,16 +96,51 @@ export interface WaveHandle {
  * standalone/CDN build can pass a synchronous core and NOT bundle the dynamic-import path — its
  * output stays a single file. The public {@link createWave} supplies the dynamic-import default.
  */
+type RendererCtor = new (
+  container: HTMLElement,
+  config: StudioConfig,
+  options: WaveRendererOptions,
+) => WaveRenderer;
+
+/**
+ * Fetches the TSL/WebGPU backend.
+ *
+ * INJECTED rather than referenced directly, so a build that cannot code-split — the single-file
+ * standalone, which the studio inlines as one Blob into exported embed HTML — can supply a loader
+ * that never mentions the module. Left as a default `import()` inside this file, the bundler would
+ * inline the whole node system into that artifact: measured at 419 KB gzipped against 197 KB.
+ */
+export type GpuLoader = () => Promise<{ WaveRendererGPU: RendererCtor }>;
+
+/** The stub for WebGL-only builds: refuses, and the caller falls back to the GLSL renderer. */
+export const noGpuBackend: GpuLoader = () =>
+  Promise.reject(new Error("This build ships the WebGL renderer only."));
+
 export function createWaveImpl(
   loadCore: () => Promise<CoreModule>,
+  loadGpu: GpuLoader,
   container: HTMLElement,
   config: Partial<StudioConfig>,
   options: WaveOptions,
 ): WaveHandle {
+  /** Pick the renderer class, fetching the TSL backend only when it is actually wanted. */
+  const resolveBackend = async (): Promise<RendererCtor> => {
+    const glsl = async (): Promise<RendererCtor> =>
+      (await loadCore()).WaveRenderer as unknown as RendererCtor;
+    if (backend === "webgl") return glsl();
+    if (backend === "auto" && !(await hasWebGPU())) return glsl();
+    try {
+      return (await loadGpu()).WaveRendererGPU;
+    } catch {
+      // A missing chunk or an unusable adapter is not fatal: the GLSL renderer draws the same scene.
+      return glsl();
+    }
+  };
   const {
     lazy = true,
     rootMargin = "200px",
     webgl = "auto",
+    backend = "webgl",
     respectReducedMotion = true,
     reducedMotionBehavior = "static",
     respectSaveData = true,
@@ -168,7 +215,17 @@ export function createWaveImpl(
 
     const full: StudioConfig = { ...core.createDefaultConfig(), ...staged };
     const rendererOptions: WaveRendererOptions = { respectReducedMotion };
-    renderer = new core.WaveRenderer(container, full, rendererOptions);
+    // The TSL backend lives behind its own dynamic import so `three/webgpu` never enters the eager
+    // graph. If that chunk fails to load, or WebGPU turns out to be unusable under "auto", fall
+    // back to the GLSL renderer rather than the poster — it renders the same scene either way.
+    const Backend = await resolveBackend();
+    renderer = new Backend(container, full, rendererOptions);
+    await renderer.init(); // no-op on WebGL; starts the backend on WebGPU
+    if (aborted) {
+      renderer.dispose();
+      renderer = null;
+      return;
+    }
     const canvas = renderer.renderer.domElement;
     canvas.addEventListener("webglcontextlost", onContextLost, false);
     canvas.addEventListener("webglcontextrestored", onContextRestored, false);
@@ -287,6 +344,7 @@ export function createWave(
 ): WaveHandle {
   return createWaveImpl(
     options.loadCore ?? (() => import("../core-loader")),
+    () => import("../renderer/gpu-loader"),
     container,
     config,
     options,
