@@ -37,10 +37,110 @@ const withPointer =
     return c;
   };
 
+/**
+ * One wave, one dust field, every motion term off unless the case turns it on.
+ *
+ * Particle Zoo stacks five waves with five different shapes and all four motion styles at once, so
+ * a mismatch there says nothing about WHICH part is wrong. These isolate one variable each.
+ */
+const withParticles =
+  ({
+    bloom = false,
+    waves = 1,
+    ...over
+  }: Record<string, unknown> & { bloom?: boolean; waves?: number }): (() => StudioConfig) =>
+  () => {
+    const c = PRESETS.Hero();
+    // A DARK background, deliberately. Additive dust on white saturates and clips, so a field that
+    // renders nothing at all still compares as a perfect match — which is exactly what happened,
+    // and it hid a completely broken per-instance accessor behind nine passing cases.
+    c.background = "#05070d";
+    c.transparentBackground = false;
+    while (c.waves.length < waves) c.waves.push(structuredClone(c.waves[0]));
+    c.waves.length = waves;
+    c.waves.forEach((w, i) => {
+      w.seed = i * 3.7; // otherwise every copy is the same ribbon in the same place
+    });
+    // Bloom is off by default here: it smears any difference across the whole frame, which is
+    // exactly what makes it useful as its own case rather than a constant.
+    //
+    // Destructured, NOT deleted off `over`. This factory is called once per backend, so mutating
+    // the captured object made the second call see different settings from the first — i.e. it
+    // compared bloom against no-bloom and blamed the difference on the port.
+    // 0.12, not a larger value: at high strength the dust blows the whole frame out to a flat
+    // white, and two identical blank images compare perfectly while testing nothing.
+    c.bloomStrength = bloom ? 0.12 : 0;
+    const particles = {
+      count: 4000,
+      seed: 7,
+      size: 6,
+      life: 6,
+      speed: 1,
+      color: "#ffcf8a",
+      shape: "glitter",
+      drift: 0,
+      rise: 0,
+      swirl: 0,
+      wander: 0,
+      sizeJitter: 0,
+      twinkle: 0,
+      ...over,
+    } as StudioConfig["waves"][number]["particles"];
+    for (const w of c.waves) w.particles = structuredClone(particles);
+    return c;
+  };
+
 function syntheticConfigs(): Record<string, () => StudioConfig> {
   return {
     "synthetic:pointer-hover": withPointer(0),
     "synthetic:pointer-ripples": withPointer(2),
+    // The emitter alone: no motion, no jitter, no twinkle. Anything wrong here is spawn or size.
+    "synthetic:dust-static": withParticles({}),
+    "synthetic:dust-drift": withParticles({ drift: 60 }),
+    "synthetic:dust-swirl": withParticles({ swirl: 0.3, drift: 20 }),
+    "synthetic:dust-wander": withParticles({ wander: 25, drift: 10 }),
+    "synthetic:dust-jitter": withParticles({ sizeJitter: 0.8, twinkle: 0.7, drift: 20 }),
+    // One per procedural shape, to pin the shape select and its uv orientation. "streak" is the
+    // only one that is not symmetric about Y, so it is the one that catches a flipped point coord.
+    "synthetic:dust-soft": withParticles({ shape: "soft" }),
+    "synthetic:dust-ring": withParticles({ shape: "ring" }),
+    "synthetic:dust-star": withParticles({ shape: "star" }),
+    "synthetic:dust-streak": withParticles({ shape: "streak", drift: 60 }),
+    // Dust feeding bloom. Additive glints are the brightest thing in any frame, so they sit right
+    // on the bloom threshold — this is where a sub-quantisation difference gets amplified.
+    "synthetic:dust-bloom": withParticles({ drift: 30, bloom: true }),
+    // The same case with far less additive accumulation, so nothing exceeds 1.0. Values above 1
+    // clamp identically on output, so an HDR difference is INVISIBLE until bloom reads it back —
+    // which is why the bright and dim variants are both kept.
+    // Particle Zoo's largest field, reproduced exactly: 16k motes at 3.6 px with almost no drift,
+    // so they pile up on the ribbon. Dense overlap is where a small per-particle energy difference
+    // compounds into a visible one — and it is invisible without bloom, because everything above
+    // 1.0 clamps to the same white.
+    "synthetic:dust-dense": withParticles({
+      shape: "soft",
+      count: 16000,
+      size: 3.6,
+      drift: 5.2,
+      bloom: true,
+    }),
+    // Particle Zoo's SHAPE: five waves each shedding a dense field, all feeding bloom. The
+    // per-wave precision floor accumulates across the stack and bloom then amplifies whatever is
+    // left, so this is the case that says whether that preset's residual is structural.
+    "synthetic:dust-stack": withParticles({
+      shape: "soft",
+      count: 12000,
+      size: 3.6,
+      drift: 5.2,
+      bloom: true,
+      waves: 5,
+    }),
+    "synthetic:dust-bloom-dim": withParticles({
+      drift: 30,
+      bloom: true,
+      count: 300,
+      size: 3,
+      color: "#303030",
+    }),
   };
 }
 
@@ -111,7 +211,14 @@ async function render(name: string, opts: RenderOpts = {}): Promise<string> {
     config.halftoneCmyk = 0;
   }
   for (const [k, v] of Object.entries(opts.overrides ?? {})) {
-    (config as unknown as Record<string, unknown>)[k] = v;
+    // Dotted paths, so a nested field can be isolated too (`interaction.enabled=false`).
+    const path = k.split(".");
+    let target = config as unknown as Record<string, unknown>;
+    for (const step of path.slice(0, -1)) {
+      if (typeof target[step] !== "object" || target[step] === null) target[step] = {};
+      target = target[step] as Record<string, unknown>;
+    }
+    target[path[path.length - 1]] = v;
   }
 
   const host = document.createElement("div");
@@ -376,6 +483,15 @@ window.waveParity = {
         grain: c.grain,
         waves: c.waves?.length,
         waveInteraction: JSON.stringify(c.waves?.[0]?.interaction ?? null),
+        shapes: (c.waves ?? []).map(
+          (w) =>
+            `${w.theme ?? "solid"}/${w.blendMode ?? "squared"} radial=${w.radialAmount ?? 0} helix=${w.helixRadius ?? 0}/${w.helixRoll ?? 0} detail=${w.detailAmount ?? 0} twistMotion=${!!w.twistMotion} depthTint=${w.depthTint ?? 0} edgeFeather=${w.edgeFeather ?? 0.1}`,
+        ),
+        particles: (c.waves ?? []).map((w) =>
+          w.particles
+            ? `${w.particles.shape}/${w.particles.count}@${w.particles.size}px drift=${w.particles.drift}`
+            : "-",
+        ),
         pointerFxActive: c.waves?.[0] ? wavePointerFxActive(c, c.waves[0]) : null,
       },
       null,

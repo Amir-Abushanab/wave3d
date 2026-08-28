@@ -15,7 +15,8 @@ import * as THREE from "three";
 import { WebGPURenderer, RenderPipeline, WebGPUCoordinateSystem } from "three/webgpu";
 import { pass, texture, screenUV, vec2 } from "three/tsl";
 import type { WaveConfig } from "../config/model";
-import { WaveRenderer, type WaveMaterial } from "./WaveRenderer";
+import { WaveRenderer, type WaveMaterial, type WaveParticleField } from "./WaveRenderer";
+import { ParticleFieldGPU } from "./particleFieldGPU";
 import { makeTslUniforms, type WaveTslUniforms } from "./tsl/uniforms";
 import { buildWaveMaterial, type WaveMaterialFlags } from "./tsl/waveMaterial";
 import { wavePointerFxActive, waveRipplesActive } from "./interaction";
@@ -147,6 +148,37 @@ export class WaveRendererGPU extends WaveRenderer {
     };
   }
 
+  /**
+   * An instanced-sprite particle field wired to THIS wave's uniform registry.
+   *
+   * That wiring is the whole reason this override exists: the GLSL field has to mirror the wave's
+   * shape and pointer uniforms into its own material every frame, whereas here the dust reads the
+   * ribbon's nodes directly and cannot drift out of sync with it.
+   */
+  protected override createParticleField(
+    wave: { material: WaveMaterial },
+    sc: WaveConfig,
+    onReady: () => void,
+  ): WaveParticleField {
+    const { tsl } = (wave.material as TslMaterial).userData;
+    const f = this.flagsFor(sc);
+    return new ParticleFieldGPU(
+      {
+        uniforms: tsl,
+        flags: {
+          loopMotion: f.loopMotion,
+          detailOctave: f.detailOctave,
+          helix: f.helix,
+          twistMotion: f.twistMotion,
+          radial: f.radial,
+          pointerFx: f.pointerFx,
+          pointerRipples: f.pointerRipples,
+        },
+      },
+      onReady,
+    );
+  }
+
   protected override createWaveMaterial(sc: WaveConfig | undefined): WaveMaterial {
     const u = makeTslUniforms(this.renderer.getDrawingBufferSize(new THREE.Vector2()));
     const flags = this.flagsFor(sc);
@@ -264,17 +296,6 @@ export class WaveRendererGPU extends WaveRenderer {
   protected override disposePost(): void {
     this.post?.dispose();
     this.post = undefined;
-  }
-
-  /**
-   * Not yet: the particle field is a `THREE.Points` whose size comes from `gl_PointSize`, and
-   * WebGPU point primitives are fixed at one pixel — three's own PointsNodeMaterial documents that
-   * a size can only be honoured when the material is attached to a `Sprite`. Rebuilding the field
-   * as instanced sprites is its own piece of work; until then a dust-bearing preset renders its
-   * ribbon correctly and simply omits the dust, rather than failing to compile.
-   */
-  protected override supportsParticles(): boolean {
-    return false;
   }
 
   /**

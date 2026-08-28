@@ -18,7 +18,7 @@ import {
 } from "three/webgpu";
 import { Fn, vec4, vec3, vec2, float, int, mat2, Loop, If, Break, uniform } from "three/tsl";
 import { simplexNoise } from "../src/renderer/tsl/noise";
-import { expStep, applyTwist, applyHelix } from "../src/renderer/tsl/waveShape";
+import { expStep, applyTwist, applyHelix, applyRadial } from "../src/renderer/tsl/waveShape";
 import type { FloatNode } from "../src/renderer/tsl/types";
 
 /** Shared GLSL prelude: the original implementations, verbatim from ../src/renderer/shaders.ts. */
@@ -64,6 +64,14 @@ vec3 applyHelix(vec3 pos, float uvY, float turns, float phaseDeg, float roll, fl
   pos.y += radius * cos(hAng);
   pos.z += radius * sin(hAng);
   return pos;
+}
+vec3 applyRadial(vec3 pos, vec2 uv, float amount, float arc, float spread, float radius, float center){
+  float rAng = radians(center) + (clamp(uv.x, 0.0, 1.0) - 0.5) * radians(arc);
+  float rRho = radius + uv.y * 400.0 * spread;
+  vec3 rEr = vec3(cos(rAng), sin(rAng), 0.0);
+  vec3 rEt = vec3(-sin(rAng), cos(rAng), 0.0);
+  vec3 fanned = rEr * rRho + rEt * (pos.z - RIBBON_Z) * 0.5 + vec3(0.0, 0.0, pos.y);
+  return mix(pos, fanned, clamp(amount, 0.0, 1.0));
 }
 float countedLoop(int count){
   float acc = 0.0;
@@ -248,6 +256,58 @@ function cases(): Case[] {
         )
           .dot(vec3(0.3178, -0.7413, 0.5891))
           .mul(0.01),
+    });
+  }
+
+  // The radial fan. Particle Zoo drives it at 0.82 and it is the one shape block that had no probe.
+  const radialCases = [
+    {
+      pos: [12.0, -4.0, 20.0],
+      uv: [0.25, 0.6],
+      amount: 0.82,
+      arc: 160,
+      spread: 1,
+      radius: 40,
+      center: 0,
+    },
+    {
+      pos: [-30.0, 9.0, -8.0],
+      uv: [0.8, 0.15],
+      amount: 1.0,
+      arc: 90,
+      spread: 0.5,
+      radius: 15,
+      center: 45,
+    },
+    {
+      pos: [3.0, 3.0, 3.0],
+      uv: [0.5, 1.0],
+      amount: 0.4,
+      arc: 220,
+      spread: 1.5,
+      radius: 0,
+      center: -30,
+    },
+  ] as const;
+  for (const c of radialCases) {
+    const gp = `vec3(${c.pos.map((n) => n.toFixed(4)).join(", ")})`;
+    const guv = `vec2(${c.uv.map((n) => n.toFixed(4)).join(", ")})`;
+    const args = `${c.amount.toFixed(4)}, ${c.arc.toFixed(4)}, ${c.spread.toFixed(4)}, ${c.radius.toFixed(4)}, ${c.center.toFixed(4)}`;
+    out.push({
+      name: `radial(amount=${c.amount}, arc=${c.arc}, center=${c.center})`,
+      glsl: `dot(applyRadial(${gp}, ${guv}, ${args}), ${PROBE}) * 0.002`,
+      tsl: () =>
+        applyRadial(
+          vec3(...c.pos),
+          vec2(...c.uv),
+          float(c.amount),
+          float(c.arc),
+          float(c.spread),
+          float(c.radius),
+          float(c.center),
+        )
+          .dot(vec3(0.3178, -0.7413, 0.5891))
+          .mul(0.002),
     });
   }
 

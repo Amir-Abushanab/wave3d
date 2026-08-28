@@ -114,6 +114,35 @@ export function applyHelix(
   );
 }
 
+/**
+ * Radial fan: remap the ribbon to polar around the LOCAL origin so its LENGTH fans into a plume.
+ *
+ * uv.x (the folded WIDTH) becomes the fan ANGLE across `arc`; uv.y (the LENGTH) becomes the RADIUS,
+ * so a constant-uv.x combed fiber turns into a constant-angle radial spoke. `amount` 0 is the
+ * identity mix. Exported so `parity:math` can probe it against the GLSL.
+ */
+export function applyRadial(
+  pos: Vec3Node,
+  uv: Vec2Node,
+  amount: FloatNode,
+  arc: FloatNode,
+  spread: FloatNode,
+  radius: FloatNode,
+  center: FloatNode,
+): Vec3Node {
+  const rAng = radians(center)
+    .add(clamp(uv.x, 0, 1).sub(0.5).mul(radians(arc)))
+    .toVar("rAng");
+  const rRho = radius.add(uv.y.mul(400.0).mul(spread)); // 400 = native ribbon length
+  const rEr = vec3(cos(rAng), sin(rAng), 0.0); // radial dir, in local X-Y (the screen plane)
+  const rEt = vec3(sin(rAng).negate(), cos(rAng), 0.0); // tangential
+  const fanned = rEr
+    .mul(rRho)
+    .add(rEt.mul(pos.z.sub(RIBBON_Z_CENTER)).mul(0.5))
+    .add(vec3(0.0, 0.0, pos.y));
+  return mix(pos, fanned, clamp(amount, 0, 1));
+}
+
 /** Which optional blocks this material's graph includes — the JS twin of the GLSL `#ifdef` set. */
 export interface WaveShapeFlags {
   loopMotion: boolean;
@@ -195,18 +224,16 @@ export function waveShape(
   const twisted = applyTwist(applyTwist(applyTwist(pos, twists[0]), twists[1]), twists[2]).toVar();
 
   if (!flags.radial) return { pos: twisted, twists };
-
-  // Radial fan: remap the ribbon to polar around the LOCAL origin so its LENGTH fans into a plume.
-  // uv.x (folded WIDTH) → fan ANGLE across uRadialArc; uv.y (LENGTH) → RADIUS, so a constant-uv.x
-  // combed fiber becomes a constant-angle radial spoke. Amount 0 is the identity mix.
-  const rAng = radians(u.uRadialCenter).add(clamp(uv.x, 0, 1).sub(0.5).mul(radians(u.uRadialArc)));
-  const rRho = u.uRadialRadius.add(uv.y.mul(400.0).mul(u.uRadialSpread)); // 400 = native ribbon length
-  const rEr = vec3(cos(rAng), sin(rAng), 0.0); // radial dir, in local X–Y (the screen plane)
-  const rEt = vec3(sin(rAng).negate(), cos(rAng), 0.0); // tangential
-  const fanned = rEr
-    .mul(rRho)
-    .add(rEt.mul(twisted.z.sub(RIBBON_Z_CENTER)).mul(0.5))
-    .add(vec3(0.0, 0.0, twisted.y));
-
-  return { pos: mix(twisted, fanned, clamp(u.uRadialAmount, 0, 1)), twists };
+  return {
+    pos: applyRadial(
+      twisted,
+      uv,
+      u.uRadialAmount,
+      u.uRadialArc,
+      u.uRadialSpread,
+      u.uRadialRadius,
+      u.uRadialCenter,
+    ),
+    twists,
+  };
 }

@@ -249,6 +249,27 @@ export type WaveUniforms = Record<string, { value: unknown }>;
 /** A wave material, whichever backend built it. */
 export type WaveMaterial = THREE.Material & { uniforms: WaveUniforms };
 
+/**
+ * A wave's particle field, whichever backend built it.
+ *
+ * The TSL field is a `THREE.Sprite` where the GLSL one is a `THREE.Points` (WebGPU has no point
+ * size), so the scene node is reached through `object` rather than either concrete type.
+ */
+export interface WaveParticleField {
+  readonly object: THREE.Object3D;
+  sync(cfg: NonNullable<WaveConfig["particles"]>, loopSeconds: number): void;
+  frame(f: ParticleFrame, pixelRatio: number): void;
+  configure(shape: {
+    defines?: Record<string, string>;
+    uniforms?: Record<string, { value: unknown }>;
+    matrixWorld: THREE.Matrix4;
+    speed: number;
+    seed: number;
+  }): void;
+  setTime(t: number): void;
+  dispose(): void;
+}
+
 type Wave = {
   mesh: THREE.Mesh;
   material: WaveMaterial;
@@ -257,7 +278,7 @@ type Wave = {
   palette: WavePalette;
   /** This wave's own particle / dust field — created when its `particles.count` first goes >0,
    *  disposed at 0 / absent (the WavePalette lifecycle pattern). Undefined = no dust for this wave. */
-  particleField?: ParticleField;
+  particleField?: WaveParticleField;
 };
 
 // Parse scratch: refresh() converts ~25 hex colours per wave per call (i.e. per slider input),
@@ -783,7 +804,7 @@ export class WaveRenderer {
       s.geometry.dispose();
       s.palette.dispose();
       if (s.particleField) {
-        this.scene.remove(s.particleField.points);
+        this.scene.remove(s.particleField.object);
         s.particleField.dispose();
       }
     }
@@ -809,7 +830,7 @@ export class WaveRenderer {
       // dust onto later frames — notably the shared thumbnail renderer (preset previews after a
       // particle-heavy preset showed leftover white specks).
       if (s.particleField) {
-        this.scene.remove(s.particleField.points);
+        this.scene.remove(s.particleField.object);
         s.particleField.dispose();
       }
     }
@@ -1056,14 +1077,15 @@ export class WaveRenderer {
   }
 
   /**
-   * Whether this backend can render the particle field.
-   *
-   * The field is a `THREE.Points` sized through `gl_PointSize`, which WebGPU has no equivalent for
-   * — its point primitives are locked to one pixel. The TSL backend therefore reports false until
-   * the field is rebuilt as instanced sprites.
+   * Build a wave's particle field. The GLSL backend returns a `THREE.Points` field; the TSL backend
+   * returns an instanced-sprite one wired to this wave's own uniform registry.
    */
-  protected supportsParticles(): boolean {
-    return true;
+  protected createParticleField(
+    _wave: Wave,
+    _sc: WaveConfig,
+    onReady: () => void,
+  ): WaveParticleField {
+    return new ParticleField(onReady);
   }
 
   /**
@@ -1813,7 +1835,6 @@ export class WaveRenderer {
    *  rebuild only when the (count, seed, edgeBias, bias) signature changes; the rest are live uniforms.
    *  configure() (the wave-shape binding) runs later in updateSceneFx, once transforms are current. */
   private applyParticles(): void {
-    if (!this.supportsParticles()) return;
     const loop = this.config.loopSeconds ?? 0;
     this.waves.forEach((wave, i) => {
       const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
@@ -1822,14 +1843,14 @@ export class WaveRenderer {
         if (!wave.particleField) {
           // The callback fires when a sprite image finishes rasterizing: a paused / settled
           // renderer has no next frame to pick it up, so it has to be asked to draw one.
-          wave.particleField = new ParticleField(() => {
+          wave.particleField = this.createParticleField(wave, sc, () => {
             if (!this.running) this.renderOnce();
           });
-          this.scene.add(wave.particleField.points);
+          this.scene.add(wave.particleField.object);
         }
         wave.particleField.sync(cfg, loop);
       } else if (wave.particleField) {
-        this.scene.remove(wave.particleField.points);
+        this.scene.remove(wave.particleField.object);
         wave.particleField.dispose();
         wave.particleField = undefined;
       }

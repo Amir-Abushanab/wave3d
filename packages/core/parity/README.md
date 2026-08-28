@@ -72,26 +72,42 @@ Two traps this check walked into, both worth knowing before writing another comp
 
 ## Current state of the port
 
-Both backends render all 22 configs. Fourteen sit at `mae` 0.7–3.1 with 2–7% of interior pixels
-differing by more than 8/255, and a mean signed bias under ±1 — i.e. symmetric rounding, not a
-systematic error. That is the precision floor: the fiber texture is sampled at ~600x frequency, so
-last-bit differences in uv interpolation land on either side of a quantisation boundary.
+Every shipped preset and gallery config renders on both backends at `mae <= 4.79`, most under 1,
+with biases near zero. Five pass the strict interior thresholds outright.
 
-The outliers all trace to work that is not done yet, not to the shaders:
+The `synthetic:dust-*` cases sit higher (`mae` 2.8-12) on purpose: they are dense additive dust on a
+DARK background with no bloom, which is the most sensitive arrangement there is. That residual has a
+known, measured cause — see "Points versus sprites" below — and is not present at any preset's
+settings.
 
-| config                      | interior >8 | cause                                                           |
-| --------------------------- | ----------- | --------------------------------------------------------------- |
-| `Particle Zoo`              | 100 %       | particle field not ported (WebGPU has no point size)            |
-| `rainbow-mesh-double-helix` | 99 %        | `innerLight` post effect not ported                             |
-| `dna-double-helix`          | 50 %        | bloom not ported                                                |
-| `Neon Dark Multistrand`     | 25 %        | bloom not ported                                                |
-| `Wireframe`                 | 23 %        | bloom; only 1.2% differ by >24, the rest is strand-width jitter |
+Two configs are worth naming:
 
-`--no-post` renders both backends with every effect zeroed, which is what separates "the shader is
-wrong" from "the post chain is wrong" — two bugs that look identical in a whole-frame diff.
+| config                  | interior >8 | why                                                                                                                                               |
+| ----------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Neon Dark Multistrand` | 22 %        | three wireframe layers at ~425 strands across the width put 72% of the frame on a strand boundary; the single-wave `Wireframe` preset is at 0.01% |
+| `synthetic:dust-stack`  | 74 %        | 60k additive motes on black with bloom — the adversarial case, deliberately                                                                       |
 
-The thresholds above are the target, not the present state; they stay where they are until the post
-chain and particles land, so the gate keeps pointing at real work.
+`--no-post` renders both backends with every effect zeroed, which separates "the shader is wrong"
+from "the post chain is wrong" — two bugs that look identical in a whole-frame diff. `--set k=v`
+(repeatable, dotted paths, e.g. `--set waves.0.particles.count=0`) isolates one setting at a time.
+
+## Points versus sprites
+
+WebGPU point primitives are fixed at one pixel, so the particle field is instanced sprites there and
+`THREE.Points` on WebGL. Those two rasterise differently, and it is measurable:
+
+| nominal size | WebGL point        | WebGPU sprite      |
+| ------------ | ------------------ | ------------------ |
+| 3.6 px       | 2 px wide, 4 lit   | 4 px wide, 12 lit  |
+| 6 px         | 4 px wide, 16 lit  | 6 px wide, 24 lit  |
+| 12 px        | 10 px wide, 80 lit | 12 px wide, 96 lit |
+
+`sizeNode` itself is exact — a sizeNode of 8 renders an 8x8 sprite. It is the WebGL point that comes
+out roughly 2 px narrower than asked for. So each mote covers about 1.5x more pixels on WebGPU and
+the dust reads slightly brighter. That is deliberately NOT compensated for: the correction would be
+a fudge tuned to one driver's point rasteriser, and it would be wrong wherever that driver behaves
+differently. It is invisible at every shipped preset's settings and shows up only in the synthetic
+stress cases.
 
 ## What the shader-math check has confirmed
 
@@ -104,3 +120,17 @@ agree with the GLSL to 0 or ~1e-7. Two findings worth keeping:
 - **`screenCoordinate` DOES differ**: it follows WebGPU's top-left origin and flips Y on WebGL to
   match, where `gl_FragCoord` is bottom-left. The film grain keys off it, so unflipped it produced
   a completely different grain pattern — visually similar, speckle across every pixel of a diff.
+
+## Two ways this harness lied
+
+Both produced confident, plausible numbers while measuring nothing, and both are worth knowing about
+before trusting a comparison of your own:
+
+- **A flag reached one backend and not the other.** The runner used to build the two `render()`
+  calls separately, and twice a new option was added to one and not the other — so it compared
+  WebGL _with_ post against WebGPU _without_, and blamed the difference on the port. It now builds
+  ONE options object and passes it to both, differing only in `backend`.
+- **Additive dust on a white background saturates and clips.** Nine particle cases passed while the
+  TSL field was rendering _nothing at all_: both frames were blown out to the same white. The dust
+  synthetics now use a dark background, which is what surfaced the real bug (a per-instance accessor
+  that made every mote read the same element). If a case cannot fail, it is not a test.
