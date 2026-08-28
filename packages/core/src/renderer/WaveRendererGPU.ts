@@ -13,7 +13,7 @@
  */
 import * as THREE from "three";
 import { WebGPURenderer, RenderPipeline, WebGPUCoordinateSystem } from "three/webgpu";
-import { pass, texture, screenUV } from "three/tsl";
+import { pass, texture, screenUV, vec2 } from "three/tsl";
 import type { WaveConfig } from "../config/model";
 import { WaveRenderer, type WaveMaterial } from "./WaveRenderer";
 import { makeTslUniforms, type WaveTslUniforms } from "./tsl/uniforms";
@@ -300,8 +300,12 @@ export class WaveRendererGPU extends WaveRenderer {
     // `scene.background` can be left alone for the WebGL path's benefit.
     const bg = this.scene.background as THREE.Texture | THREE.Color | null;
     const isTexture = !!bg && (bg as THREE.Texture).isTexture === true;
+    // V is flipped because these background textures are CanvasTextures, which default to
+    // flipY = true. The WebGL background path honours that flag when it draws the texture across
+    // the screen; sampling by screenUV here does not, so the gradient lands mirrored. Costs ~1.4
+    // mae on a gradient-background preset and shows up as concentric banding in a diff.
     this.scene.backgroundNode = isTexture
-      ? (texture(bg as THREE.Texture).sample(screenUV) as never)
+      ? (texture(bg as THREE.Texture).sample(vec2(screenUV.x, screenUV.y.oneMinus())) as never)
       : null;
     this.disposePost();
   }

@@ -38,7 +38,7 @@ const OVERRIDES = Object.fromEntries(
   args
     .filter((a) => a.startsWith("--set="))
     .map((a) => a.slice(6).split("="))
-    .map(([k, v]) => [k, Number(v)]),
+    .map(([k, v]) => [k, Number.isNaN(Number(v)) ? v : Number(v)]),
 );
 
 const dataUrlToBuffer = (u) => Buffer.from(u.slice(u.indexOf(",") + 1), "base64");

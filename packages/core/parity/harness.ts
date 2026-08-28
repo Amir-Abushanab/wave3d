@@ -51,7 +51,7 @@ export interface RenderOpts {
    * Arbitrary config overrides applied after `noPost`, so one effect can be isolated
    * (`{ grain: 0 }` leaves blur running, and vice versa).
    */
-  overrides?: Record<string, number>;
+  overrides?: Record<string, number | string | boolean>;
 }
 
 /**
@@ -82,7 +82,7 @@ async function render(name: string, opts: RenderOpts = {}): Promise<string> {
     config.halftoneCmyk = 0;
   }
   for (const [k, v] of Object.entries(opts.overrides ?? {})) {
-    (config as unknown as Record<string, number>)[k] = v;
+    (config as unknown as Record<string, unknown>)[k] = v;
   }
 
   const host = document.createElement("div");
