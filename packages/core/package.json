@@ -33,7 +33,8 @@
     "./renderer": "./src/renderer/index.ts",
     "./presets": "./src/presets.ts",
     "./studio": "./src/studio/index.ts",
-    "./standalone": "./src/standalone.ts"
+    "./standalone": "./src/standalone.ts",
+    "./standalone-webgpu": "./src/standalone.webgpu.ts"
   },
   "publishConfig": {
     "exports": {
@@ -56,13 +57,17 @@
       "./standalone": {
         "types": "./dist/standalone.d.ts",
         "default": "./dist/standalone/wave3d.standalone.js"
+      },
+      "./standalone-webgpu": {
+        "types": "./dist/standalone.webgpu.d.ts",
+        "default": "./dist/standalone/wave3d.standalone.webgpu.js"
       }
     },
     "access": "public"
   },
   "scripts": {
     "build": "tsdown && pnpm build:standalone",
-    "build:standalone": "vite build --config vite.standalone.config.ts",
+    "build:standalone": "vite build --config vite.standalone.config.ts && WAVE3D_STANDALONE=webgpu vite build --config vite.standalone.config.ts",
     "skill:stale": "intent stale skills",
     "skill:validate": "intent validate skills",
     "test": "vitest run",

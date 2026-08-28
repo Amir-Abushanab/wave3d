@@ -25,9 +25,10 @@
     "knip": "knip",
     "skill:validate": "pnpm --filter @wave3d/core skill:validate",
     "gallery:validate": "node scripts/validate-gallery.mjs",
-    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm depcruise && pnpm knip && pnpm skill:validate && pnpm gallery:validate",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm depcruise && pnpm knip && pnpm skill:validate && pnpm gallery:validate && pnpm check:chunks",
     "ncu": "pnpm dlx npm-check-updates",
-    "skill:stale": "pnpm --filter @wave3d/core skill:stale"
+    "skill:stale": "pnpm --filter @wave3d/core skill:stale",
+    "check:chunks": "node scripts/check-webgpu-chunk.mjs"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.7.0",

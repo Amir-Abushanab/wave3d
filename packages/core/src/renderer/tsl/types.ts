@@ -17,7 +17,6 @@ export type Vec3Node = Node<"vec3">;
 export type Vec4Node = Node<"vec4">;
 export type Mat4Node = Node<"mat4">;
 
-export type UintNode = Node<"uint">;
 export type UVec2Node = Node<"uvec2">;
 
 /**

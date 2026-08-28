@@ -38,10 +38,10 @@ import type { WaveTslUniforms } from "./uniforms";
 const PI = Math.PI;
 
 /** `(v - 0.5) * a + 0.5` */
-export const contrastFn = (v: Vec3Node, a: FloatNode): Vec3Node => v.sub(0.5).mul(a).add(0.5);
+const contrastFn = (v: Vec3Node, a: FloatNode): Vec3Node => v.sub(0.5).mul(a).add(0.5);
 
 /** Pull `color` toward its luminance by `factor`. */
-export const desaturate = (color: Vec3Node, factor: FloatNode): Vec3Node =>
+const desaturate = (color: Vec3Node, factor: FloatNode): Vec3Node =>
   mix(color, vec3(dot(vec3(0.299, 0.587, 0.114), color)), factor);
 
 /** Rotate hue by `shift` RADIANS about the grey axis (the GLSL takes radians here too). */
@@ -63,7 +63,7 @@ export const hueShift = (color: Vec3Node, shift: FloatNode): Vec3Node => {
  * overwriting for every qualifying `i`, so the LAST qualifying stop wins. That is what makes
  * out-of-order or coincident stops behave the way the studio's presets expect.
  */
-export function grad(u: WaveTslUniforms, t: FloatNode): Vec3Node {
+function grad(u: WaveTslUniforms, t: FloatNode): Vec3Node {
   const uu = clamp(t, 0, 1).toVar();
   const col = u.uColors.el(0).toVar("gradCol");
   Loop({ start: 0, end: MAX_COLORS - 1, type: "int" }, ({ i }) => {
@@ -84,7 +84,7 @@ export function grad(u: WaveTslUniforms, t: FloatNode): Vec3Node {
  * iOS-style 2D colour field: each control point contributes an inverse-distance weight, and
  * normalising the sum fills the whole surface without dark seams.
  */
-export function meshGradient(u: WaveTslUniforms, uvIn: Vec2Node): Vec3Node {
+function meshGradient(u: WaveTslUniforms, uvIn: Vec2Node): Vec3Node {
   const colorSum = vec3(0).toVar("meshColorSum");
   const weightSum = float(0).toVar("meshWeightSum");
   const exponent = mix(4.8, 1.35, clamp(u.uMeshSoftness, 0, 1)).toVar();
@@ -105,7 +105,7 @@ export function meshGradient(u: WaveTslUniforms, uvIn: Vec2Node): Vec3Node {
  * Map a surface uv to the 0–1 gradient coordinate per gradient type. `uGradShift` adds a
  * low-frequency simplex warp so the colour varies in 2D — a 2D palette feel rather than flat bands.
  */
-export function gradCoord(u: WaveTslUniforms, uvIn: Vec2Node): FloatNode {
+function gradCoord(u: WaveTslUniforms, uvIn: Vec2Node): FloatNode {
   const warp = u.uGradShift.mul(simplexNoise(uvIn.mul(1.6).add(4.0))).toVar();
   const radial = clamp(length(uvIn.sub(0.5)).mul(2.0).add(warp), 0, 1);
   const conic = fract(
