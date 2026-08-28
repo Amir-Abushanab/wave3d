@@ -18,6 +18,7 @@ import type { WaveConfig } from "../config/model";
 import { WaveRenderer, type WaveMaterial } from "./WaveRenderer";
 import { makeTslUniforms, type WaveTslUniforms } from "./tsl/uniforms";
 import { buildWaveMaterial, type WaveMaterialFlags } from "./tsl/waveMaterial";
+import { wavePointerFxActive, waveRipplesActive } from "./interaction";
 import { buildPostChain, type PostChainUniforms, type PostFlags } from "./tsl/postChain";
 import { floatUniform, vec2Uniform } from "./tsl/types";
 
@@ -33,6 +34,8 @@ function variantKey(f: WaveMaterialFlags): string {
     f.depthTint && "depthTint",
     f.edgeFeather && "edgeFeather",
     f.rungs && "rungs",
+    f.pointerFx && "pointer",
+    f.pointerRipples && "ripples",
     f.webgpuClipZ && "gpuz",
   ]
     .filter(Boolean)
@@ -127,6 +130,7 @@ export class WaveRendererGPU extends WaveRenderer {
       sc?.interaction?.bindings?.some((b) => b.target === "detailAmount") ?? false;
     const bindsHelix =
       sc?.interaction?.bindings?.some((b) => b.target.startsWith("helix")) ?? false;
+    const pointer = !!sc && wavePointerFxActive(this.config, sc);
     return {
       theme: sc?.theme === "wireframe" ? "wireframe" : "solid",
       loopMotion: (this.config.loopSeconds ?? 0) > 0,
@@ -137,6 +141,8 @@ export class WaveRendererGPU extends WaveRenderer {
       depthTint: (sc?.depthTint ?? 0) > 0,
       edgeFeather: (sc?.edgeFeather ?? 0.1) !== 0.1,
       rungs: sc?.theme === "wireframe" && (sc.rungAmount ?? 0) > 0,
+      pointerFx: pointer,
+      pointerRipples: pointer && waveRipplesActive(this.config, sc as WaveConfig),
       webgpuClipZ: this.webgpuClipZ,
     };
   }

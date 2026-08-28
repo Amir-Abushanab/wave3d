@@ -32,6 +32,8 @@ const THRESHOLDS = { mae: 2.0, interiorOver8: 1.0, interiorOver24: 0.25 };
 const args = process.argv.slice(2);
 const MODE = args.includes("--capture") ? "capture" : args.includes("--self") ? "self" : "compare";
 const ONLY = args.find((a) => a.startsWith("--only="))?.slice(7);
+// Synthetic pointer configs get a pinned cursor so the interaction path is actually exercised.
+const FIXED_POINTER = { x: 0.18, y: -0.12, radius: 0.6, vx: 0.4, vy: 0.15 };
 const NO_POST = args.includes("--no-post"); // diagnostic: material only, post chain zeroed
 // Diagnostic: --set key=value (repeatable) overrides config on BOTH sides, to isolate one effect.
 const OVERRIDES = Object.fromEntries(
@@ -42,6 +44,8 @@ const OVERRIDES = Object.fromEntries(
 );
 
 const dataUrlToBuffer = (u) => Buffer.from(u.slice(u.indexOf(",") + 1), "base64");
+/** Runs in the page. One function for both backends, so their options cannot drift apart. */
+const renderWith = ([name, opts, backend]) => window.waveParity.render(name, { ...opts, backend });
 const slug = (n) => n.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
 
 async function main() {
@@ -108,15 +112,18 @@ async function main() {
 
       // Both renders happen in this page load: same GPU, same driver, same config object shape.
       const backend = MODE === "self" ? "webgl" : "webgpu";
-      const expected = await page.evaluate(
-        ([n, np, ov]) =>
-          window.waveParity.render(n, { backend: "webgl", noPost: np, overrides: ov }),
-        [name, NO_POST, OVERRIDES],
-      );
-      const actual = await page.evaluate(
-        ([n, b, np, ov]) => window.waveParity.render(n, { backend: b, noPost: np, overrides: ov }),
-        [name, backend, NO_POST, OVERRIDES],
-      );
+      // ONE options object for both sides, differing only in `backend`. Maintaining two call sites
+      // let a flag reach one backend and not the other twice already, each time producing a
+      // confident-looking comparison of two different things.
+      const opts = {
+        noPost: NO_POST,
+        overrides: OVERRIDES,
+        pointer: name.startsWith("synthetic:pointer")
+          ? { ...FIXED_POINTER, ripple: name.includes("ripples") }
+          : undefined,
+      };
+      const expected = await page.evaluate(renderWith, [name, opts, "webgl"]);
+      const actual = await page.evaluate(renderWith, [name, opts, backend]);
 
       const d = await page.evaluate(([a, b]) => window.waveParity.diff(a, b), [expected, actual]);
       const pass =

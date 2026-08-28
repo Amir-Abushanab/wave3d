@@ -40,6 +40,7 @@ import {
   cross,
   dot,
   normalize,
+  radians,
   Loop,
   If,
   Break,
@@ -47,13 +48,18 @@ import {
 } from "three/tsl";
 import { MAX_LIGHTS, MAX_NOISE_BANDS } from "../../config/model";
 import { simplexNoise, grainHash } from "./noise";
-import { waveShape, type WaveShapeFlags } from "./waveShape";
+import { waveShape, applyTwist, type WaveShapeFlags } from "./waveShape";
 import { applyColorGrade, waveBaseColor, hueShift, parabola, mapLinear } from "./color";
+import { pointerField } from "./pointerField";
 import type { FloatNode, Vec2Node, Vec3Node } from "./types";
 import type { WaveTslUniforms } from "./uniforms";
 
 export interface WaveMaterialFlags extends WaveShapeFlags {
   theme: "solid" | "wireframe";
+  /** Pointer field: per-wave, config-only, so input never triggers a rebuild. */
+  pointerFx: boolean;
+  /** Click ripples, which nest inside the pointer field. */
+  pointerRipples: boolean;
   depthTint: boolean;
   edgeFeather: boolean;
   rungs: boolean;
@@ -140,9 +146,38 @@ export function buildWaveMaterial(u: WaveTslUniforms, flags: WaveMaterialFlags):
   material.side = 2; // THREE.DoubleSide
 
   // ---- Vertex ----
+  // The pointer falloff is computed in the vertex stage alongside the displacement and carried to
+  // the fragment, matching the GLSL's `varying float vPointerFall`.
+  let pointerFall: FloatNode | null = null;
+
   material.positionNode = Fn(() => {
     const { t, loopOff } = timeNodes(u, flags);
-    return waveShape(u, flags, positionLocal, uv(), t, loopOff).pos;
+    const ws = waveShape(u, flags, positionLocal, uv(), t, loopOff);
+    if (!flags.pointerFx) return ws.pos;
+
+    // Displace along the wave's own (post-twist) up-axis, weighted by a screen-space falloff around
+    // the smoothed cursor. Everything here is ADDITIVE, so the shared path above is untouched.
+    // Shared clip transform, computed once and reused for the cursor metric and the ribbon tangent
+    // (the compiler is not guaranteed to CSE the triple product).
+    const mvp = cameraProjectionMatrix.mul(cameraViewMatrix).mul(modelWorldMatrix).toVar("mvp");
+    const preClip = mvp.mul(vec4(ws.pos, 1.0)).toVar("preClip");
+    const hit = pointerField(
+      u,
+      { loopMotion: flags.loopMotion, ripples: flags.pointerRipples },
+      preClip.xy.div(max(preClip.w, 1.0e-6)),
+      mvp,
+      ws.twists,
+      ws.pos,
+      t,
+      loopOff,
+    );
+    pointerFall = varying(hit.fall, "vPointerFall");
+    // Rotations are linear, so displacing the post-twist axis equals displacing pre-twist Y.
+    const dispAxis = applyTwist(
+      applyTwist(applyTwist(vec3(0, 1, 0), ws.twists[0]), ws.twists[1]),
+      ws.twists[2],
+    );
+    return ws.pos.add(dispAxis.mul(hit.disp));
   })();
 
   // Clip-space depth, normalised to the WebGL [-1,1] convention the GLSL was written against.
@@ -158,23 +193,36 @@ export function buildWaveMaterial(u: WaveTslUniforms, flags: WaveMaterialFlags):
   // ---- Fragment ----
   material.outputNode =
     flags.theme === "wireframe"
-      ? buildWireframeFragment(u, flags, clipZ)
-      : buildSolidFragment(u, flags, clipZ);
+      ? buildWireframeFragment(u, flags, clipZ, pointerFall)
+      : buildSolidFragment(u, flags, clipZ, pointerFall);
 
   return material;
 }
 
 /** The wireframe thin-line theme: colour carved into fine lengthwise strands, faded by depth. */
-function buildWireframeFragment(u: WaveTslUniforms, flags: WaveMaterialFlags, clipZ: FloatNode) {
+function buildWireframeFragment(
+  u: WaveTslUniforms,
+  flags: WaveMaterialFlags,
+  clipZ: FloatNode,
+  pointerFall: FloatNode | null,
+) {
   return Fn(() => {
     const vUv = uv();
     const color = applyColorGrade(u, waveBaseColor(u, vUv)).toVar("lineColor");
+    if (pointerFall) {
+      color.assign(hueShift(color, radians(u.uPointerHue).mul(pointerFall)));
+      color.mulAssign(float(1).add(u.uPointerLighten.mul(pointerFall)));
+    }
 
     // Carve into fine lengthwise strands; thickness from the screen-space uv derivative.
     const dy = dFdy(vUv).toVar();
     const lineThickness = u.uLineThickness
       .mul(pow(tabs(dy.x.mul(u.uMaxWidth)), u.uLineDerivativePower))
       .toVar("lineThickness");
+    if (pointerFall) {
+      // Strands taper to hairlines near the cursor.
+      lineThickness.mulAssign(clamp(float(1).sub(u.uPointerThin.mul(pointerFall)), 0, 1));
+    }
     const a = smoothstep(lineThickness, 0.0, tabs(sin(vUv.x.mul(u.uLineAmount)))).toVar("lineA");
 
     if (flags.rungs) {
@@ -197,7 +245,12 @@ function buildWireframeFragment(u: WaveTslUniforms, flags: WaveMaterialFlags, cl
 }
 
 /** The solid surface theme. */
-function buildSolidFragment(u: WaveTslUniforms, flags: WaveMaterialFlags, clipZ: FloatNode) {
+function buildSolidFragment(
+  u: WaveTslUniforms,
+  flags: WaveMaterialFlags,
+  clipZ: FloatNode,
+  pointerFall: FloatNode | null,
+) {
   return Fn(() => {
     const vUv = uv();
     const vWorldPos = positionWorld;
@@ -215,6 +268,12 @@ function buildSolidFragment(u: WaveTslUniforms, flags: WaveMaterialFlags, clipZ:
     const col = waveBaseColor(u, vUv).toVar("col");
     col.assign(surfaceStreaks(u, vUv, col, crease));
     col.assign(applyColorGrade(u, col));
+
+    if (pointerFall) {
+      // Local hue rotation + brightness lift near the cursor (both fade out with the falloff).
+      col.assign(hueShift(col, radians(u.uPointerHue).mul(pointerFall)));
+      col.mulAssign(float(1).add(u.uPointerLighten.mul(pointerFall)));
+    }
 
     // Iridescence: a thin-film hue that shifts with view angle — grazing parts of the ribbon shift
     // most, so the colour flows as the ribbon curves.
@@ -273,6 +332,9 @@ function buildSolidFragment(u: WaveTslUniforms, flags: WaveMaterialFlags, clipZ:
         )
       : smoothstep(0.0, 0.1, vUv.y).mul(float(1).sub(smoothstep(0.9, 1.0, vUv.y)));
     const alpha = u.uOpacity.mul(ribEdge).toVar("alpha");
+    if (pointerFall) {
+      alpha.mulAssign(clamp(float(1).sub(u.uPointerThin.mul(pointerFall)), 0, 1)); // local translucency
+    }
 
     If(u.uEdgeFade.greaterThan(0.001), () => {
       const sc = screenUV;

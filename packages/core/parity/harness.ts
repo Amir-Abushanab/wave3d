@@ -12,16 +12,43 @@ import { WaveRenderer } from "../src/renderer/WaveRenderer";
 import { WaveRendererGPU } from "../src/renderer/WaveRendererGPU";
 import { PRESETS } from "../src/presets";
 import { ensureStudioConfig, type StudioConfig } from "../src/config/model";
+import { wavePointerFxActive } from "../src/renderer/interaction";
 
 const galleryModules = import.meta.glob<{ default: { title?: string; config: unknown } }>(
   "../../../gallery/waves/*.json",
   { eager: true },
 );
 
-/** Every config under test: the 17 shipped presets + the gallery entries. */
+/**
+ * Synthetic configs covering shipped features no preset happens to exercise.
+ *
+ * The pointer field is the important one: it is a whole shader path (agitation, membrane push,
+ * drag wake, click ripples, plus the fragment's local hue / lighten / thinning) that no preset
+ * turns on, so without this it would compile and never be compared against the GLSL.
+ */
+const withPointer =
+  (ripple: number): (() => StudioConfig) =>
+  () => {
+    const c = PRESETS.Hero();
+    c.waves[0].interaction = {
+      hover: { agitate: 3, push: 2.5, wake: 1.5, thin: 0.35, hueShift: 40, lighten: 0.4 },
+      ...(ripple > 0 ? { press: { ripple } } : {}),
+    };
+    return c;
+  };
+
+function syntheticConfigs(): Record<string, () => StudioConfig> {
+  return {
+    "synthetic:pointer-hover": withPointer(0),
+    "synthetic:pointer-ripples": withPointer(2),
+  };
+}
+
+/** Every config under test: the 17 shipped presets, the gallery entries, and the synthetics. */
 function allConfigs(): Record<string, () => StudioConfig> {
   const out: Record<string, () => StudioConfig> = {};
   for (const [name, make] of Object.entries(PRESETS)) out[`preset:${name}`] = make;
+  Object.assign(out, syntheticConfigs());
   for (const [path, mod] of Object.entries(galleryModules)) {
     const slug = path
       .split("/")
@@ -47,6 +74,8 @@ export interface RenderOpts {
    * different bugs that look identical in a whole-frame diff.
    */
   noPost?: boolean;
+  /** Pin the pointer field to fixed values, so the interaction shader path can be compared. */
+  pointer?: FixedPointer;
   /**
    * Arbitrary config overrides applied after `noPost`, so one effect can be isolated
    * (`{ grain: 0 }` leaves blur running, and vice versa).
@@ -97,13 +126,71 @@ async function render(name: string, opts: RenderOpts = {}): Promise<string> {
     renderer.setOutputSize(width, height); // forces DPR 1 — parity must not depend on the display
     // Two captures: the first lets any theme/blend program compile, the second is the settled frame
     // (the studio's thumbnail path does the same for the same reason).
+    //
+    // The pointer has to be re-pinned before EACH capture: captureImage's trailing renderOnce()
+    // runs outside the capture guard, so applyInteraction() gets to zero the pointer uniforms back
+    // to "no input" in between. Pinning only once silently measured a field that was never on.
+    if (opts.pointer) applyFixedPointer(renderer, opts.pointer);
     await renderer.captureImage("image/png", false, undefined, opts.time ?? 0);
+    if (opts.pointer) applyFixedPointer(renderer, opts.pointer);
     const blob = await renderer.captureImage("image/png", false, undefined, opts.time ?? 0);
     return await blobToDataUrl(blob);
   } finally {
     renderer?.dispose();
     host.remove();
   }
+}
+
+/**
+ * Pin the pointer uniforms to fixed values on every wave.
+ *
+ * The live controller derives these from real input, which is not reproducible — and `captureImage`
+ * deliberately calls `applyInteractionRest()`, which ZEROES pointer presence so a captured frame is
+ * always "this config with no input". Both would erase whatever is written here, so the controller
+ * is detached first. The wave config keeps its `interaction` block, so `wavePointerFxActive()` is
+ * still true and the pointer shader path is still compiled — only the per-frame writes stop.
+ *
+ * Both backends read the same registry keys, so this drives the real uniforms rather than
+ * re-implementing the effect.
+ */
+function applyFixedPointer(renderer: WaveRenderer, p: FixedPointer): void {
+  (renderer as unknown as { interaction?: unknown }).interaction = undefined;
+  for (const wave of (
+    renderer as unknown as {
+      waves: { material: { uniforms: Record<string, { value: unknown }> } }[];
+    }
+  ).waves) {
+    const u = wave.material.uniforms;
+    (u.uPointer.value as { set: (x: number, y: number) => void }).set(p.x, p.y);
+    u.uPointerActive.value = 1;
+    u.uPointerRadius.value = p.radius;
+    (u.uPointerVel.value as { set: (x: number, y: number) => void }).set(p.vx, p.vy);
+    // The EFFECT amplitudes, not just the cursor position. applyInteraction() normally derives
+    // these from the wave's hover config; pinning only the position leaves every amplitude at zero,
+    // which renders identically to no pointer at all.
+    u.uPointerAgitate.value = 3;
+    u.uPointerPush.value = 2.5;
+    u.uPointerWake.value = 1.5;
+    u.uPointerThin.value = 0.35;
+    u.uPointerHue.value = 40;
+    u.uPointerLighten.value = 0.4;
+    u.uShapeFlow.value = 0.5;
+    u.uPointerRipple.value = p.ripple ? 2 : 0;
+    if (p.ripple) {
+      (u.uRippleOrigin.value as { set: (x: number, y: number) => void }[])[0].set(p.x, p.y);
+      (u.uRippleAge.value as number[])[0] = 0.35;
+      (u.uRippleAmp.value as number[])[0] = 1;
+    }
+  }
+}
+
+export interface FixedPointer {
+  x: number;
+  y: number;
+  radius: number;
+  vx: number;
+  vy: number;
+  ripple?: boolean;
 }
 
 async function blobToDataUrl(blob: Blob): Promise<string> {
@@ -288,6 +375,8 @@ window.waveParity = {
         blur: c.blur,
         grain: c.grain,
         waves: c.waves?.length,
+        waveInteraction: JSON.stringify(c.waves?.[0]?.interaction ?? null),
+        pointerFxActive: c.waves?.[0] ? wavePointerFxActive(c, c.waves[0]) : null,
       },
       null,
       1,
