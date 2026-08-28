@@ -54,6 +54,11 @@ export interface Wave3DProps extends FlatWaveProps, FlatSceneProps {
   posterFit?: PosterFit;
   lazy?: boolean;
   webgl?: "auto" | "force" | "off";
+  /**
+   * Renderer backend. Default `"webgl"`. `"webgpu"` / `"auto"` fetch a separate ~197 KB (gzipped)
+   * chunk holding three's node system, so they are opt-in.
+   */
+  backend?: WaveOptions["backend"];
   respectReducedMotion?: boolean;
   className?: string;
   style?: CSSProperties;
@@ -166,6 +171,7 @@ export function Wave3D(props: Wave3DProps): ReactElement {
       posterFit: props.posterFit,
       lazy: props.lazy,
       webgl: props.webgl,
+      backend: props.backend,
       respectReducedMotion: props.respectReducedMotion,
       onReady: (r) => cbRef.current.onReady?.(r),
       onFallback: (reason) => cbRef.current.onFallback?.(reason),

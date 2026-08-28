@@ -16,6 +16,7 @@ const OBSERVED = [
   "paused",
   "lazy",
   "webgl",
+  "backend",
 ] as const;
 
 // SSR-safe base: `class extends HTMLElement` evaluates HTMLElement at import time, which throws
@@ -85,6 +86,8 @@ export class Wave3DElement extends ElementBase {
       posterFit: (this.getAttribute("poster-fit") as WaveOptions["posterFit"]) ?? undefined,
       lazy: this.#boolAttr("lazy"),
       webgl: (this.getAttribute("webgl") as WaveOptions["webgl"]) ?? undefined,
+      // Default "webgl": anything else fetches the TSL backend chunk, so it stays opt-in.
+      backend: (this.getAttribute("backend") as WaveOptions["backend"]) ?? undefined,
       paused: this.#boolAttr("paused"),
       onReady: (renderer: WaveRenderer) =>
         this.dispatchEvent(new CustomEvent("wave3d-ready", { detail: renderer })),
