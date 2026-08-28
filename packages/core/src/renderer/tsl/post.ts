@@ -64,9 +64,14 @@ function blurAngular(
   const total = vec4(0).toVar("blurTotal");
   const dist = float(1).div(samples).toVar("blurStep");
   const dir = vec2(cos(angle.mul(dist)), sin(angle.mul(dist))).toVar();
-  // The GLSL writes `coord * rot` (row-vector order), which sets the spin direction. Expressed
-  // here as the equivalent `transpose(rot) * coord` by swapping the off-diagonal terms.
-  const rot = mat2(dir.x, dir.y.negate(), dir.y, dir.x).toVar();
+  // The GLSL writes `coord * rot` (ROW-vector order), which is what sets the spin direction.
+  //
+  // Note the arguments below are in the same order as the GLSL's `mat2(dir.x, dir.y, -dir.y, dir.x)`
+  // even though this multiplies the other way round (`rot.mul(coord)`). That is not an oversight:
+  // TSL's `mat2(a, b, c, d)` fills ROW-major where GLSL's fills COLUMN-major, so the two
+  // conventions cancel. Getting this backwards reverses the smear direction — verified by
+  // `parity:math`, and worth ~6 mae on a blurred preset.
+  const rot = mat2(dir.x, dir.y, dir.y.negate(), dir.x).toVar();
   const coord = at.sub(0.5).toVar("blurCoord");
   Loop({ start: 0, end: 64, type: "int" }, ({ i }) => {
     If(float(i).greaterThanEqual(samples), () => {

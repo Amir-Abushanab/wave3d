@@ -16,7 +16,7 @@ import {
   Mesh,
   PlaneGeometry,
 } from "three/webgpu";
-import { Fn, vec4, vec3, vec2, float, int, Loop, If, Break, uniform } from "three/tsl";
+import { Fn, vec4, vec3, vec2, float, int, mat2, Loop, If, Break, uniform } from "three/tsl";
 import { simplexNoise } from "../src/renderer/tsl/noise";
 import { expStep, applyTwist, applyHelix } from "../src/renderer/tsl/waveShape";
 import type { FloatNode } from "../src/renderer/tsl/types";
@@ -50,6 +50,9 @@ float simplexNoise(in vec2 p){
 float expStep(float x, float n){ return exp2(-exp2(n) * pow(max(x, 1.0e-3), n)); }
 // Mirrors the uniform-count loops in grad() / meshGradient() / surfaceStreaks(): iterate a
 // compile-time bound and break on a runtime count.
+// Matrix storage order: GLSL's mat2(a,b,c,d) is COLUMN-major. Probing it directly because getting
+// it wrong silently reverses a rotation rather than failing to compile.
+vec2 matProbe(vec2 v, float a, float b, float c, float d){ return mat2(a, b, c, d) * v; }
 const float RIBBON_Z = -8.0;
 vec3 applyHelix(vec3 pos, float uvY, float turns, float phaseDeg, float roll, float radius){
   float hAng = 6.28318530718 * turns * uvY + radians(phaseDeg);
@@ -197,6 +200,27 @@ function cases(): Case[] {
         applyTwist(vec3(...v), { axis: vec3(...axis), angle: float(angle) })
           .dot(vec3(0.3178, -0.7413, 0.5891))
           .mul(0.02),
+    });
+  }
+
+  // mat2 storage order. TSL's mat2(a,b,c,d) fills ROW-major where GLSL's fills COLUMN-major, so
+  // `M_tsl.mul(v)` equals GLSL's `v * M_glsl` for the SAME arguments. Both directions are checked
+  // so the claim is pinned rather than inferred from one working case.
+  for (const [a, b, c, d] of [
+    [1.0, 2.0, 3.0, 4.0],
+    [0.6, 0.8, -0.8, 0.6], // a rotation, avoiding the 0.7071 literal the linter reads as SQRT1_2
+  ] as const) {
+    const args = [a, b, c, d].map((n) => n.toFixed(4)).join(", ");
+    out.push({
+      name: `mat2(${a},${b},${c},${d}) * v  ==  tsl transpose`,
+      // GLSL column-major M times v equals TSL row-major mat2(a, c, b, d) times v.
+      glsl: `dot(matProbe(vec2(0.6, -1.3), ${args}), vec2(0.37, 0.81)) * 0.1`,
+      tsl: () => mat2(a, c, b, d).mul(vec2(0.6, -1.3)).dot(vec2(0.37, 0.81)).mul(0.1),
+    });
+    out.push({
+      name: `v * mat2(${a},${b},${c},${d})  ==  tsl same args`,
+      glsl: `dot(vec2(0.6, -1.3) * mat2(${args}), vec2(0.37, 0.81)) * 0.1`,
+      tsl: () => mat2(a, b, c, d).mul(vec2(0.6, -1.3)).dot(vec2(0.37, 0.81)).mul(0.1),
     });
   }
 

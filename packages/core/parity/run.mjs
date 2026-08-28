@@ -33,6 +33,13 @@ const args = process.argv.slice(2);
 const MODE = args.includes("--capture") ? "capture" : args.includes("--self") ? "self" : "compare";
 const ONLY = args.find((a) => a.startsWith("--only="))?.slice(7);
 const NO_POST = args.includes("--no-post"); // diagnostic: material only, post chain zeroed
+// Diagnostic: --set key=value (repeatable) overrides config on BOTH sides, to isolate one effect.
+const OVERRIDES = Object.fromEntries(
+  args
+    .filter((a) => a.startsWith("--set="))
+    .map((a) => a.slice(6).split("="))
+    .map(([k, v]) => [k, Number(v)]),
+);
 
 const dataUrlToBuffer = (u) => Buffer.from(u.slice(u.indexOf(",") + 1), "base64");
 const slug = (n) => n.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
@@ -102,12 +109,13 @@ async function main() {
       // Both renders happen in this page load: same GPU, same driver, same config object shape.
       const backend = MODE === "self" ? "webgl" : "webgpu";
       const expected = await page.evaluate(
-        ([n, np]) => window.waveParity.render(n, { backend: "webgl", noPost: np }),
-        [name, NO_POST],
+        ([n, np, ov]) =>
+          window.waveParity.render(n, { backend: "webgl", noPost: np, overrides: ov }),
+        [name, NO_POST, OVERRIDES],
       );
       const actual = await page.evaluate(
-        ([n, b, np]) => window.waveParity.render(n, { backend: b, noPost: np }),
-        [name, backend, NO_POST],
+        ([n, b, np, ov]) => window.waveParity.render(n, { backend: b, noPost: np, overrides: ov }),
+        [name, backend, NO_POST, OVERRIDES],
       );
 
       const d = await page.evaluate(([a, b]) => window.waveParity.diff(a, b), [expected, actual]);

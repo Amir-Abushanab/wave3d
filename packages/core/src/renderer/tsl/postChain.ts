@@ -85,8 +85,18 @@ export function buildPostChain(
     // base image too, so the sum matches. The input is materialised because BloomNode reads it
     // through its own downsample chain.
     const src = convertToTexture(stage as never);
+    // x3 on the strength: UnrealBloomPass composites `3.0 * bloomStrength * sum` — its own comment
+    // calls the constant "backwards compatibility with previous alpha-based intensity" — while
+    // three's TSL BloomNode composites `sum * strength` with no such factor. Passing the authored
+    // strength straight through therefore renders bloom at a third of the intensity every existing
+    // preset was tuned against.
     stage = src.add(
-      bloom(src, u.uBloomStrength as never, u.uBloomRadius as never, u.uBloomThreshold as never),
+      bloom(
+        src,
+        u.uBloomStrength.mul(3) as never,
+        u.uBloomRadius as never,
+        u.uBloomThreshold as never,
+      ),
     );
   }
 
