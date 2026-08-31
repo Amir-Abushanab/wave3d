@@ -144,6 +144,11 @@ export interface PanelHooks {
   onExportCode?: () => void;
   onExportWallpaper?: () => void | Promise<void>;
   onCopyLink?: () => Promise<boolean> | void;
+  /** Which renderer backend the studio booted with — selects the Actions → renderer control. */
+  backend?: "webgl" | "webgpu";
+  /** Switch the preview renderer backend. Backends are chosen at boot, so the app reloads
+   *  (carrying the live config across in the share-link hash). */
+  onBackendChange?: (backend: "webgl" | "webgpu") => void;
   onPublishToGallery?: () => void;
   onToggleRecord?: (format: RecordFormat, webpQuality: number) => void;
   /** Fired after any change that mutates the document config, so the app can record undo/redo
@@ -730,7 +735,7 @@ export class ControlPanel {
     }
   }
 
-  /** "Actions" folder: randomize/reset/save/load/share. */
+  /** "Actions" folder: randomize/reset/save/load/share + the renderer-backend picker. */
   private buildActionsFolder(mkFolder: MkFolder): void {
     const actions = mkFolder("Actions", true);
     // Give "Tasteful Randomize" an animated gradient border so newcomers immediately spot the
@@ -761,6 +766,16 @@ export class ControlPanel {
     actions
       .addButton({ title: "✨ Publish to gallery" })
       .on("click", () => this.hooks.onPublishToGallery?.());
+    // Preview renderer backend (WebGL default; WebGPU = the TSL renderer, fetched lazily).
+    // Switching reloads the app with the live config carried in the share-link hash — see
+    // PanelHooks.onBackendChange — so the dropdown only ever shows the boot-time value.
+    const rendererChoice = { backend: this.hooks.backend ?? "webgl" };
+    actions
+      .addBinding(rendererChoice, "backend", {
+        label: "renderer",
+        options: { WebGL: "webgl", "WebGPU (TSL)": "webgpu" },
+      })
+      .on("change", (ev) => this.hooks.onBackendChange?.(ev.value as "webgl" | "webgpu"));
   }
 
   /** "Global" folder: preset picker, quality/DPR, playback, post fx, mirror. */

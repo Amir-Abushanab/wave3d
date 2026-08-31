@@ -1,6 +1,6 @@
 import "./style.css";
 import "./page-transition.css"; // subtle crossfade when hopping between the studio and the gallery
-import { StudioWaveRenderer } from "@wave3d/core/studio";
+import { StudioWaveRenderer, loadStudioWaveRendererGPU } from "@wave3d/core/studio";
 import { ensureStudioConfig } from "@wave3d/core";
 import type { StudioConfig } from "@wave3d/core";
 import { randomizeConfig } from "@wave3d/core/studio";
@@ -29,6 +29,7 @@ import {
   exportWallpaperFolder,
   Recorder,
   decodeConfigFromHash,
+  encodeConfigToHash,
   copyShareLink,
 } from "./export/exporters";
 import { aspectRatioLabel, DEFAULT_EXPORT_SIZE, exportGpuWarning } from "./output/formats";
@@ -111,7 +112,53 @@ const makeDefault = (): StudioConfig => PRESETS[DEFAULT_PRESET]();
 // A shared link (#w=…) overrides the default on load — applied async (gzip decode) below.
 const hasSharedLink = /[#&]w=/.test(location.hash);
 let config: StudioConfig = makeDefault();
-const renderer = new StudioWaveRenderer(stage, config, { skipIntroRamp: import.meta.env.DEV });
+
+// Renderer backend for this session. `?backend=webgpu` opts into the TSL/WebGPU renderer, fetched
+// lazily so the default studio load never pays for three's node system; anything else (or a failed
+// load/adapter) is the WebGL renderer. Chosen once at boot — the module-scope `renderer` below is
+// load-bearing everywhere — so the Actions → renderer control switches by reloading, carrying the
+// live config across in the share-link hash (see switchBackend).
+type StudioBackend = "webgl" | "webgpu";
+let studioBackend: StudioBackend =
+  new URLSearchParams(location.search).get("backend") === "webgpu" ? "webgpu" : "webgl";
+
+async function buildRenderer(): Promise<StudioWaveRenderer> {
+  const options = { skipIntroRamp: import.meta.env.DEV };
+  if (studioBackend === "webgpu") {
+    let gpu: StudioWaveRenderer | undefined;
+    try {
+      const StudioGPU = await loadStudioWaveRendererGPU();
+      gpu = new StudioGPU(stage!, config, options);
+      await gpu.init(); // starts the WebGPU backend (or its own WebGL2 fallback) + first frame
+      const backend = (gpu.renderer as unknown as { backend?: { isWebGPUBackend?: boolean } })
+        .backend;
+      console.info(
+        `[wave3d] studio renderer: TSL (${backend?.isWebGPUBackend ? "WebGPU" : "WebGL2 fallback"} backend)`,
+      );
+      return gpu;
+    } catch (err) {
+      // A missing chunk or an unusable adapter is not fatal — the GLSL renderer draws the same
+      // scene. Drop the half-built canvas first so the fallback doesn't stack a second one.
+      gpu?.dispose();
+      studioBackend = "webgl";
+      console.error("[wave3d] TSL/WebGPU renderer unavailable — using WebGL:", err);
+      showToast({ message: "⚠ WebGPU renderer unavailable — using WebGL" });
+    }
+  }
+  return new StudioWaveRenderer(stage!, config, options);
+}
+
+/** Reload into the other backend, carrying the live (possibly unsaved) config in the hash. */
+async function switchBackend(next: StudioBackend): Promise<void> {
+  if (next === studioBackend) return;
+  const url = new URL(location.href);
+  if (next === "webgpu") url.searchParams.set("backend", "webgpu");
+  else url.searchParams.delete("backend");
+  url.hash = "w=" + (await encodeConfigToHash(config));
+  location.assign(url.href);
+}
+
+const renderer = await buildRenderer();
 // Scrollable test surface over the wave (opened from Interaction → Scroll preview → "Scroll to test…").
 const scrollTest = new ScrollTestOverlay(stage, renderer);
 const exportSize = { ...DEFAULT_EXPORT_SIZE };
@@ -202,6 +249,8 @@ const panel = new ControlPanel(panelEl, renderer, config, {
   onRandomize: () => applyConfig(randomizeConfig(config), "—", true, "Tasteful Randomize"),
   onReset: () => applyConfig(makeDefault(), DEFAULT_PRESET, true, "Reset"),
   onCopyLink: () => copyShareLink(config),
+  backend: studioBackend,
+  onBackendChange: (next) => void switchBackend(next),
   onPublishToGallery: () => publishToGallery(config),
   onExportConfig: () => exportConfigJSON(config),
   onImportConfig: async () => {

@@ -47,6 +47,7 @@ const CONFIG_RECEIVERS: Record<string, (c: StudioConfig) => unknown> = {
  */
 const UI_STATE_RECEIVERS = new Set([
   "outputSize",
+  "rendererChoice", // Actions → renderer backend picker; boot-time app state, never document config
   "this.state",
   "camP",
   "editProxy",
