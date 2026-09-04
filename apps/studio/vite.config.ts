@@ -14,15 +14,16 @@ const MIME: Record<string, string> = {
   ".png": "image/png",
   ".txt": "text/plain; charset=utf-8",
   ".xml": "application/xml; charset=utf-8",
+  ".webmanifest": "application/manifest+json",
 };
 /** Text files carry `%SITE_URL%`; images are copied byte-for-byte. */
 const isText = (name: string) => name.endsWith(".txt") || name.endsWith(".xml");
 
 /**
- * `static/` holds the deploy-root files the crawlers and social cards want — robots.txt, sitemap.xml,
- * the OG cards, the touch icon. They can't ride in `publicDir`: that slot is taken by the core's
- * standalone build output. Served in dev, emitted to the dist root on build, `%SITE_URL%` substituted
- * in both (and in the HTML) so the origin is written once.
+ * `static/` holds the deploy-root files crawlers, social cards and installs want — robots.txt,
+ * sitemap.xml, the OG cards, the manifest and its icons. They can't ride in `publicDir`: that slot is
+ * taken by the core's standalone build output. Served in dev, emitted to the dist root on build,
+ * `%SITE_URL%` substituted in both (and in the HTML) so the origin is written once.
  */
 function staticRoot(): Plugin {
   const dir = resolve(root, "static");
@@ -52,10 +53,53 @@ function staticRoot(): Plugin {
   };
 }
 
+const escape = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/**
+ * Prerenders the gallery's wave list into `#app`. `gallery.ts` overwrites `#app` on mount, so this
+ * is purely what a crawler (or a reader with JS off) gets: the same headings and handles the live
+ * page shows, as static text, instead of an empty div. Mirrors the client's title sort.
+ */
+function galleryIndex(): Plugin {
+  return {
+    name: "wave3d:gallery-index",
+    transformIndexHtml(html, ctx) {
+      if (!(ctx.path ?? ctx.filename).includes("gallery/")) return html;
+      const dir = resolve(root, "../../gallery/waves");
+      const waves = readdirSync(dir)
+        .filter((f) => f.endsWith(".json"))
+        .map(
+          (f) =>
+            JSON.parse(readFileSync(resolve(dir, f), "utf8")) as {
+              title: string;
+              author: string;
+            },
+        )
+        .sort((a, b) => a.title.localeCompare(b.title));
+      const cards = waves
+        .map(
+          (w) =>
+            `<article class="card"><div class="meta"><h2>${escape(w.title)}</h2>` +
+            `<a class="by" href="https://github.com/${escape(w.author)}" rel="noopener">@${escape(
+              w.author,
+            )}</a></div></article>`,
+        )
+        .join("");
+      return html.replace(
+        '<div id="app"></div>',
+        `<div id="app"><header class="hero"><h1>🌊 Wave gallery</h1>` +
+          `<p>Community waves. <a href="/">Make your own →</a></p></header>` +
+          `<main class="grid">${cards}</main></div>`,
+      );
+    },
+  };
+}
+
 export default defineConfig({
   base: "/",
   publicDir: "../../packages/core/dist/standalone",
-  plugins: [staticRoot()],
+  plugins: [staticRoot(), galleryIndex()],
   build: {
     target: "es2022",
     outDir: "dist",

@@ -34,7 +34,7 @@ Then point the site's canonical origin at it: `SITE_URL=https://wave3d.app pnpm 
 
 ### Deploy-root files (`apps/studio/static/`)
 
-`publicDir` is taken by the core's standalone runtime, so the files crawlers and social cards fetch from `/` live in `apps/studio/static/` and are served in dev / emitted to the dist root by the `wave3d:static-root` plugin in `vite.config.ts`: `robots.txt`, `sitemap.xml`, `apple-touch-icon.png`, and the two social cards `og.png` / `og-gallery.png`. The cards are real renders of the engine (Hero and Kaleidoscope, paused, grain off) — `og.png` is also what to upload under repo _Settings_ → _General_ → _Social preview_, which GitHub only accepts through its web UI.
+`publicDir` is taken by the core's standalone runtime, so the files crawlers, social cards and installs fetch from `/` live in `apps/studio/static/` and are served in dev / emitted to the dist root by the `wave3d:static-root` plugin in `vite.config.ts`: `robots.txt`, `sitemap.xml`, `site.webmanifest` with its icons (`icon-192`, `icon-512`, `maskable-512`, `apple-touch-icon`), and the two social cards `og.png` / `og-gallery.png`. A second plugin, `wave3d:gallery-index`, prerenders the gallery's titles and handles into `#app` from `gallery/waves/*.json` so the page isn't an empty div to a crawler — `gallery.ts` overwrites it on mount. The cards are real renders of the engine (Hero and Kaleidoscope, paused, grain off) — `og.png` is also what to upload under repo _Settings_ → _General_ → _Social preview_, which GitHub only accepts through its web UI.
 
 ## 2. Publish the packages → npm
 

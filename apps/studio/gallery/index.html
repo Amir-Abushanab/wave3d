@@ -30,6 +30,7 @@
 
     <link rel="icon" type="image/png" sizes="64x64" href="/src/assets/favicon.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -45,17 +46,12 @@
   <body>
     <div id="app"></div>
     <noscript>
-      <div style="max-width: 62ch; margin: 0 auto; padding: 12vh 24px">
-        <h1>Wave gallery</h1>
-        <p>
-          Every wave here was designed in <a href="/">Wave Studio</a> and submitted as one JSON
-          file. Rendering them live needs JavaScript and WebGL, but the configs themselves are plain
-          text in the repo:
-          <a href="https://github.com/Amir-Abushanab/wave3d/tree/main/gallery/waves"
-            >gallery/waves</a
-          >.
-        </p>
-      </div>
+      <p style="max-width: 62ch; margin: 0 auto; padding: 0 24px 24px">
+        Rendering these waves live needs JavaScript and WebGL. The configs behind them are plain
+        text:
+        <a href="https://github.com/Amir-Abushanab/wave3d/tree/main/gallery/waves">gallery/waves</a
+        >.
+      </p>
     </noscript>
     <script type="module" src="/src/gallery.ts"></script>
   </body>
