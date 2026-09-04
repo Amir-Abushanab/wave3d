@@ -3,14 +3,60 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Wave gallery — community 3D gradient waves</title>
     <meta
       name="description"
-      content="A community gallery of 3D gradient waves made in Wave Studio."
+      content="A community gallery of 3D gradient waves made in Wave Studio. Open any wave to remix it in the studio, then export it as code, an image, or a video."
     />
-    <title>Wave gallery</title>
+    <link rel="canonical" href="%SITE_URL%/gallery/" />
+    <meta name="theme-color" content="#07070b" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Wave Studio" />
+    <meta property="og:url" content="%SITE_URL%/gallery/" />
+    <meta property="og:title" content="Wave gallery — community 3D gradient waves" />
+    <meta
+      property="og:description"
+      content="Waves made by the community in Wave Studio. Open any one to remix it, then export the code that renders it."
+    />
+    <meta property="og:image" content="%SITE_URL%/og-gallery.png" />
+    <meta property="og:image:width" content="1280" />
+    <meta property="og:image:height" content="640" />
+    <meta
+      property="og:image:alt"
+      content="A rainbow 3D gradient wave beside the words Wave gallery"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link rel="icon" type="image/png" sizes="64x64" href="/src/assets/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        "name": "Wave gallery",
+        "url": "%SITE_URL%/gallery/",
+        "description": "Community 3D gradient waves made in Wave Studio.",
+        "image": "%SITE_URL%/og-gallery.png",
+        "isPartOf": { "@type": "WebSite", "name": "Wave Studio", "url": "%SITE_URL%/" }
+      }
+    </script>
   </head>
   <body>
     <div id="app"></div>
+    <noscript>
+      <div style="max-width: 62ch; margin: 0 auto; padding: 12vh 24px">
+        <h1>Wave gallery</h1>
+        <p>
+          Every wave here was designed in <a href="/">Wave Studio</a> and submitted as one JSON
+          file. Rendering them live needs JavaScript and WebGL, but the configs themselves are plain
+          text in the repo:
+          <a href="https://github.com/Amir-Abushanab/wave3d/tree/main/gallery/waves"
+            >gallery/waves</a
+          >.
+        </p>
+      </div>
+    </noscript>
     <script type="module" src="/src/gallery.ts"></script>
   </body>
 </html>

@@ -30,6 +30,12 @@ Then **push to `main`** → CI builds and deploys. The live URLs are `https://wa
 
 In the Cloudflare Pages project → _Custom domains_ → add `wave3d.app` (and `www`). If the domain's DNS is on Cloudflare it's a click; otherwise add the CNAME it shows you.
 
+Then point the site's canonical origin at it: `SITE_URL=https://wave3d.app pnpm --filter wave-studio build`. That one variable feeds every `<link rel="canonical">`, `og:*` URL, `robots.txt`, and `sitemap.xml` — it defaults to `https://wave-studio.pages.dev`.
+
+### Deploy-root files (`apps/studio/static/`)
+
+`publicDir` is taken by the core's standalone runtime, so the files crawlers and social cards fetch from `/` live in `apps/studio/static/` and are served in dev / emitted to the dist root by the `wave3d:static-root` plugin in `vite.config.ts`: `robots.txt`, `sitemap.xml`, `apple-touch-icon.png`, and the two social cards `og.png` / `og-gallery.png`. The cards are real renders of the engine (Hero and Kaleidoscope, paused, grain off) — `og.png` is also what to upload under repo _Settings_ → _General_ → _Social preview_, which GitHub only accepts through its web UI.
+
 ## 2. Publish the packages → npm
 
 The **`@wave3d`**-scoped packages publish via [Changesets](https://github.com/changesets/changesets). `@wave3d/core`, `@wave3d/react`, and `@wave3d/element` are a **fixed** group — they always share one version; **`@wave3d/vite`** (the dev-time Vite plugin) versions independently.

@@ -3,18 +3,81 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Wave Studio — open-source 3D wave authoring</title>
+    <title>Wave Studio — 3D gradient wave generator for the web</title>
     <meta
       name="description"
-      content="Author 3D gradient waves in the browser and export them as config, an embeddable component, PNG, WebP, JPEG, or video."
+      content="Design glossy 3D gradient waves in your browser, then export them as React, Vue, or Svelte code, a PNG, a video, or a self-contained embed. Free and open source."
     />
+    <link rel="canonical" href="%SITE_URL%/" />
+    <meta name="theme-color" content="#07070b" />
+
+    <!-- Social card. X/Twitter, Slack, Discord and LinkedIn all read the og:* tags; only the card
+         type is Twitter-specific. The image is a real render — see apps/studio/static/og.png. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Wave Studio" />
+    <meta property="og:url" content="%SITE_URL%/" />
+    <meta property="og:title" content="Wave Studio — design 3D gradient waves in your browser" />
+    <meta
+      property="og:description"
+      content="Design glossy 3D gradient waves in your browser, then export the code that renders them — React, Vue, Svelte, an image, a video, or a self-contained embed."
+    />
+    <meta property="og:image" content="%SITE_URL%/og.png" />
+    <meta property="og:image:width" content="1280" />
+    <meta property="og:image:height" content="640" />
+    <meta
+      property="og:image:alt"
+      content="A glossy pink and orange 3D gradient wave beside the words Wave Studio"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+
     <link rel="icon" type="image/png" sizes="64x64" href="/src/assets/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="stylesheet" href="/src/style.css" />
     <!-- Optional 16-frame animated favicon:
     <script type="module" src="/src/animated-favicon.ts"></script>
     -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Wave Studio",
+        "url": "%SITE_URL%/",
+        "applicationCategory": "DesignApplication",
+        "operatingSystem": "Any",
+        "browserRequirements": "Requires WebGL",
+        "description": "Design 3D gradient waves in the browser and export them as framework code, images, video, or a self-contained embed.",
+        "image": "%SITE_URL%/og.png",
+        "isAccessibleForFree": true,
+        "license": "https://opensource.org/license/mit",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "codeRepository": "https://github.com/Amir-Abushanab/wave3d",
+        "author": {
+          "@type": "Person",
+          "name": "Amir Abushanab",
+          "url": "https://github.com/Amir-Abushanab"
+        }
+      }
+    </script>
   </head>
   <body>
+    <noscript>
+      <div
+        style="position: relative; z-index: 10; max-width: 62ch; margin: 0 auto; padding: 12vh 24px"
+      >
+        <h1>Wave Studio</h1>
+        <p>
+          Design 3D gradient waves in your browser — a strip swept along a curve, twisted, tapered
+          and lit — then export the code that renders them: React, Vue, Svelte, vanilla JS, an
+          image, a video, or a self-contained embed.
+        </p>
+        <p>
+          The studio itself needs JavaScript and WebGL. Meanwhile, the
+          <a href="https://github.com/Amir-Abushanab/wave3d"
+            >source, packages and docs are on GitHub</a
+          >, and the <a href="/gallery/">wave gallery</a> collects designs made with it.
+        </p>
+      </div>
+    </noscript>
     <section id="workspace" aria-label="Export preview workspace">
       <main id="stage" aria-label="Wave export preview">
         <output id="capture-size" aria-live="polite"></output>
