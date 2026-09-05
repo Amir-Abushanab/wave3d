@@ -10,7 +10,7 @@ description: >
 metadata:
   type: core
   library: "@wave3d/core"
-  library_version: "0.8.0"
+  library_version: "0.9.0"
 sources:
   - "wave3d/wave3d:README.md"
   - "wave3d/wave3d:packages/core/src/config/model.ts"
