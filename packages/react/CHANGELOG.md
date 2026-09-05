@@ -1,5 +1,12 @@
 # @wave3d/react
 
+## 0.9.0
+
+### Patch Changes
+
+- Updated dependencies [[`96bc785`](https://github.com/Amir-Abushanab/wave3d/commit/96bc785d1ef34e41d57326527efaff91b2293fbe), [`cf7b331`](https://github.com/Amir-Abushanab/wave3d/commit/cf7b331189fd34e3bcc2071e85186819b2fa6e51)]:
+  - @wave3d/core@0.9.0
+
 ## 0.8.0
 
 ### Patch Changes
