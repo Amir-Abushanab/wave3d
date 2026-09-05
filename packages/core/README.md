@@ -63,7 +63,9 @@ Interactivity is **per wave** and **off by default** — omit it and the wave (a
 />
 ```
 
-Each binding rests at the authored value (`from` defaults to it) and moves toward `to` as its input rises 0→1 — sources: `scroll`, `hover`, `pointerX` / `pointerY`, `pointerSpeed`, `press`, `scrollVelocity`, `appear`, and `custom:*`.
+Each binding rests at the authored value (`from` defaults to it) and moves toward `to` as its input rises 0→1 — sources: `scroll`, `hover`, `pointerX` / `pointerY`, `pointerSpeed`, `press`, `scrollVelocity`, `appear`, `tiltX` / `tiltY`, and `custom:*`.
+
+`tiltX` / `tiltY` are the device's orientation sensor, normalized the way a ball would roll on the screen and resting at 0.5 in whatever pose the reader was already holding. Binding either one arms the sensor (no listener is attached otherwise); `interaction.tilt` tunes it — `range`, `smoothing`, `invertX` / `invertY`, and `pointer: true` to let tilt stand in for the cursor a phone doesn't have. iOS gets no tilt on purpose: Safari gates the sensor behind a modal permission dialog and nothing here opens one, so a tilt-bound scene on an iPhone reads 0.5 on both axes and looks exactly like one with no tilt. Treat it as an enhancement some phones don't get. A page that genuinely warrants asking can call `handle.enableTilt()` from a tap.
 
 Shared inputs (one cursor + scroll) and scene-wide effects live on the scene-level `interaction`:
 

@@ -19,3 +19,4 @@ export type {
 // Type-only re-exports (erased at build time — no runtime three import) so consumers can type
 // `onReady(r)` / renderer options.
 export type { WaveRenderer, WaveRendererOptions } from "./renderer/WaveRenderer";
+export type { TiltStatus } from "./renderer/tilt";

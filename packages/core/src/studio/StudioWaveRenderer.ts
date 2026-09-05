@@ -425,7 +425,8 @@ export class StudioWaveRenderer extends WaveRenderer {
       this.interaction.snapScroll();
       this.renderOnce();
     }
-    // No controller yet → nothing to scrub; onAfterRefresh re-applies scrollPreview once one exists.
+    // No controller yet → nothing to scrub; onInteractionReady re-applies scrollPreview when the
+    // interaction chunk lands (it is fetched lazily, so it can arrive after this call).
   }
 
   /** Feed a live scroll position (0..1) from the studio scroll-test overlay — a real scrollable
@@ -1098,6 +1099,16 @@ export class StudioWaveRenderer extends WaveRenderer {
     // the scroll preview so a freshly-added scroll binding responds immediately instead of being
     // stuck on the (frozen, in-studio) live scroll.
     if (this.interaction) this.interaction.scrollOverride = this.scrollPreview;
+  }
+
+  /** The interaction runtime is fetched lazily, so the controller usually arrives AFTER the refresh
+   *  that asked for it — this is the studio's second chance to hand it the scroll preview. Without
+   *  it, adding the first scroll binding leaves the slider dead until the next edit. */
+  protected override onInteractionReady(): void {
+    if (!this.interaction) return;
+    this.interaction.scrollOverride = this.scrollPreview;
+    this.interaction.snapScroll();
+    this.renderOnce();
   }
 
   protected override onAfterRenderFrame(): void {

@@ -11,6 +11,8 @@
 // bindings via the WAVE_APPLIERS / SCENE_APPLIERS tables. Bindings NEVER mutate `config`.
 import * as THREE from "three";
 import { clamp01 } from "../util/math";
+import { RIPPLE_SLOTS, tiltActive } from "./interactionGates";
+import { type TiltStatus, TiltSource } from "./tilt";
 import type {
   InteractionSource,
   SceneInteractionBinding,
@@ -21,14 +23,13 @@ import type {
   WaveInteractionTarget,
 } from "../config/model";
 
-/** Click-ripple ring-buffer size. MUST match the `[4]` array sizes in shaders.ts (POINTER_RIPPLES). */
-export const RIPPLE_SLOTS = 4;
 const RIPPLE_LIFETIME = 1.5; // seconds a ripple lives (crest travels out + fades by then)
 const VELOCITY_TAU = 0.08; // pointer-velocity smoothing time constant (seconds)
 const POINTER_SPEED_REF = 4.0; // NDC/s that normalizes pointerSpeed to 1.0
 const SCROLL_VELOCITY_REF = 2.0; // progress/s that normalizes scrollVelocity to 1.0
 const SCROLL_VELOCITY_TAU = 0.15; // scroll-velocity smoothing (seconds)
 const DEFAULT_POINTER_TAU = 0.12; // pointer-follow smoothing default (seconds)
+const DEFAULT_TILT_TAU = 0.18; // device-tilt smoothing default (seconds); noisier than a cursor
 const DEFAULT_BINDING_TAU = 0.25; // per-binding source smoothing default (seconds)
 const POINTER_SPRING_ZETA = 0.7; // pointer-field damping ratio (<1 → slight overshoot = "weight")
 const MIN_POINTER_TAU = 0.02; // floor before smoothing→spring frequency (omega = 1/tau)
@@ -276,42 +277,6 @@ export const SCENE_APPLIERS = {
 
 // ---- Active-state predicates (keyed off config only, so input never triggers a recompile) ----
 
-/** The global master switch: only `scene.interaction.enabled === false` turns the whole layer off. */
-function notDisabled(cfg: StudioConfig): boolean {
-  return cfg.interaction?.enabled !== false;
-}
-
-/** Whether a wave has a pointer field (hover effects, or a click ripple). */
-function waveHasPointerField(w: WaveConfig): boolean {
-  const it = w.interaction;
-  return !!it && (!!it.hover || (it.press?.ripple ?? 0) > 0);
-}
-
-/** Whether this wave has an active pointer field → its POINTER_FX shader path compiles. */
-export function wavePointerFxActive(cfg: StudioConfig, w: WaveConfig): boolean {
-  return notDisabled(cfg) && waveHasPointerField(w);
-}
-
-/** Whether this wave has active click ripples → its nested POINTER_RIPPLES path compiles. */
-export function waveRipplesActive(cfg: StudioConfig, w: WaveConfig): boolean {
-  return notDisabled(cfg) && (w.interaction?.press?.ripple ?? 0) > 0;
-}
-
-/** Whether ANY wave has a pointer field (so the renderer bothers writing the shared pointer uniforms). */
-export function anyPointerFxActive(cfg: StudioConfig): boolean {
-  return notDisabled(cfg) && cfg.waves.some(waveHasPointerField);
-}
-
-/** Whether the interaction layer should run at all (any wave interaction, or any scene binding). */
-export function interactionActive(cfg: StudioConfig): boolean {
-  if (!notDisabled(cfg)) return false;
-  if ((cfg.interaction?.bindings?.length ?? 0) > 0) return true;
-  return cfg.waves.some((w) => {
-    const it = w.interaction;
-    return !!it && (!!it.hover || (it.press?.ripple ?? 0) > 0 || (it.bindings?.length ?? 0) > 0);
-  });
-}
-
 // ---- Sample shape + the controller ----------------------------------------------------------
 
 interface RippleSlot {
@@ -359,6 +324,9 @@ export class InteractionController {
   private readonly velNdc = new THREE.Vector2();
   private presence = 0;
   private presenceTarget = 0;
+  /** Whether a REAL pointer is on the element. Tracked apart from `presenceTarget` because tilt can
+   *  raise presence too (tilt.pointer), and it must yield the moment a finger or cursor shows up. */
+  private pointerPresent = false;
   private press = 0;
   private pressTarget = 0;
   private pointerSpeed = 0;
@@ -366,6 +334,10 @@ export class InteractionController {
   private scrollPrev = 0;
   private scrollVel = 0;
   private appearLatched = false;
+  /** The orientation sensor, built only for a scene that declares `interaction.tilt`. */
+  private tilt: TiltSource | null = null;
+  private tiltX = 0.5; // smoothed 0..1 (0.5 = neutral pose), mirroring the pointer's own smoothing
+  private tiltY = 0.5;
   private readonly customInputs = new Map<string, number>();
   private readonly ripples: RippleState[] = [];
   // Per-wave pointer-field state (index-parallel to config.waves); each trails the cursor at its own
@@ -413,28 +385,33 @@ export class InteractionController {
 
   private onPointerEnter = (e: PointerEvent): void => {
     if (this.ignore(e)) return;
+    this.pointerPresent = true;
     this.presenceTarget = 1;
     this.setNdcTarget(e);
   };
   private onPointerMove = (e: PointerEvent): void => {
     if (this.ignore(e)) return;
     if (e.pointerType === "touch" && this.pressTarget < 0.5) return; // touch: only track while down
+    this.pointerPresent = true;
     this.presenceTarget = 1;
     this.setNdcTarget(e);
   };
   private onPointerLeave = (e: PointerEvent): void => {
     if (this.ignore(e)) return;
+    this.pointerPresent = false;
     this.presenceTarget = 0;
     this.ndcTarget.set(0, 0); // relax toward centre → pointerX/Y rest at 0.5
   };
   private onPointerCancel = (e: PointerEvent): void => {
     if (this.ignore(e)) return;
+    this.pointerPresent = false;
     this.pressTarget = 0;
     this.presenceTarget = 0;
     this.ndcTarget.set(0, 0);
   };
   private onPointerDown = (e: PointerEvent): void => {
     if (this.ignore(e)) return;
+    this.pointerPresent = true;
     this.pressTarget = 1;
     this.presenceTarget = 1;
     this.setNdcTarget(e);
@@ -446,6 +423,7 @@ export class InteractionController {
     if (this.ignore(e)) return;
     this.pressTarget = 0;
     if (e.pointerType === "touch") {
+      this.pointerPresent = false;
       this.presenceTarget = 0; // touch has no hover — presence ends with the touch
       this.ndcTarget.set(0, 0);
     }
@@ -473,6 +451,11 @@ export class InteractionController {
     // The SHARED pointer state feeds binding sources (hover / pointerX-Y / pointerSpeed / press) at a
     // fixed baseline; each wave's FIELD trails at its own hover smoothing further below.
     const kPointer = alpha(DEFAULT_POINTER_TAU, d);
+
+    // Device tilt, BEFORE the pointer block: with `tilt.pointer` on it writes the same ndcTarget the
+    // cursor would, and everything downstream (the shared smoothing, each wave's spring) must see it
+    // in the frame it changed rather than one frame late.
+    this.updateTilt(cfg, d);
 
     // Pointer position + presence + press.
     this.ndcPrev.copy(this.ndc);
@@ -537,6 +520,70 @@ export class InteractionController {
     this.updateBindings(cfg, d);
   }
 
+  /**
+   * Build or drop the tilt sensor as the config declares it, then advance the smoothed axes. The
+   * sensor is created lazily and only for a scene that asked for it, so a cursor-only scene attaches
+   * no orientation listener at all — and a studio edit that adds or removes the block is picked up
+   * on the next frame, the same way the controller itself is.
+   */
+  private updateTilt(cfg: StudioConfig, dt: number): void {
+    if (!tiltActive(cfg)) {
+      if (this.tilt) {
+        this.tilt.dispose();
+        this.tilt = null;
+        this.tiltX = this.tiltY = 0.5;
+      }
+      return;
+    }
+    const src = this.ensureTilt();
+    if (!src) return;
+    const tiltCfg = cfg.interaction?.tilt;
+    const k = alpha(Math.max(tiltCfg?.smoothing ?? DEFAULT_TILT_TAU, 0), dt);
+    this.tiltX += (src.x - this.tiltX) * k;
+    this.tiltY += (src.y - this.tiltY) * k;
+
+    // Opt-in stand-in for the cursor: a phone has no pointer, so a scene whose bindings and hover
+    // fields all read the cursor would sit at dead centre forever. Only while no real pointer is on
+    // the element — a finger beats the sensor the instant it lands. NDC y is +1 at the TOP, and
+    // tiltY counts DOWN the page (the way a ball rolls), hence the negation.
+    if (tiltCfg?.pointer && src.live && !this.pointerPresent) {
+      this.ndcTarget.set(this.tiltX * 2 - 1, -(this.tiltY * 2 - 1));
+      this.presenceTarget = 1;
+    }
+  }
+
+  /** The sensor, built on first use. Null when the platform has none (every desktop browser). */
+  private ensureTilt(): TiltSource | null {
+    if (!this.tilt && TiltSource.supported()) {
+      this.tilt = new TiltSource(() => this.cfg()?.interaction?.tilt);
+    }
+    return this.tilt;
+  }
+
+  /**
+   * Ask for the orientation sensor, which on iOS 13+ MUST happen inside a user gesture (a tap
+   * handler — not a `setTimeout` or a promise chain that outlives the gesture). Resolves true once
+   * readings can flow. False means the platform has no sensor, the scene declares no `tilt` block,
+   * or the reader refused. Everywhere that needs no permission, tilt is already live and this
+   * simply resolves true.
+   */
+  async enableTilt(): Promise<boolean> {
+    const cfg = this.cfg();
+    if (!cfg || !tiltActive(cfg)) return false;
+    return (await this.ensureTilt()?.enable()) ?? false;
+  }
+
+  /** Where the sensor stands — `"prompt"` is exactly when a tap-to-enable affordance would help. */
+  tiltStatus(): TiltStatus {
+    if (!TiltSource.supported()) return "unsupported";
+    return this.tilt?.status ?? "prompt";
+  }
+
+  /** Take the next reading as the neutral pose (the reader has changed grip). */
+  recenterTilt(): void {
+    this.tilt?.recenter();
+  }
+
   // Indexed loops + a reused scratch set (no per-frame closure/array/Set) — this runs every frame.
   private updateBindings(cfg: StudioConfig, dt: number): void {
     const seen = this.seenBindings;
@@ -595,6 +642,10 @@ export class InteractionController {
         return clamp01(this.scrollVel / SCROLL_VELOCITY_REF);
       case "appear":
         return this.appearLatched ? 1 : 0;
+      case "tiltX":
+        return this.tiltX;
+      case "tiltY":
+        return this.tiltY;
       default:
         // custom:<name> — fed by setInput(name, value).
         return this.customInputs.get(source.slice("custom:".length)) ?? 0;
@@ -648,8 +699,10 @@ export class InteractionController {
    */
   settle(): void {
     this.presence = this.presenceTarget = 0;
+    this.pointerPresent = false;
     this.press = this.pressTarget = 0;
     this.pointerSpeed = 0;
+    this.tiltX = this.tiltY = 0.5; // a settled frame is the neutral pose, like the centred cursor
     this.velNdc.set(0, 0);
     this.ndc.set(0, 0);
     this.ndcTarget.set(0, 0);
@@ -710,6 +763,8 @@ export class InteractionController {
     c.removeEventListener("pointercancel", this.onPointerCancel);
     c.removeEventListener("pointerdown", this.onPointerDown);
     c.removeEventListener("pointerup", this.onPointerUp);
+    this.tilt?.dispose();
+    this.tilt = null;
     this.customInputs.clear();
     this.bindingState.clear();
   }

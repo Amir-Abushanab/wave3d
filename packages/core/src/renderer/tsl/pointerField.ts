@@ -23,7 +23,7 @@ import {
   Loop,
   If,
 } from "three/tsl";
-import { RIPPLE_SLOTS } from "../interaction";
+import { RIPPLE_SLOTS } from "../interactionGates";
 import { simplexNoise } from "./noise";
 import { applyTwist, type Twist } from "./waveShape";
 import type { FloatNode, Vec2Node, Vec3Node, Mat4Node } from "./types";

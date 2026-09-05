@@ -1,5 +1,6 @@
 import type { StudioConfig } from "../config/model";
 import type { WaveRenderer, WaveRendererOptions } from "../renderer/WaveRenderer";
+import type { TiltStatus } from "../renderer/tilt";
 import { hasWebGL, hasWebGPU, prefersReducedMotion, prefersReducedData } from "./probe";
 import { setupPoster, ensurePositioned, type Poster, type PosterFit } from "./poster";
 
@@ -85,6 +86,22 @@ export interface WaveHandle {
   /** Feed a `custom:<name>` interaction input for `custom:*` bindings. Staged (last value per name)
    *  before upgrade and replayed once the renderer is live; a no-op if no binding consumes it. */
   setInteractionInput(name: string, value: number): void;
+  /**
+   * Explicitly ask for the device-orientation sensor. OPTIONAL, and on iOS it opens a modal
+   * permission dialog — nothing calls it for you, and a decorative scene should simply go without
+   * tilt on that platform rather than interrupt the reader. CALL IT FROM A USER GESTURE: iOS 13+
+   * grants the sensor only from inside a tap handler.
+   *
+   * Before the wave has upgraded there is no renderer to ask, so the request is REMEMBERED and
+   * replayed on upgrade; that replay is no longer inside the gesture, so on iOS it resolves false
+   * and the reader taps again. Gate the button on {@link WaveOptions.onReady} (or the element's
+   * `wave3d-ready` event) and the first tap is the only tap.
+   */
+  enableTilt(): Promise<boolean>;
+  /** Where the tilt sensor stands. `"prompt"` is exactly when a tap-to-enable affordance helps. */
+  tiltStatus(): TiltStatus;
+  /** Take the next orientation reading as the neutral pose (the reader has changed grip). */
+  recenterTilt(): void;
   play(): void;
   pause(): void;
   /** Safe to call in any state (aborts a pending upgrade, disposes a live renderer, removes the poster). */
@@ -153,6 +170,8 @@ export function createWaveImpl(
   if (options.paused !== undefined) staged.paused = options.paused;
   // Interaction inputs fed before the renderer exists — last value per name, replayed on upgrade.
   const stagedInputs = new Map<string, number>();
+  /** enableTilt() called before the upgrade — replayed once the renderer exists (see WaveHandle). */
+  let tiltRequested = false;
 
   let aborted = false;
   let io: IntersectionObserver | null = null;
@@ -231,6 +250,7 @@ export function createWaveImpl(
     canvas.addEventListener("webglcontextrestored", onContextRestored, false);
     renderer.start();
     for (const [name, value] of stagedInputs) renderer.setInteractionInput(name, value);
+    if (tiltRequested) void renderer.enableTilt();
     setState("running");
     options.onReady?.(renderer);
 
@@ -300,6 +320,17 @@ export function createWaveImpl(
     setInteractionInput(name, value) {
       if (renderer) renderer.setInteractionInput(name, value);
       else stagedInputs.set(name, value);
+    },
+    enableTilt() {
+      if (renderer) return renderer.enableTilt();
+      tiltRequested = true;
+      return Promise.resolve(false);
+    },
+    tiltStatus() {
+      return renderer?.tiltStatus() ?? "prompt";
+    },
+    recenterTilt() {
+      renderer?.recenterTilt();
     },
     play() {
       if (renderer) {

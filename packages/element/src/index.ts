@@ -1,6 +1,7 @@
 import { createWave } from "@wave3d/core";
 import type {
   StudioConfig,
+  TiltStatus,
   WaveHandle,
   WaveOptions,
   WaveRenderer,
@@ -46,6 +47,27 @@ export class Wave3DElement extends ElementBase {
   /** The live shell handle (null before connect / after disconnect). */
   get handle(): WaveHandle | null {
     return this.#handle;
+  }
+
+  /**
+   * Explicitly ask for the device-orientation sensor. OPTIONAL, and on iOS it opens a modal
+   * permission dialog — nothing calls it for you, and a decorative scene should simply go without
+   * tilt there. CALL IT FROM A USER GESTURE (iOS grants the sensor only from inside a tap handler)
+   * and only once `wave3d-ready` has fired — before that there is no renderer to ask, and the replayed
+   * request has left the gesture.
+   */
+  enableTilt(): Promise<boolean> {
+    return this.#handle?.enableTilt() ?? Promise.resolve(false);
+  }
+
+  /** Where the tilt sensor stands. `"prompt"` is exactly when a tap-to-enable affordance helps. */
+  tiltStatus(): TiltStatus {
+    return this.#handle?.tiltStatus() ?? "prompt";
+  }
+
+  /** Take the next orientation reading as the neutral pose (the reader has changed grip). */
+  recenterTilt(): void {
+    this.#handle?.recenterTilt();
   }
 
   /** Programmatic config, merged last (over the `preset`/`src`/`config` attributes). */

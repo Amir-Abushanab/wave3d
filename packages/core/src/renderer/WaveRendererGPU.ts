@@ -21,7 +21,7 @@ import { WaveRenderer, type WaveMaterial, type WaveParticleField } from "./WaveR
 import { ParticleFieldGPU } from "./particleFieldGPU";
 import { makeTslUniforms, type WaveTslUniforms } from "./tsl/uniforms";
 import { buildWaveMaterial, type WaveMaterialFlags } from "./tsl/waveMaterial";
-import { wavePointerFxActive, waveRipplesActive } from "./interaction";
+import { wavePointerFxActive, waveRipplesActive } from "./interactionGates";
 import { buildPostChain, type PostChainUniforms, type PostFlags } from "./tsl/postChain";
 import { floatUniform, vec2Uniform } from "./tsl/types";
 

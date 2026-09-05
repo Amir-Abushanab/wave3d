@@ -129,7 +129,7 @@ field — `agitate` churn, `push` ± repel/attract dome, `wake` drag-trough, `th
 `lighten`), **`press`** (`ripple` rings from a click/tap), and **`bindings`** that smoothly drive
 that wave's params from an input.
 Sources: `scroll`, `hover`, `pointerX` / `pointerY`, `pointerSpeed`, `press`, `scrollVelocity`,
-`appear`, or a developer-fed `custom:*` (via `handle.setInteractionInput(name, value)` /
+`appear`, `tiltX` / `tiltY` (device tilt — see below), or a developer-fed `custom:*` (via `handle.setInteractionInput(name, value)` /
 `renderer.setInteractionInput`). Each binding rests at the authored value and moves toward `to` as
 its input rises 0→1 — `{ source: "hover", target: "displaceAmount", to: 12 }` grows the folds on
 hover. `helixPhase` / `helixTurns` / `helixRadius` are bindable too, so
@@ -148,6 +148,33 @@ you tune. Set `interaction: { touch: true }` on the scene to follow the finger w
 (listeners are passive, so this does **not** block page scrolling). Untouched by the gate: `scroll`,
 `scrollVelocity` and `appear` read container progress through the viewport, not pointer events, so
 they drive normally on mobile — scroll bindings are the way to stay reactive with `touch` off.
+
+**Tilt is the input a phone has that a desktop doesn't.** `tiltX` / `tiltY` read the device's
+orientation sensor, normalized 0..1 the way a ball would roll on the screen (`tiltX` → 1 as the
+right edge drops, `tiltY` → 1 as the bottom edge drops) and resting at 0.5 in whatever pose the
+reader was already holding — the first reading becomes the neutral centre, so a phone held at the
+usual 50° doesn't peg every binding at one end. Binding either source is what arms the sensor; a
+scene that mentions neither attaches no `deviceorientation` listener. `SceneConfig.interaction.tilt`
+is optional tuning on top: `range` (degrees to the 0/1 ends, default 25), `smoothing` (default
+0.18), `invertX` / `invertY`, and `pointer: true` — which lets tilt drive the shared CURSOR, so a
+scene authored entirely for `pointerX` / `pointerY` and the per-wave hover field comes alive on a
+phone without a second set of bindings (a real finger always wins).
+
+```ts
+interaction: { tilt: { range: 20 }, bindings: [{ source: "tiltX", target: "cameraZoom", to: 1.2 }] }
+```
+
+**iOS gets no tilt, on purpose.** Safari gates the sensor behind a modal permission dialog, and
+nothing in this library opens one — a tilt-bound scene on an iPhone reads 0.5 on both axes and looks
+exactly like a scene with no tilt. Treat tilt as an enhancement some phones don't get, the way you
+would a hover state; don't build a fallback for it and don't build a permission button for it.
+
+If a page genuinely warrants asking — an interactive piece a reader came to play with, not a
+background — `enableTilt()` on the renderer / handle / element is the explicit opt-in. Call it from
+a tap handler, directly, without awaiting anything first or the gesture is spent. `tiltStatus()`
+reports `"unsupported"` (no sensor), `"prompt"` (gated, inert unless you ask), `"denied"`,
+`"listening"` or `"live"`. Everywhere but iOS tilt is live as soon as it is bound and `enableTilt()`
+is a no-op that resolves true. `recenterTilt()` re-takes the neutral pose after a change of grip.
 
 ## Post effects (optional)
 
