@@ -13,10 +13,10 @@
  * `changeset publish` is itself only a wrapper around `pnpm publish` (which rewrites workspace: deps
  * and performs npm OIDC trusted publishing) plus a local `git tag` per published package, so we do
  * both directly — but only for versions the registry confirms are missing, so we never provoke the
- * E403. For each package we publish we create the tag and print the `New tag:` line;
- * changesets/action scans this script's stdout for those (it ignores our exit code), runs
- * `git push origin <tag>` for each — which is why the tag must already exist in this checkout —
- * and then cuts the GitHub Releases.
+ * E403. For each package we publish we create the tag and report it — see announceTag for what
+ * changesets/action actually reads (a CHANGESETS_OUTPUT ndjson file, NOT this script's stdout).
+ * The action then runs `git push origin <tag>` for each, which is why the tag must already exist
+ * in this checkout, and cuts the GitHub Releases.
  *
  * Also self-heals: an already-on-npm version whose git tag never made it to origin (a past run
  * that published, then died before tags were pushed) gets its tag and `New tag:` line restored,
@@ -25,7 +25,7 @@
  * Run via `pnpm release`, which builds the packages first. Pass `--dry-run` to preview.
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { appendFileSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const dryRun = process.argv.includes("--dry-run");
@@ -83,6 +83,39 @@ function ensureLocalTag(tag) {
 }
 
 /**
+ * Announce a tag: the local tag, the `New tag:` line for the log, and the event changesets/action
+ * actually acts on.
+ *
+ * v2 does NOT scan stdout — that was v1. It hands this script a file path in `CHANGESETS_OUTPUT`
+ * and, after the script exits, reads one JSON object per line from it, creating each tag through
+ * the GitHub API and cutting a Release for it. A script that only prints `New tag:` publishes to
+ * npm and leaves every release untagged: exactly how 0.9.0 shipped, from a green run, with the
+ * action warning "Failed to read changesets output ... Ensure the custom publish script passes
+ * CHANGESETS_OUTPUT to the Changesets CLI".
+ *
+ * The `type` discriminator is not optional — the action matches on it, and a line without it is
+ * read and dropped in silence. The printed line is now only for whoever reads the log; the file is
+ * what CI acts on. The local annotated tag still matters too: the action pushes tags with
+ * `git push origin <tag>`, which needs them to exist in this checkout.
+ *
+ * Outside the action (a laptop publish, or --dry-run) there is no file, and printing is the whole job.
+ */
+function announceTag(tag) {
+  ensureLocalTag(tag);
+  console.log(`New tag: ${tag}`);
+  const output = process.env.CHANGESETS_OUTPUT;
+  if (!output) return;
+  const packageName = tag.slice(0, tag.lastIndexOf("@"));
+  try {
+    appendFileSync(output, `${JSON.stringify({ type: "git-tag", tag, packageName })}\n`);
+  } catch (err) {
+    // Loud, but not fatal: the packages are already on npm by this point, and failing the run
+    // would not un-publish them. A missing tag is recoverable on the next run's restore pass.
+    console.error(`warning: could not record ${tag} in CHANGESETS_OUTPUT: ${String(err)}`);
+  }
+}
+
+/**
  * A version can be live on npm yet have no git tag or GitHub Release: a previous run published,
  * then died before changesets/action pushed the tags (0.3.0 lost its tags to the changesets↔npm 11
  * crash, 0.4.1 to this script not creating them), or the first publish ran from a laptop. Such a
@@ -119,8 +152,7 @@ function restoreMissingTags(onNpm) {
       continue;
     }
     console.log(`Restoring missing tag for already-published ${tag}`);
-    ensureLocalTag(tag);
-    console.log(`New tag: ${tag}`);
+    announceTag(tag);
   }
 }
 
@@ -154,9 +186,7 @@ for (const p of pending) {
       stdio: "inherit",
     });
     // changesets/action will `git push origin <tag>`, so the tag must exist locally.
-    const tag = `${p.name}@${p.version}`;
-    ensureLocalTag(tag);
-    console.log(`New tag: ${tag}`);
+    announceTag(`${p.name}@${p.version}`);
     published.push(p);
   } catch {
     // A non-zero exit is benign only if the version is already on npm (our pre-check raced a
