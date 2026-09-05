@@ -254,6 +254,10 @@ const IX_SOURCE_OPTIONS: Record<string, string> = {
   Press: "press",
   "Scroll velocity": "scrollVelocity",
   Appear: "appear",
+  // Phone/tablet only, and inert in this editor — a desktop has no orientation sensor, so these two
+  // sit at their 0.5 rest here and only move on the published page.
+  "Tilt X": "tiltX",
+  "Tilt Y": "tiltY",
 };
 /** Per-wave binding targets. */
 const IX_WAVE_TARGETS: Record<string, WaveInteractionTarget> = {

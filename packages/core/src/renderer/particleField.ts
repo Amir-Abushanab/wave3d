@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { ParticlesConfig } from "../config/model";
-import { RIPPLE_SLOTS } from "./interaction";
+import { RIPPLE_SLOTS } from "./interactionGates";
 import { particleFragmentShader, particleVertexShader } from "./shaders";
 
 /**

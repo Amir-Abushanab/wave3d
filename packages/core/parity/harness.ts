@@ -12,7 +12,7 @@ import { WaveRenderer } from "../src/renderer/WaveRenderer";
 import { WaveRendererGPU } from "../src/renderer/WaveRendererGPU";
 import { PRESETS } from "../src/presets";
 import { ensureStudioConfig, type StudioConfig } from "../src/config/model";
-import { wavePointerFxActive } from "../src/renderer/interaction";
+import { wavePointerFxActive } from "../src/renderer/interactionGates";
 
 const galleryModules = import.meta.glob<{ default: { title?: string; config: unknown } }>(
   "../../../gallery/waves/*.json",

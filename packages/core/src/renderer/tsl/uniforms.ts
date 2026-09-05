@@ -17,7 +17,7 @@ import { DataTexture, RGBAFormat, UnsignedByteType, Vector2, Vector3, Vector4 } 
 import { uniform, texture } from "three/tsl";
 import { PackedArrays } from "./packedArray";
 import { MAX_COLORS, MAX_LIGHTS, MAX_MESH_POINTS, MAX_NOISE_BANDS } from "../../config/model";
-import { RIPPLE_SLOTS } from "../interaction";
+import { RIPPLE_SLOTS } from "../interactionGates";
 
 /**
  * A 1x1 opaque-white stand-in for the palette texture.

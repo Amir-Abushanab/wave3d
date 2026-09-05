@@ -19,16 +19,22 @@ import {
 } from "./shaders";
 import { WaveGeometry } from "./WaveGeometry";
 import { ParticleField, type ParticleFrame } from "./particleField";
+// Gates only — the interactivity RUNTIME (controller, applier tables, tilt sensor) is reached
+// through a dynamic import in loadInteraction(), so a scene that never interacts never fetches it.
+// Anything added here that pulls ./interaction statically undoes that; see interactionGates.ts.
 import {
-  InteractionController,
   interactionActive,
   anyPointerFxActive,
   wavePointerFxActive,
   waveRipplesActive,
-  WAVE_APPLIERS,
-  SCENE_APPLIERS,
   RIPPLE_SLOTS,
-} from "./interaction";
+} from "./interactionGates";
+import type { InteractionController } from "./interaction";
+import type { TiltStatus } from "./tilt";
+
+/** The lazily-fetched interactivity runtime. Held alongside the controller so the per-frame binding
+ *  writes can reach the applier tables without importing them eagerly. */
+type InteractionModule = typeof import("./interaction");
 import {
   buildPaletteTexture,
   configurePaletteTexture,
@@ -354,9 +360,18 @@ export class WaveRenderer {
   private readonly clipTmpA = new THREE.Vector3();
   private readonly clipTmpB = new THREE.Vector3();
 
-  // ---- Interaction layer (optional; created only when config.interaction is active) ----
-  /** Created by syncInteraction() when interaction turns on, disposed when it turns off. */
+  // ---- Interaction layer (optional; fetched only when config.interaction is active) ----
+  /** Created by loadInteraction() once the runtime chunk lands, disposed when interaction turns off.
+   *  Stays undefined for the frames between the config turning it on and the chunk arriving. */
   protected interaction?: InteractionController;
+  /** The chunk itself, kept for the applier tables. Set and cleared with `interaction`. */
+  private interactionModule?: InteractionModule;
+  /** A fetch already in flight, so a per-frame refresh can't start a second one. */
+  private interactionLoading = false;
+  /** setInteractionInput() calls made while the chunk was in flight, replayed once it lands. */
+  private stagedInputs?: Map<string, number>;
+  /** Set by dispose(), so an in-flight chunk can't attach listeners to a dead renderer. */
+  private disposed = false;
   /** Extra ortho-zoom MULTIPLIER from a cameraZoom binding (1 = none); applied in applyZoom().
    *  Protected so the studio's writeCameraToConfig() can divide it back out (keep it out of config). */
   protected interactionZoom = 1;
@@ -1918,10 +1933,11 @@ export class WaveRenderer {
   private syncInteraction(): void {
     const active = interactionActive(this.config);
     if (active && !this.interaction) {
-      this.interaction = new InteractionController(this.container, () => this.config);
+      void this.loadInteraction();
     } else if (!active && this.interaction) {
       this.interaction.dispose();
       this.interaction = undefined;
+      this.interactionModule = undefined;
       this.interactionTimeOffset = 0;
       // Clear any live scroll→cameraZoom multiplier left in camera.zoom: with the controller gone
       // applyBindings won't run to reset it, so recompute the zoom here (no-op when already 1).
@@ -1932,18 +1948,55 @@ export class WaveRenderer {
     }
   }
 
+  /**
+   * Fetch the interactivity runtime and attach it. Deliberately a DYNAMIC import: the controller,
+   * its listeners, the applier tables and the tilt sensor are ~3.8 KB gzipped that a scene with no
+   * `interaction` block never runs, and a static import would put all of it in every bundle. The
+   * cost is that interaction goes live a chunk-fetch after the first frame instead of on it —
+   * invisible in practice, since there is nothing to react to until a reader moves.
+   *
+   * A failed fetch is not fatal: the wave renders exactly as an inert one does, which is the same
+   * thing that happens on a config with no interaction at all.
+   */
+  private async loadInteraction(): Promise<void> {
+    if (this.interactionLoading) return;
+    this.interactionLoading = true;
+    try {
+      const mod = await import("./interaction");
+      // The renderer may have been disposed, or the config edited back to inert, in flight.
+      if (this.disposed || this.interaction || !interactionActive(this.config)) return;
+      this.interactionModule = mod;
+      this.interaction = new mod.InteractionController(this.container, () => this.config);
+      if (this.stagedInputs) {
+        for (const [name, value] of this.stagedInputs) this.interaction.setInput(name, value);
+        this.stagedInputs = undefined;
+      }
+      this.onInteractionReady();
+    } catch {
+      // Chunk unavailable (offline, a stale deploy): stay inert rather than throwing into the loop.
+    } finally {
+      this.interactionLoading = false;
+    }
+  }
+
+  /** Hook for subclasses that hold state the controller must be told about once it exists (the
+   *  studio's scroll preview). No-op in the base renderer. */
+  protected onInteractionReady(): void {}
+
   /** Per-frame interaction write: dynamic pointer-field uniforms + bindings. No-op without a
    *  controller. While capturing it writes the REST state instead (pointer field zeroed, every bound
    *  param at its authored base) — merely skipping the write would freeze whatever live hover/scroll
    *  state the previous frame left in the uniforms, so exports wouldn't be deterministic. */
   private applyInteraction(): void {
-    if (!this.interaction) return;
+    const ic = this.interaction;
+    const mod = this.interactionModule;
+    if (!ic || !mod) return; // set together, so this is "before the chunk landed"
     if (this.capturing) {
-      this.applyInteractionRest();
+      this.applyInteractionRest(mod);
       return;
     }
-    if (anyPointerFxActive(this.config)) this.applyPointerField(this.interaction);
-    this.applyBindings(this.interaction);
+    if (anyPointerFxActive(this.config)) this.applyPointerField(ic);
+    this.applyBindings(ic, mod);
   }
 
   /** Write the capture-frame interaction state: exactly what this config renders with no input —
@@ -1952,7 +2005,7 @@ export class WaveRenderer {
    *  the capture resumes mid-gesture; the trailing renderOnce() in captureImage restores the preview.
    *  interactionZoom is deliberately NOT reset — captureImage strips it from camera.zoom itself, and
    *  the post-capture restore depends on it being unchanged. */
-  private applyInteractionRest(): void {
+  private applyInteractionRest(mod: InteractionModule): void {
     for (let i = 0; i < this.waves.length; i++) {
       const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
       if (!wavePointerFxActive(this.config, sc)) continue;
@@ -1969,7 +2022,7 @@ export class WaveRenderer {
       this.interactionSceneOut.zoom = this.config.cameraZoom ?? 1;
       const sceneArgs = { post: this.postPass.uniforms, out: this.interactionSceneOut };
       for (const b of sceneBindings) {
-        const applier = SCENE_APPLIERS[b.target];
+        const applier = mod.SCENE_APPLIERS[b.target];
         applier.apply(applier.base(this.config), sceneArgs);
       }
     }
@@ -1986,7 +2039,7 @@ export class WaveRenderer {
       if (!sc || !bindings || bindings.length === 0) continue;
       const wave = this.waves[i];
       for (const b of bindings) {
-        const applier = WAVE_APPLIERS[b.target];
+        const applier = mod.WAVE_APPLIERS[b.target];
         applier.apply(applier.base(sc), { u: wave.material.uniforms, mesh: wave.mesh });
       }
     }
@@ -2034,14 +2087,14 @@ export class WaveRenderer {
 
   /** Evaluate bindings via the applier tables: value = mix(from ?? base, to, smoothedSource). Scene
    *  bindings drive scene params; each wave's bindings drive that wave's uniforms. */
-  private applyBindings(ic: InteractionController): void {
+  private applyBindings(ic: InteractionController, mod: InteractionModule): void {
     // Scene bindings → scene params. Seed out-params at base; appliers overwrite only what they drive,
     // so with no scene binding these stay at base → interactionTimeOffset 0 / interactionZoom 1.
     this.interactionSceneOut.timeOffset = this.config.timeOffset ?? 0;
     this.interactionSceneOut.zoom = this.config.cameraZoom ?? 1;
     const sceneArgs = { post: this.postPass.uniforms, out: this.interactionSceneOut };
     for (const b of this.config.interaction?.bindings ?? []) {
-      const applier = SCENE_APPLIERS[b.target];
+      const applier = mod.SCENE_APPLIERS[b.target];
       const value = THREE.MathUtils.lerp(
         b.from ?? applier.base(this.config),
         b.to,
@@ -2056,7 +2109,7 @@ export class WaveRenderer {
       if (!sc || !bindings || bindings.length === 0) continue;
       const wave = this.waves[i];
       for (const b of bindings) {
-        const applier = WAVE_APPLIERS[b.target];
+        const applier = mod.WAVE_APPLIERS[b.target];
         const value = THREE.MathUtils.lerp(b.from ?? applier.base(sc), b.to, ic.bindingValue(b));
         applier.apply(value, { u: wave.material.uniforms, mesh: wave.mesh });
       }
@@ -2076,9 +2129,56 @@ export class WaveRenderer {
     }
   }
 
-  /** Feed a `custom:<name>` interaction input (developer API). No-op when interaction is off. */
+  /** Feed a `custom:<name>` interaction input (developer API). No-op when interaction is off.
+   *  Values fed before the interaction chunk lands are STAGED (last one per name wins) and replayed
+   *  when it does — otherwise a one-shot input sent right after `onReady` would vanish into the
+   *  fetch window. */
   setInteractionInput(name: string, value: number): void {
-    this.interaction?.setInput(name, value);
+    if (this.interaction) {
+      this.interaction.setInput(name, value);
+      return;
+    }
+    if (typeof name !== "string" || !Number.isFinite(value)) return;
+    if (!interactionActive(this.config)) return; // nothing will ever consume it
+    (this.stagedInputs ??= new Map()).set(name, value);
+  }
+
+  /**
+   * Explicitly ask for the device-orientation sensor. OPTIONAL, and on iOS it opens a modal
+   * permission dialog — so this belongs to a page where tilt is the point, not to a decorative
+   * background, which should simply go without tilt there. Nothing calls this for you.
+   *
+   * CALL IT FROM A USER GESTURE: iOS 13+ only grants the sensor from inside a tap handler, and
+   * awaiting anything before it (a fetch, a timeout) spends the gesture. Resolves true once
+   * readings can flow — false when
+   * the platform has no sensor, the scene declares no `interaction.tilt`, or the reader refused.
+   * Where no permission is required the sensor is already live and this resolves true.
+   */
+  enableTilt(): Promise<boolean> {
+    // NOT awaited before the permission call: iOS only grants the sensor to a synchronous chain
+    // from the gesture, so this hands straight to the controller. In the window before the
+    // interaction chunk lands there is nothing to hand to — start the fetch and report false, and
+    // the reader's next tap works. (That window is the first frames after mount: any tilt binding
+    // makes the layer active, so the fetch begins on the first refresh, long before a tap.)
+    if (!this.interaction) {
+      if (interactionActive(this.config)) void this.loadInteraction();
+      return Promise.resolve(false);
+    }
+    return this.interaction.enableTilt();
+  }
+
+  /** Where the tilt sensor stands. `"prompt"` is exactly when a tap-to-enable affordance helps. */
+  tiltStatus(): TiltStatus {
+    if (this.interaction) return this.interaction.tiltStatus();
+    // Before the chunk lands there is no sensor to ask, but the platform check needs no chunk.
+    const supported =
+      typeof window !== "undefined" && typeof window.DeviceOrientationEvent !== "undefined";
+    return supported ? "prompt" : "unsupported";
+  }
+
+  /** Take the next orientation reading as the neutral pose — for when the reader has changed grip. */
+  recenterTilt(): void {
+    this.interaction?.recenterTilt();
   }
 
   /** Re-evaluate play/pause after `config.paused` changes. */
@@ -2294,11 +2394,13 @@ export class WaveRenderer {
   }
 
   dispose(): void {
+    this.disposed = true; // an interaction chunk still in flight must not attach to a dead renderer
     cancelAnimationFrame(this.rafId);
     cancelAnimationFrame(this.resizeRaf); // a coalesced resize may still be queued
     this.running = false;
     this.interaction?.dispose();
     this.interaction = undefined;
+    this.interactionModule = undefined;
     this.resizeObserver.disconnect();
     this.intersectionObserver.disconnect();
     this.motionQuery.removeEventListener("change", this.onMotionChange);

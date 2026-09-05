@@ -32,6 +32,20 @@ module.exports = {
       to: { path: "^apps/" },
     },
     {
+      name: "interaction-runtime-stays-lazy",
+      severity: "error",
+      comment:
+        "The interactivity runtime (controller + applier tables + tilt sensor, ~3.8 KB gzipped) must " +
+        "be reachable ONLY through the dynamic import in WaveRenderer.loadInteraction(). A static " +
+        "import folds it into every bundle, including the scenes that never interact. Need one of " +
+        "its config predicates or RIPPLE_SLOTS synchronously? Those live in interactionGates.ts.",
+      from: { pathNot: "^packages/core/src/renderer/interaction\\.ts$" },
+      to: {
+        path: "^packages/core/src/renderer/interaction\\.ts$",
+        dependencyTypesNot: ["dynamic-import", "type-only"],
+      },
+    },
+    {
       name: "renderer-stays-below-shell-and-studio",
       severity: "error",
       comment:

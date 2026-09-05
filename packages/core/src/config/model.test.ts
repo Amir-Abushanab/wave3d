@@ -219,6 +219,28 @@ describe("ensureStudioConfig repairs configs that used to break the panel", () =
     expect(p?.speed).toBe(8); // clamped 0..8
     assertBindableLeaves(p);
   });
+
+  it("keeps tilt bindings and clamps the tilt block, without inventing one", () => {
+    // A tilt BINDING is what arms the sensor, so it has to survive the source whitelist; the
+    // `tilt` block is tuning and must stay absent when the config never asked for it.
+    const bound = ensureStudioConfig(
+      hostile({
+        interaction: { bindings: [{ source: "tiltX", target: "cameraZoom", to: 1.2 }] },
+        waves: [{ interaction: { bindings: [{ source: "tiltY", target: "opacity", to: 0.4 }] } }],
+      }),
+    );
+    expect(bound.interaction?.bindings).toHaveLength(1);
+    expect(bound.waves[0].interaction?.bindings).toHaveLength(1);
+    expect(bound.interaction?.tilt).toBeUndefined();
+
+    const tuned = ensureStudioConfig(
+      hostile({ interaction: { tilt: { range: 900, smoothing: NaN, pointer: true } } }),
+    );
+    expect(tuned.interaction?.tilt?.range).toBe(90); // clamped 1..90
+    expect(tuned.interaction?.tilt?.smoothing).toBe(0.18); // NaN → the default
+    expect(tuned.interaction?.tilt?.pointer).toBe(true);
+    assertBindableLeaves(tuned.interaction?.tilt);
+  });
 });
 
 describe("normalizing never rewrites a value the config already declares", () => {
