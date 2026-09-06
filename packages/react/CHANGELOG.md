@@ -1,5 +1,12 @@
 # @wave3d/react
 
+## 0.10.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @wave3d/core@0.10.0
+
 ## 0.9.0
 
 ### Patch Changes
