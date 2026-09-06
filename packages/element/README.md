@@ -33,6 +33,7 @@ Importing the package registers `<wave-3d>` for you:
 | `src`        | URL to a config JSON to fetch                                                     |
 | `poster`     | poster image shown before or instead of WebGL                                     |
 | `poster-fit` | poster `object-fit`: `fill` (default, matches the canvas) \| `cover` \| `contain` |
+| `fade-ms`    | poster→canvas crossfade in ms (default `300`; `0` swaps instantly)                |
 | `paused`     | pause or resume the animation                                                     |
 | `lazy`       | defer the upgrade until visible                                                   |
 | `webgl`      | `auto` \| `force` \| `off`                                                        |
@@ -56,7 +57,24 @@ wave.addEventListener("wave3d-ready", async () => {
 });
 ```
 
-`handle.snapshot(options?)` resolves `null` until the wave is running. Options: `type` (default `"image/webp"`), `quality`, `transparent` (default `true`).
+`handle.snapshot(options?)` resolves `null` until the wave is running. Options: `type` (default `"image/webp"`), `quality`, `transparent` (default `true`), and `time` (a fixed animation time — pass `0` for the frame the wave opens on, so the poster matches the first live frame).
+
+### Capture at the pixel ratio it will be shown at
+
+`snapshot()` returns the canvas at its **backing-store** size, which is the element's CSS size times the device pixel ratio (capped by `dprMax`). If you generate posters in a headless browser, that browser's `deviceScaleFactor` therefore decides the poster's resolution — and the default is `1`.
+
+A poster captured at `deviceScaleFactor: 1` is half the resolution the same canvas renders at on a 2× display. The browser stretches the poster to fill the element while the live canvas behind it does not, so the crossfade lands on a visible sharpening — edges tighten, and because soft edges bloom outward the poster reads as slightly _heavier_ than the live scene rather than merely blurrier.
+
+Drive the capture at the ratio your readers actually have:
+
+```js
+const page = await browser.newPage({
+  viewport: { width: 1440, height: 820 },
+  deviceScaleFactor: 2,
+});
+```
+
+Two things that go with it: keep the encoder quality high enough that it does not ring the high-contrast edges (a lossy poster shows up as outlines tracing every ribbon), and remember that a fixed-aspect poster is stretched by `poster-fit` while the canvas re-frames itself — capture at the aspect the element is widest at.
 
 ## Custom tag name
 
