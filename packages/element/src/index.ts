@@ -31,9 +31,9 @@ const ElementBase: typeof HTMLElement =
 /**
  * `<wave-3d>` — the framework-agnostic drop-in (Vue/Svelte/plain HTML). Light DOM, `display:block`.
  * Attributes: `config` (JSON), `src` (URL to a config JSON), `preset` (name), `poster`,
- * `poster-fit` (`fill` | `cover` | `contain`), `paused`, `lazy`, `webgl`. Also a `config` property
- * and a read-only `handle` getter. Emits `wave3d-ready` (detail = renderer) and `wave3d-fallback`
- * (detail = reason) events.
+ * `poster-fit` (`fill` | `cover` | `contain`), `fade-ms`, `paused`, `lazy`, `webgl`. Also a
+ * `config` property and a read-only `handle` getter. Emits `wave3d-ready` (detail = renderer) and
+ * `wave3d-fallback` (detail = reason) events.
  */
 export class Wave3DElement extends ElementBase {
   static get observedAttributes(): string[] {
@@ -106,6 +106,7 @@ export class Wave3DElement extends ElementBase {
     const options: WaveOptions = {
       poster: this.getAttribute("poster") ?? undefined,
       posterFit: (this.getAttribute("poster-fit") as WaveOptions["posterFit"]) ?? undefined,
+      fadeMs: this.#numAttr("fade-ms"),
       lazy: this.#boolAttr("lazy"),
       webgl: (this.getAttribute("webgl") as WaveOptions["webgl"]) ?? undefined,
       // Default "webgl": anything else fetches the TSL backend chunk, so it stays opt-in.
@@ -150,6 +151,17 @@ export class Wave3DElement extends ElementBase {
     const handle = this.#handle;
     if (!handle) return;
     handle.set(await this.#buildConfig());
+  }
+
+  /**
+   * A non-negative number attribute, or undefined for the shell default. Absent, unparseable and
+   * negative all fall through to undefined rather than to 0: `fade-ms="0"` is a meaningful value
+   * (swap with no crossfade at all), so it must not share an encoding with "not set".
+   */
+  #numAttr(name: string): number | undefined {
+    if (!this.hasAttribute(name)) return undefined;
+    const value = Number(this.getAttribute(name));
+    return Number.isFinite(value) && value >= 0 ? value : undefined;
   }
 
   /** Presence = true; `"false"`/`"0"` = false; absent = undefined (shell default). */
