@@ -133,6 +133,8 @@ export function makeTslUniforms(drawingBufferSize: Vector2) {
     uLineAmount: uniform(425),
     uLineThickness: uniform(1),
     uLineDerivativePower: uniform(0.95),
+    uLineDepthFade: uniform(1),
+    uLineSharpness: uniform(0),
     uMaxWidth: uniform(1232),
     uClearColor: uniform(new Vector3(1, 1, 1)),
 
@@ -141,6 +143,7 @@ export function makeTslUniforms(drawingBufferSize: Vector2) {
     uHelixRadius: uniform(0),
     uHelixRoll: uniform(0),
     uHelixPhase: uniform(0),
+    uHelixTaper: uniform(1),
     uRadialAmount: uniform(0),
     uRadialArc: uniform(160),
     uRadialSpread: uniform(1),
@@ -148,6 +151,15 @@ export function makeTslUniforms(drawingBufferSize: Vector2) {
     uRadialCenter: uniform(0),
     uRungAmount: uniform(0),
     uRungThickness: uniform(1),
+
+    // ---- Dissolve (the disintegration front; see tsl/dissolve.ts) ----
+    uDissolveAmount: uniform(0),
+    uDissolveBand: uniform(0.35),
+    uDissolveScale: uniform(90),
+    uDissolveBlocky: uniform(0.6),
+    uDissolveAxis: uniform(0),
+    uDissolveReverse: uniform(0),
+    uDissolveDust: uniform(1),
 
     // ---- Interaction / pointer field ----
     uPointer: uniform(new Vector2(0, 0)),

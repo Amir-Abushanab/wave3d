@@ -37,6 +37,8 @@ function variantKey(f: WaveMaterialFlags): string {
     f.depthTint && "depthTint",
     f.edgeFeather && "edgeFeather",
     f.rungs && "rungs",
+    f.lineSharp && "lineSharp",
+    f.dissolve && "dissolve",
     f.pointerFx && "pointer",
     f.pointerRipples && "ripples",
     f.webgpuClipZ && "gpuz",
@@ -146,6 +148,8 @@ export function withTslBackend<TBase extends typeof WaveRenderer>(Base: TBase): 
         sc?.interaction?.bindings?.some((b) => b.target === "detailAmount") ?? false;
       const bindsHelix =
         sc?.interaction?.bindings?.some((b) => b.target.startsWith("helix")) ?? false;
+      const bindsDissolve =
+        sc?.interaction?.bindings?.some((b) => b.target === "dissolveAmount") ?? false;
       const pointer = !!sc && wavePointerFxActive(this.config, sc);
       return {
         theme: sc?.theme === "wireframe" ? "wireframe" : "solid",
@@ -157,6 +161,8 @@ export function withTslBackend<TBase extends typeof WaveRenderer>(Base: TBase): 
         depthTint: (sc?.depthTint ?? 0) > 0,
         edgeFeather: (sc?.edgeFeather ?? 0.1) !== 0.1,
         rungs: sc?.theme === "wireframe" && (sc.rungAmount ?? 0) > 0,
+        lineSharp: sc?.theme === "wireframe" && (sc.lineSharpness ?? 0) > 0,
+        dissolve: !!sc?.dissolve && ((sc.dissolve.amount ?? 0) > 0 || bindsDissolve),
         pointerFx: pointer,
         pointerRipples: pointer && waveRipplesActive(this.config, sc as WaveConfig),
         webgpuClipZ: this.webgpuClipZ,
@@ -188,6 +194,7 @@ export function withTslBackend<TBase extends typeof WaveRenderer>(Base: TBase): 
             radial: f.radial,
             pointerFx: f.pointerFx,
             pointerRipples: f.pointerRipples,
+            dissolve: f.dissolve,
           },
         },
         onReady,

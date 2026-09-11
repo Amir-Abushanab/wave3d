@@ -45,12 +45,14 @@ import {
   If,
   Break,
   select,
+  Discard,
 } from "three/tsl";
 import { MAX_LIGHTS, MAX_NOISE_BANDS } from "../../config/model";
 import { simplexNoise, grainHash } from "./noise";
 import { waveShape, applyTwist, type WaveShapeFlags } from "./waveShape";
 import { applyColorGrade, waveBaseColor, hueShift, parabola, mapLinear } from "./color";
 import { pointerField } from "./pointerField";
+import { dissolved } from "./dissolve";
 import type { FloatNode, Vec2Node, Vec3Node } from "./types";
 import type { WaveTslUniforms } from "./uniforms";
 
@@ -63,6 +65,10 @@ export interface WaveMaterialFlags extends WaveShapeFlags {
   depthTint: boolean;
   edgeFeather: boolean;
   rungs: boolean;
+  /** Stripe hardening (wireframe only): compiled only when lineSharpness > 0, as in the GLSL. */
+  lineSharp: boolean;
+  /** The disintegration front: compiled only when the wave has one, as in the GLSL. */
+  dissolve: boolean;
   /**
    * True when the active backend uses [0,1] clip Z (WebGPU) rather than [-1,1] (WebGL).
    *
@@ -191,10 +197,13 @@ export function buildWaveMaterial(u: WaveTslUniforms, flags: WaveMaterialFlags):
   const clipZ: FloatNode = flags.webgpuClipZ ? rawClip.z.mul(2).sub(1) : rawClip.z;
 
   // ---- Fragment ----
+  // This fragment's 0..1 screen position — read only by a screen-axis dissolve front. Taken from
+  // the same clip vector the depth fade uses, so the two never disagree about where a fragment is.
+  const ndc = rawClip.xy.div(max(rawClip.w, 1.0e-6)).mul(0.5).add(0.5);
   material.outputNode =
     flags.theme === "wireframe"
-      ? buildWireframeFragment(u, flags, clipZ, pointerFall)
-      : buildSolidFragment(u, flags, clipZ, pointerFall);
+      ? buildWireframeFragment(u, flags, clipZ, pointerFall, ndc)
+      : buildSolidFragment(u, flags, clipZ, pointerFall, ndc);
 
   return material;
 }
@@ -205,9 +214,12 @@ function buildWireframeFragment(
   flags: WaveMaterialFlags,
   clipZ: FloatNode,
   pointerFall: FloatNode | null,
+  ndc: Vec2Node,
 ) {
   return Fn(() => {
     const vUv = uv();
+    // The disintegration front: drop the chunks it has already eaten, before any shading work.
+    if (flags.dissolve) Discard(dissolved(u, vUv, ndc));
     const color = applyColorGrade(u, waveBaseColor(u, vUv)).toVar("lineColor");
     if (pointerFall) {
       color.assign(hueShift(color, radians(u.uPointerHue).mul(pointerFall)));
@@ -224,6 +236,21 @@ function buildWireframeFragment(
       lineThickness.mulAssign(clamp(float(1).sub(u.uPointerThin.mul(pointerFall)), 0, 1));
     }
     const a = smoothstep(lineThickness, 0.0, tabs(sin(vUv.x.mul(u.uLineAmount)))).toVar("lineA");
+    if (flags.lineSharp) {
+      // Steepen the stripe about its own midpoint, which turns uLineThickness into a DUTY CYCLE and
+      // this into the edge — see the LINE_SHARP block in the GLSL for why the soft ramp alone cannot
+      // reach dense ink. Capped at 50x so the edge lands inside a pixel or two.
+      a.assign(
+        clamp(
+          a
+            .sub(0.5)
+            .div(max(float(1).sub(u.uLineSharpness), 0.02))
+            .add(0.5),
+          0,
+          1,
+        ),
+      );
+    }
 
     if (flags.rungs) {
       // The same carve at constant uv.y, so this family runs ACROSS the ribbon where the one above
@@ -236,7 +263,7 @@ function buildWireframeFragment(
     }
 
     // Depth fade: the wave recedes into the background colour with depth.
-    const depthFade = clamp(clipZ.mul(6.0), 0, 1);
+    const depthFade = clamp(clipZ.mul(6.0), 0, 1).mul(u.uLineDepthFade);
     const faded = mix(u.uClearColor, color, a.mul(float(1).sub(depthFade))).toVar("lineFaded");
     // Deep "squared" look — composited, not replace-blended (see applyBlendMode).
     const out = select(u.uSquared.greaterThan(0.5), faded.mul(faded), faded);
@@ -250,9 +277,12 @@ function buildSolidFragment(
   flags: WaveMaterialFlags,
   clipZ: FloatNode,
   pointerFall: FloatNode | null,
+  ndc: Vec2Node,
 ) {
   return Fn(() => {
     const vUv = uv();
+    // The disintegration front: drop the chunks it has already eaten, before any shading work.
+    if (flags.dissolve) Discard(dissolved(u, vUv, ndc));
     const vWorldPos = positionWorld;
     const vViewDir = cameraPosition.sub(vWorldPos).toVar("vViewDir");
 

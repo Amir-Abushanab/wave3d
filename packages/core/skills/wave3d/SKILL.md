@@ -109,8 +109,36 @@ a repeating helix:
 - `helixRoll` rolls the ribbon's own cross-section in step (1 = rigid twisted ribbon), swinging its
   two long edges onto opposite sides of the axis, so **one wave becomes a ladder whose edges are
   both strands**. Add `rungAmount` (wireframe theme) for the rungs between them.
+- `helixTaper` scales that radius along the length (1 = the cylinder a plain helix winds, 0 = a cone
+  that starts on the axis and flares) — the vortex / funnel a constant-radius helix can't reach.
 - Both are off at 0, and the helix code path isn't compiled unless `helixRadius` or `helixRoll` is
   non-zero — a wave without one renders byte-identically to before.
+
+**Disintegration (`WaveConfig.dissolve`).** A front sweeps across the wave and eats it away chunk by
+chunk, so the surface CRUMBLES rather than fading. Absent ⇒ intact and byte-identical.
+
+```ts
+dissolve: { amount: 0.3, axis: "screenX", reverse: true, band: 0.55, scale: 150, blocky: 0.75, dust: 1 }
+```
+
+- `amount` is the whole animation: 0 whole, 1 gone, whatever the `band` (fray width). It is a binding
+  target, so `{ source: "scroll", target: "dissolveAmount", to: 1 }` snaps the wave as the page moves.
+- `axis` `"length"` / `"width"` ride the ribbon's own uv; **`"screenX"` / `"screenY"` are a straight
+  line on the canvas**, which is what makes a multi-wave STACK crumble as one object — give every
+  wave the same axis and amount and they share one edge. `reverse` flips which end goes first.
+- `scale` sets how finely the sheet is diced and `blocky` the chunk character (0 organic tatters,
+  1 hard quantized cells).
+- `dust` pins the wave's own `particles` field to that same front: each mote is the chunk that just
+  left, so the dust and the holes are ONE event. Under a screen axis the debris also blows along the
+  sweep instead of radiating in every direction. Pair with `shape: "square"` and `blend: "normal"`
+  for hard dark debris — `blend` defaults to `"additive"`, which can only brighten and so is
+  invisible on a pale page.
+
+**Wireframe ink (`theme: "wireframe"`).** The strand is a soft ramp by default, so `lineThickness`
+alone goes from pale hairlines to flat solid without passing through dense ink. `lineSharpness`
+(0..1) steepens it, which turns `lineThickness` into a DUTY CYCLE and gives engraved black strands
+with the background still showing between them; `lineDepthFade` (default 1) turns off the recede
+into the background colour, which a deep or stacked composition needs.
 
 **React flat props** are a shortcut mapped onto `waves[0]` and the scene:
 `palette` (`string[]` | `ColorStop[]`), `fiberCount`, `fiberStrength`, `sheen`, `iridescence`,
@@ -200,9 +228,10 @@ Only `blur` and `grain` are bindable from an interaction input; the others are a
 
 ## Presets
 
-14 built-in presets (`@wave3d/core/presets`): **Hero**, **Wave 2**, **Wave 3**, **Wave 4**,
-**Wireframe**, **Neon Dark Multistrand**, **Mesh Gradient**, **Solar Bloom**, **Holographic**,
-**Aurora**, **Palestine**, **Spain**, **Vaporwave Sunset**, **Kaleidoscope**.
+18 built-in presets (`@wave3d/core/presets`): **Hero**, **Wave 2**, **Wave 3**, **Wave 4**,
+**Wireframe**, **Neon Dark Multistrand**, **Mesh Gradient**, **Solar Bloom**, **Latte Ring**,
+**Particle Zoo**, **Holographic**, **Aurora**, **Palestine**, **Spain**, **Vaporwave Sunset**,
+**Corkscrew**, **Disintegration**, **Kaleidoscope**.
 
 - React: `preset="Hero"` (a **string** lazy-imports the presets chunk) or
   `preset={() => PRESETS["Hero"]()}` (a **function** is tree-shakeable — bundles only that preset).

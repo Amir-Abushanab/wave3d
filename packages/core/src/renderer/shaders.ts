@@ -226,8 +226,11 @@ WaveShape waveShape(vec3 position, vec2 uv, float t, vec2 loopOff){
   vec2 rel = vec2(pos.y, pos.z - ${RIBBON_Z_CENTER.toFixed(1)});
   pos.y = rel.x * rollC - rel.y * rollS;
   pos.z = ${RIBBON_Z_CENTER.toFixed(1)} + rel.x * rollS + rel.y * rollC;
-  pos.y += uHelixRadius * cos(hAng);
-  pos.z += uHelixRadius * sin(hAng);
+  // Taper: scale the orbit radius along the length, so the helix can open from the axis into a
+  // cone (a vortex / plume) instead of only ever being a constant-radius cylinder. 1 = no taper.
+  float hRad = uHelixRadius * mix(uHelixTaper, 1.0, uv.y);
+  pos.y += hRad * cos(hAng);
+  pos.z += hRad * sin(hAng);
 #endif
 
   // The X-twist frequency feeding rotB; the TWIST_MOTION variant modulates it with simplex noise
@@ -273,6 +276,69 @@ WaveShape waveShape(vec3 position, vec2 uv, float t, vec2 loopOff){
   s.rotB = rotB;
   s.rotC = rotC;
   return s;
+}
+`;
+
+// ---------------------------------------------------------------------------------------------
+// DISSOLVE — the disintegration front. A band sweeps across the ribbon in uv and everything behind
+// it is eaten away, chunk by chunk, so the surface crumbles instead of fading. Shared verbatim by
+// the solid fragment shader, the wireframe fragment shader and the particle emitter (which reads
+// the same front to decide when each mote peels off), so the dust leaves exactly where the surface
+// goes. Everything sits behind `#ifdef DISSOLVE`, so a wave without one compiles the program it
+// always did.
+//
+// `front` is placed so that amount 0 leaves the whole ribbon and amount 1 takes all of it,
+// whatever the band width: the band starts entirely before the ribbon and ends entirely past it.
+// ---------------------------------------------------------------------------------------------
+const dissolveChunk = /* glsl */ `
+uniform float uDissolveAmount;   // 0..1 — how far the front has swept
+uniform float uDissolveBand;     // width of the crumbling band, in uv
+uniform float uDissolveScale;    // chunks across the ribbon's width
+uniform float uDissolveBlocky;   // 0 = organic noise blobs, 1 = hard quantized cells
+uniform float uDissolveAxis;     // 0 length (uv.y) · 1 width (uv.x) · 2 screen X · 3 screen Y
+uniform float uDissolveReverse;  // 1 = sweep from the far end instead
+
+// The sweep coordinate, 0 where the front starts and 1 where it ends. Two families:
+//   - the RIBBON's own axes (uv), so the front follows the sheet wherever the twist takes it;
+//   - SCREEN space (ndc, 0..1 across the frame), so the front is a straight line on the canvas and
+//     every wave in a stack disintegrates against the SAME edge no matter how each one is oriented.
+// The crumb pattern always stays in uv, so the chunks belong to the surface either way.
+float dissolveCoord(vec2 uv, vec2 ndc){
+  float c = uDissolveAxis < 0.5 ? uv.y
+          : uDissolveAxis < 1.5 ? uv.x
+          : uDissolveAxis < 2.5 ? ndc.x
+          : ndc.y;
+  return uDissolveReverse > 0.5 ? 1.0 - c : c;
+}
+
+// How far the front has passed a point: 0 ahead of it (intact), 1 fully behind it (gone).
+float dissolveProgress(float coord){
+  float band = max(uDissolveBand, 1.0e-3);
+  float front = uDissolveAmount * (1.0 + band); // 0 -> band sits entirely before the ribbon
+  return clamp((front - coord) / band, 0.0, 1.0);
+}
+
+// Per-chunk hash, cheap and stable: the same cell always returns the same value, so a chunk that
+// has crumbled stays crumbled as the front advances (it never flickers back).
+float dissolveHash(vec2 cell){
+  return fract(sin(dot(floor(cell), vec2(127.1, 311.7))) * 43758.5453);
+}
+
+// The erosion grain at a uv: 0 = the first thing to go, 1 = the last. Two octaves (coarse chunks
+// with finer grit inside them) blended between smooth simplex (organic tatters) and quantized
+// cells (hard blocky debris) by uDissolveBlocky. Cells are made square ON THE RIBBON — the sheet
+// is 400 long by ~188 wide, so uv.y is stretched by that ratio.
+float dissolveGrain(vec2 uv){
+  vec2 cell = vec2(uv.x, uv.y * 2.13) * uDissolveScale;
+  float coarse = mix(simplexNoise(cell) * 0.5 + 0.5, dissolveHash(cell), uDissolveBlocky);
+  float fine = mix(simplexNoise(cell * 3.7) * 0.5 + 0.5, dissolveHash(cell * 3.7), uDissolveBlocky);
+  return clamp(coarse * 0.72 + fine * 0.28, 0.0, 1.0);
+}
+
+// True where the surface has been eaten away. ndc is this fragment's 0..1 screen position (from
+// vClipPosition), read only by the screen-space axes.
+bool dissolved(vec2 uv, vec2 ndc){
+  return dissolveProgress(dissolveCoord(uv, ndc)) > dissolveGrain(uv);
 }
 `;
 
@@ -396,6 +462,7 @@ uniform float uHelixTurns;  // full turns from one end of the ribbon to the othe
 uniform float uHelixRadius; // orbit radius: carries the whole ribbon around the axis
 uniform float uHelixRoll;   // cross-section roll, as a fraction of the turns (1 = rigid ladder)
 uniform float uHelixPhase;  // degrees
+uniform float uHelixTaper;  // radius scale at the START end (1 = a cylinder, 0 = a cone / vortex)
 #endif
 
 // Radial fan (optional). Behind RADIAL so a wave without one compiles the exact same program (same
@@ -535,6 +602,10 @@ float grainHash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758
 float parabola(float x, float k){ return pow(4.0 * x * (1.0 - x), k); }
 float mapLinear(float v, float a, float b, float c, float d){ return c + (v - a) * (d - c) / (b - a); }
 
+#ifdef DISSOLVE
+${dissolveChunk}
+#endif
+
 ${colorFns}
 
 // Striations: a subtle high-frequency simplex-noise grain ADDED to the
@@ -573,6 +644,10 @@ vec3 surfaceStreaks(vec2 uv, vec3 color, float crease){
 }
 
 void main(){
+#ifdef DISSOLVE
+  // The disintegration front: drop the chunks it has already eaten, before any shading work.
+  if (dissolved(vUv, vClipPosition.xy / max(vClipPosition.w, 1.0e-6) * 0.5 + 0.5)) discard;
+#endif
   // crease: a foreshortening / fold detector from the screen-space uv derivative.
   // It drives BOTH the roundness shading and where the streaks appear — this is what
   // gives the wave its thickness without any normal-based lighting.
@@ -706,6 +781,10 @@ ${colorUniforms}
 uniform float uLineAmount;          // default 425
 uniform float uLineThickness;       // default 1
 uniform float uLineDerivativePower; // default 0.95
+uniform float uLineDepthFade;       // 1 = the original hardcoded recede, 0 = flat/graphic
+#ifdef LINE_SHARP
+uniform float uLineSharpness;       // 0..1 — steepen the stripe profile toward a hard duty cycle
+#endif
 uniform float uMaxWidth;            // default 1232
 // Cross-wise rungs (optional) — behind RUNGS so a wave without them compiles the same program.
 #ifdef RUNGS
@@ -725,7 +804,15 @@ varying float vPointerFall;    // falloff × presence, written by the vertex sha
 
 ${colorFns}
 
+#ifdef DISSOLVE
+${dissolveChunk}
+#endif
+
 void main(){
+#ifdef DISSOLVE
+  // The disintegration front: drop the chunks it has already eaten (see dissolveChunk).
+  if (dissolved(vUv, vClipPosition.xy / max(vClipPosition.w, 1.0e-6) * 0.5 + 0.5)) discard;
+#endif
   // Same 2D palette sample + colour ops as the solid theme.
   vec3 color = applyColorGrade(waveBaseColor(vUv));
 
@@ -742,6 +829,16 @@ void main(){
 #endif
   float a = abs(sin(vUv.x * uLineAmount));
   a = smoothstep(lineThickness, 0.0, a);
+#ifdef LINE_SHARP
+  // Harden the stripe: the value above is a SOFT ramp — |sin| feathered over the whole half-period — so
+  // raising uLineThickness widens the strands by fading the gaps out with them, and the surface goes
+  // from pale hairlines straight to flat solid without ever passing through dense ink. Steepening it
+  // about its own midpoint separates the two: uLineThickness becomes the DUTY CYCLE (where the ramp
+  // crosses 0.5) and this becomes the edge, so a wave can be 70% ink with crisp gaps still showing.
+  // The steepest setting is capped at 50× so the edge always lands inside a pixel or two rather than
+  // aliasing into a shimmer on dense strands.
+  a = clamp((a - 0.5) / max(1.0 - uLineSharpness, 0.02) + 0.5, 0.0, 1.0);
+#endif
 
 #ifdef RUNGS
   // Rungs: the same carve at constant uv.y instead of uv.x, so this family runs ACROSS the ribbon
@@ -758,7 +855,7 @@ void main(){
   // constant 0.0 into [1.0, z*6], i.e. min(1.0, z*6), which (with our ortho clip.z
   // range) collapses the whole wave to the background. The correct clamp(z*6, 0, 1)
   // gives the proper subtle far-end fade and thin-line look.
-  float depthFade = clamp(vClipPosition.z * 6.0, 0.0, 1.0);
+  float depthFade = clamp(vClipPosition.z * 6.0, 0.0, 1.0) * uLineDepthFade;
   color = mix(uClearColor, color, a * (1.0 - depthFade));
   if (uSquared > 0.5) color *= color; // deep "squared" look, now composited not replace-blended
   gl_FragColor = vec4(color, uOpacity);
@@ -1055,7 +1152,7 @@ uniform float uDispFreqX, uDispFreqZ, uDispAmount;
 uniform float uDetailFreq, uDetailAmount;
 uniform float uTwFreqX, uTwFreqY, uTwFreqZ, uTwPowX, uTwPowY, uTwPowZ;
 #ifdef HELIX
-uniform float uHelixTurns, uHelixRadius, uHelixRoll, uHelixPhase;
+uniform float uHelixTurns, uHelixRadius, uHelixRoll, uHelixPhase, uHelixTaper;
 #endif
 #ifdef RADIAL
 uniform float uRadialAmount, uRadialArc, uRadialSpread, uRadialRadius, uRadialCenter;
@@ -1063,6 +1160,14 @@ uniform float uRadialAmount, uRadialArc, uRadialSpread, uRadialRadius, uRadialCe
 uniform mat4 uShedModel;              // the wave's matrixWorld (deformed LOCAL → world)
 uniform float uShedSpeed, uShedSeed;
 ${waveShapeChunk}
+
+// The owning wave's disintegration front, mirrored the same way, so a mote peels off exactly where
+// and when the surface under it crumbles. uDissolveDust is the particle-only knob (0 = ignore the
+// front and free-run on uLife, as a field with no dissolve always has).
+#ifdef DISSOLVE
+${dissolveChunk}
+uniform float uDissolveDust;
+#endif
 
 // The cursor. Same chunk the ribbon uses, mirrored onto this material in ParticleField.configure(),
 // and behind the same POINTER_FX gate — a wave with no hover field compiles the point program it
@@ -1103,6 +1208,36 @@ void main(){
   WaveShape ws = waveShape(base, aUv, ts, loopOff);
   vec3 origin = (uShedModel * vec4(ws.pos, 1.0)).xyz;
   vec3 outward = normalize(origin - uCenter + vec3(1e-4));
+  // (DISSOLVE may re-aim this below — see the debris sweep.)
+#ifdef DISSOLVE
+  // Pinned to the wave's dissolve front: this mote IS the chunk of surface that just left, so it
+  // does not exist until the front reaches its patch, then peels off and drifts on from there.
+  // age becomes its progress past the front rather than a free-running clock — which is what makes
+  // the dust and the holes in the ribbon one event instead of two effects that happen to overlap.
+  {
+    float band = max(uDissolveBand, 1.0e-3);
+    // Stagger: nudge each mote's own front, and give it its own peel rate, so a band does not lift
+    // off as one flat sheet.
+    vec4 dClip = projectionMatrix * viewMatrix * vec4(origin, 1.0);
+    vec2 dNdc = dClip.xy / max(dClip.w, 1.0e-6) * 0.5 + 0.5;
+    float c = dissolveCoord(aUv, dNdc) + (aRnd.x - 0.5) * band * 0.9;
+    float front = uDissolveAmount * (1.0 + band);
+    float peel = clamp((front - c) / (band * (0.4 + aRnd.y * 1.2)), 0.0, 1.0);
+    age = mix(age, peel, uDissolveDust);
+    // Visible from the moment the front takes it, then a long tail out as it travels.
+    float f = smoothstep(0.0, 0.06, peel) * (1.0 - smoothstep(0.55, 1.0, peel));
+    fade = mix(fade, f, uDissolveDust);
+    // Debris is thrown along the sweep, AWAY from the part still standing — under a screen-axis
+    // front the whole cloud blows one way across the frame instead of radiating off the wave centre
+    // in every direction (which puts dust back over the half that has not crumbled yet). Only the
+    // screen axes have a direction to borrow; a uv front keeps radiating, which is what a ribbon
+    // fraying along its own length should do.
+    if (uDissolveAxis > 1.5) {
+      vec3 sweep = (uDissolveAxis > 2.5 ? uUp : uRight) * (uDissolveReverse > 0.5 ? 1.0 : -1.0);
+      outward = normalize(mix(outward, sweep, uDissolveDust) + vec3(1e-4));
+    }
+  }
+#endif
 
 #ifdef POINTER_FX
   // WELD (applied below, once the mote's own motion is known). The ribbon displaces its surface by
@@ -1218,6 +1353,12 @@ void main(){
     float along = dot(pc, vDir);
     float perp = dot(pc, vec2(-vDir.y, vDir.x));
     a = smoothstep(0.5, 0.0, length(vec2(along * 0.42, perp * 2.2)));
+  } else if (s == 5) {             // square: a hard-edged chip (blocky debris)
+    // Chebyshev distance instead of Euclidean — the same smoothstep then cuts a SQUARE, and a point
+    // sprite is already screen-aligned, so these read as pixel-crisp blocks at any zoom. The 0.02
+    // ramp is one texel of softness, enough to keep the edge from crawling without rounding it.
+    float m = max(abs(pc.x), abs(pc.y));
+    a = smoothstep(0.36, 0.34, m);
   } else {                         // glitter (0): the soft round additive disc
     a = smoothstep(0.5, 0.0, d);
   }

@@ -55,6 +55,7 @@ const UI_STATE_RECEIVERS = new Set([
   "gizmoProxy",
   "uiInputs",
   "uiParticles",
+  "uiDissolve",
   "uiHover",
   "uiPress",
   "scrollPrev",

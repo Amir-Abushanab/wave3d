@@ -225,6 +225,13 @@ export interface WaveConfig {
   /** Phase offset in degrees — where along the turn the ribbon starts. The per-wave knob that puts
    *  a second wave on the opposite side of the same helix (180). */
   helixPhase?: number;
+  /** Cone the helix: `helixRadius` is scaled by this at the START of the ribbon and by 1 at the end,
+   *  so the orbit opens out along the length instead of holding one radius. 1 = the cylinder a plain
+   *  helix winds (the default, and byte-identical to having no taper); 0 = a cone that starts on the
+   *  axis and flares — the vortex / funnel / plume a constant-radius helix can't reach. Above 1 it
+   *  closes the other way (a funnel narrowing to a spout); negative values cross the axis. Inert
+   *  unless `helixRadius` is non-zero — it is a scale on that radius, not a displacement of its own. */
+  helixTaper?: number;
   /** Radial fan (optional): sweep the ribbon's length into a plume/peacock spread from the local
    *  origin. The three twists and the helix can't reach it — this maps the ribbon to polar so the
    *  combed fibers ({@link fiberCount}) read as the individual radial strands. Placement is the wave's
@@ -240,6 +247,20 @@ export interface WaveConfig {
   lineAmount?: number;
   lineThickness?: number;
   lineDerivativePower?: number;
+  /** Wireframe only: how hard the strands recede INTO the page background with depth. 1 (the
+   *  default) is the original hardcoded fade — it gives a single ribbon its sense of depth, but on a
+   *  tightly-fitted near/far slab it washes out the whole back half of a deep or stacked
+   *  composition. 0 turns it off, so every strand holds full contrast wherever it sits: the flat,
+   *  graphic, poster look. */
+  lineDepthFade?: number;
+  /** Wireframe only: 0..1, how HARD the edge of each strand is. The stripe is a soft ramp by
+   *  default (0), which means {@link lineThickness} widens the strands by fading the gaps away with
+   *  them — the surface goes from pale hairlines to flat solid without passing through dense ink.
+   *  Raising this steepens the ramp about its midpoint, which splits the two controls apart:
+   *  `lineThickness` becomes the DUTY CYCLE (how much of each period is strand rather than gap) and
+   *  this becomes the edge. 0.9 with `lineThickness` ~1.5 is heavy ink with crisp gaps still
+   *  reading — the engraved / guilloché look. Default 0 (the original soft ramp). */
+  lineSharpness?: number;
   /** Wireframe RUNGS: a second line family carved at constant uv.y, so these run ACROSS the ribbon
    *  where `lineAmount`'s run along it — the two cross into a ladder. Frequency, like `lineAmount`
    *  (rungs ≈ amount / π). 0 = off, and the cross-wise path isn't compiled. */
@@ -265,6 +286,55 @@ export interface WaveConfig {
   /** Optional per-wave particle / dust field emitted off THIS wave's deformed surface / edge.
    *  ABSENT ⇒ off (no THREE.Points for this wave, byte-identical). See {@link ParticlesConfig}. */
   particles?: ParticlesConfig;
+  /** Optional disintegration ("the snap"): a front that sweeps across the ribbon eating it away in
+   *  chunks, and — with a particle field — blowing those chunks off as dust. ABSENT ⇒ intact (no
+   *  DISSOLVE program, byte-identical). See {@link DissolveConfig}. */
+  dissolve?: DissolveConfig;
+}
+
+/** Which way a {@link DissolveConfig} front sweeps. `length` / `width` follow the RIBBON's own uv
+ *  axes, so the front travels with the sheet wherever the twist takes it; `screenX` / `screenY` are
+ *  a straight line on the CANVAS, so every wave in a stack crumbles against the same edge whatever
+ *  each one's orientation. */
+export type DissolveAxis = "length" | "width" | "screenX" | "screenY";
+export const DISSOLVE_AXES: readonly DissolveAxis[] = ["length", "width", "screenX", "screenY"];
+
+/**
+ * DISINTEGRATION — the "snap". A band sweeps across the ribbon in uv and everything behind it is
+ * eaten away chunk by chunk, so the surface CRUMBLES rather than fading: holes open in it, the holes
+ * merge, and the last fragments break off. Where the wave also has {@link ParticlesConfig}, `dust`
+ * pins that field to the same front, so the motes are the chunks that just left — the surface does
+ * not fade into an unrelated cloud, it becomes one.
+ *
+ * `amount` is the whole animation: 0 is intact and 1 is gone, whatever the band width, so binding it
+ * to `scroll` (or any other input — it is a {@link WaveInteractionTarget}) disintegrates the wave as
+ * the reader moves. Absent ⇒ the DISSOLVE shader path is never compiled.
+ */
+export interface DissolveConfig {
+  /** 0..1 — how far the front has swept. 0 = the ribbon is whole; 1 = every chunk is gone. */
+  amount: number;
+  /** Which way the front travels. `"length"` (uv.y, end to end — the default) and `"width"` (uv.x,
+   *  across the folded cross-section) ride the ribbon, so the front bends with it; mind the axes —
+   *  uv.y is the LENGTH (see the UV AXES note atop WaveGeometry). `"screenX"` / `"screenY"` sweep a
+   *  straight line across the CANVAS instead, which is what makes a multi-wave composition crumble
+   *  as ONE object: give every wave the same axis and amount and they share one edge. The crumb
+   *  pattern stays on the surface either way. */
+  axis?: DissolveAxis;
+  /** Sweep from the far end instead of the near one. */
+  reverse?: boolean;
+  /** Width of the crumbling band, in uv. 0.05 is a clean guillotine edge; 0.6 is a long ragged fray
+   *  where half the ribbon is mid-flight at once. Default 0.35. */
+  band?: number;
+  /** How finely the ribbon is diced — chunks across its WIDTH (they are kept square on the sheet,
+   *  so the length gets ~2.1× as many). Default 90; smaller = big slabs, larger = fine grit. */
+  scale?: number;
+  /** 0..1 — chunk character: 0 = organic torn tatters (smooth noise), 1 = hard quantized cells
+   *  (blocky pixel debris). Default 0.6. */
+  blocky?: number;
+  /** 0..1 — how strongly this wave's own dust is pinned to the front: 1 = each mote peels off
+   *  exactly where and when the surface under it crumbles and drifts on from there; 0 = the field
+   *  free-runs on `life` as it always has. Default 1. Inert without {@link WaveConfig.particles}. */
+  dust?: number;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -321,6 +391,7 @@ const WAVE_TARGET_NAMES = [
   "helixPhase",
   "helixTurns",
   "helixRadius",
+  "dissolveAmount",
   "hueShift",
   "gradientShift",
   "colorSaturation",
@@ -482,13 +553,14 @@ export interface TiltConfig {
 /** How each particle sprite is drawn (a per-field render style, not per-particle). All but
  *  "sprite" are drawn procedurally from `gl_PointCoord`; "sprite" samples {@link
  *  ParticlesConfig.spriteUrl} and falls back to "glitter" until that image has rasterized. */
-export type ParticleShape = "glitter" | "soft" | "ring" | "star" | "streak" | "sprite";
+export type ParticleShape = "glitter" | "soft" | "ring" | "star" | "streak" | "square" | "sprite";
 export const PARTICLE_SHAPES: readonly ParticleShape[] = [
   "glitter",
   "soft",
   "ring",
   "star",
   "streak",
+  "square",
   "sprite",
 ];
 
@@ -520,6 +592,14 @@ export interface ParticlesConfig {
   wander?: number;
   /** Sprite render style. Default "glitter" (the soft round additive disc). */
   shape?: ParticleShape;
+  /**
+   * How the sprites composite. `"additive"` (the default) ADDS light — glints, embers, sparks; it can
+   * only ever brighten, so additive dust is invisible on a white page and can never read as dark.
+   * `"normal"` alpha-blends them instead, which is what a dark mote on a light ground needs: soot,
+   * ash, ink, the blocky debris a {@link DissolveConfig} sheds across a pale background. Either way
+   * the field never writes depth, so it composites over the waves rather than occluding them.
+   */
+  blend?: "additive" | "normal";
   /**
    * Artwork for `shape: "sprite"` — an SVG (or raster) `data:` URI or URL, rasterized ONCE into a
    * square texture shared by every particle in the field, so the cost is one texture per field and
@@ -746,6 +826,7 @@ function defaultWave(): WaveConfig {
     helixRadius: 0,
     helixRoll: 0,
     helixPhase: 0,
+    helixTaper: 1,
     // Radial off: amount 0 leaves the RADIAL block uncompiled (see waveDefines).
     radialAmount: 0,
     radialArc: 160,
@@ -756,6 +837,8 @@ function defaultWave(): WaveConfig {
     lineAmount: 425, // wireframe-theme line params (defaults)
     lineThickness: 1,
     lineDerivativePower: 0.95,
+    lineDepthFade: 1,
+    lineSharpness: 0,
     rungAmount: 0, // cross-wise rungs off
     rungThickness: 1,
     maxWidth: 1232,
@@ -1004,6 +1087,7 @@ export function normalizeWave(s: WaveConfig): void {
   if (!Number.isFinite(s.helixTurns)) s.helixTurns = 0;
   if (!Number.isFinite(s.helixRadius)) s.helixRadius = 0;
   if (!Number.isFinite(s.helixRoll)) s.helixRoll = 0;
+  if (!Number.isFinite(s.helixTaper)) s.helixTaper = 1;
   if (!Number.isFinite(s.helixPhase)) s.helixPhase = 0;
   if (!Number.isFinite(s.radialAmount)) s.radialAmount = 0;
   if (!Number.isFinite(s.radialArc)) s.radialArc = 160;
@@ -1014,6 +1098,8 @@ export function normalizeWave(s: WaveConfig): void {
   if (!Number.isFinite(s.lineAmount)) s.lineAmount = 425;
   if (!Number.isFinite(s.lineThickness)) s.lineThickness = 1;
   if (!Number.isFinite(s.lineDerivativePower)) s.lineDerivativePower = 0.95;
+  if (!Number.isFinite(s.lineDepthFade)) s.lineDepthFade = 1;
+  if (!Number.isFinite(s.lineSharpness)) s.lineSharpness = 0;
   if (!Number.isFinite(s.rungAmount)) s.rungAmount = 0;
   if (!Number.isFinite(s.rungThickness)) s.rungThickness = 1;
   if (!Number.isFinite(s.maxWidth)) s.maxWidth = 1232;
@@ -1026,6 +1112,7 @@ export function normalizeWave(s: WaveConfig): void {
   if (!Number.isFinite(s.seed)) s.seed = 0;
   if (s.interaction) normalizeWaveInteraction(s); // present-only; absence stays inert
   if (s.particles) normalizeParticles(s); // present-only; absence = no field for this wave
+  if (s.dissolve) normalizeDissolve(s); // present-only; absence = the ribbon is intact
 }
 
 /** Backfill scene-level defaults (background/camera/post/lights/quality/mirror). */
@@ -1230,10 +1317,25 @@ export function normalizeParticles(wave: WaveConfig): void {
   if (p.swirl !== undefined) p.swirl = num(p.swirl, 0);
   if (p.wander !== undefined) p.wander = num(p.wander, 0);
   if (p.shape !== undefined && !PARTICLE_SHAPES.includes(p.shape)) p.shape = "glitter";
+  if (p.blend !== undefined && p.blend !== "additive" && p.blend !== "normal") p.blend = "additive";
   // Untrusted configs (share links / imported JSON) reach here — keep the url a string, but do not
   // validate the scheme: the renderer only ever hands it to an <img>, which sandboxes SVG scripts.
   if (p.spriteUrl !== undefined && typeof p.spriteUrl !== "string") delete p.spriteUrl;
   if (p.pointerShove !== undefined) p.pointerShove = clampNumber(p.pointerShove, 0, 4, 1);
+}
+
+/** Clamp a present {@link DissolveConfig} (present-only, like {@link normalizeParticles}: a wave
+ *  with no `dissolve` block is left exactly as it is). */
+export function normalizeDissolve(wave: WaveConfig): void {
+  const d = wave.dissolve;
+  if (!d) return;
+  d.amount = clampNumber(d.amount, 0, 1, 0);
+  if (d.axis !== undefined && !DISSOLVE_AXES.includes(d.axis)) d.axis = "length";
+  if (d.reverse !== undefined) d.reverse = !!d.reverse;
+  if (d.band !== undefined) d.band = clampNumber(d.band, 0.01, 1, 0.35);
+  if (d.scale !== undefined) d.scale = clampNumber(d.scale, 2, 600, 90);
+  if (d.blocky !== undefined) d.blocky = clampNumber(d.blocky, 0, 1, 0.6);
+  if (d.dust !== undefined) d.dust = clampNumber(d.dust, 0, 1, 1);
 }
 
 /** Normalize an ingested config to the wave model: backfill the scene + every wave, and drop in

@@ -56,7 +56,15 @@ import {
   MAX_NOISE_BANDS,
   ensureStudioConfig,
 } from "../config/model";
-import type { StudioConfig, WaveConfig, BlendMode, CameraFit } from "../config/model";
+import type { StudioConfig, WaveConfig, BlendMode, CameraFit, DissolveAxis } from "../config/model";
+
+/** Dissolve axis name → the float the shaders branch on (see dissolveChunk's dissolveCoord). */
+const DISSOLVE_AXIS_INDEX: Record<DissolveAxis, number> = {
+  length: 0,
+  width: 1,
+  screenX: 2,
+  screenY: 3,
+};
 
 const BASE_SEGMENTS = 220; // base segment count along the ribbon; denser = smoother (scaled down per wave — see get segments)
 
@@ -626,6 +634,8 @@ export class WaveRenderer {
       uLineAmount: { value: 425 },
       uLineThickness: { value: 1 },
       uLineDerivativePower: { value: 0.95 },
+      uLineDepthFade: { value: 1 },
+      uLineSharpness: { value: 0 },
       uMaxWidth: { value: 1232 },
       uClearColor: { value: new THREE.Vector3(1, 1, 1) },
       // Interaction / pointer field. ALWAYS present in JS (read only under POINTER_FX /
@@ -638,6 +648,7 @@ export class WaveRenderer {
       uHelixRadius: { value: 0 },
       uHelixRoll: { value: 0 },
       uHelixPhase: { value: 0 },
+      uHelixTaper: { value: 1 },
       // Radial fan (vertex, under RADIAL). Always present JS-side; three uploads them only when the
       // compiled program declares them, so a non-radial wave is untouched (precedent: uDetailAmount).
       uRadialAmount: { value: 0 },
@@ -647,6 +658,17 @@ export class WaveRenderer {
       uRadialCenter: { value: 0 },
       uRungAmount: { value: 0 },
       uRungThickness: { value: 1 },
+      // Dissolve (both fragment shaders, under DISSOLVE). Always present JS-side; three uploads
+      // them only when the compiled program declares them (precedent: uDetailAmount).
+      uDissolveAmount: { value: 0 },
+      uDissolveBand: { value: 0.35 },
+      uDissolveScale: { value: 90 },
+      uDissolveBlocky: { value: 0.6 },
+      uDissolveAxis: { value: 0 },
+      uDissolveReverse: { value: 0 },
+      // Read only by the particle emitter (mirrored there); the wave shaders never declare it, so
+      // three never uploads it to the wave program.
+      uDissolveDust: { value: 1 },
       uPointer: { value: new THREE.Vector2(0, 0) }, // smoothed pointer NDC
       uPointerActive: { value: 0 }, // presence ramp × per-wave influence
       uPointerRadius: { value: 0.6 }, // falloff radius in NDC-y (config radius × 2)
@@ -694,6 +716,14 @@ export class WaveRenderer {
     // Rungs live in the wireframe fragment shader only; setting the define on a solid wave would
     // key a second, identical program for nothing.
     if (sc?.theme === "wireframe" && (sc.rungAmount ?? 0) > 0) defines.RUNGS = "";
+    // Stripe hardening, wireframe only and only when asked for: 0 is the soft ramp the theme has
+    // always drawn, and leaving the block uncompiled keeps that byte-identical.
+    if (sc?.theme === "wireframe" && (sc.lineSharpness ?? 0) > 0) defines.LINE_SHARP = "";
+    // Dissolve: a `dissolveAmount` binding counts too — driving the front up from an authored 0
+    // has to have somewhere to land (as with detailAmount / helix above).
+    const bindsDissolve =
+      sc?.interaction?.bindings?.some((b) => b.target === "dissolveAmount") ?? false;
+    if (sc?.dissolve && ((sc.dissolve.amount ?? 0) > 0 || bindsDissolve)) defines.DISSOLVE = "";
     // Pointer field (per wave, config-only, so input never triggers a recompile). Ripples nest inside.
     if (sc && wavePointerFxActive(this.config, sc)) {
       defines.POINTER_FX = "";
@@ -930,6 +960,8 @@ export class WaveRenderer {
       u.uLineAmount.value = sc.lineAmount ?? 425;
       u.uLineThickness.value = sc.lineThickness ?? 1;
       u.uLineDerivativePower.value = sc.lineDerivativePower ?? 0.95;
+      u.uLineDepthFade.value = sc.lineDepthFade ?? 1;
+      u.uLineSharpness.value = sc.lineSharpness ?? 0;
       u.uRungAmount.value = sc.rungAmount ?? 0;
       u.uRungThickness.value = sc.rungThickness ?? 1;
       u.uMaxWidth.value = sc.maxWidth ?? 1232;
@@ -996,12 +1028,21 @@ export class WaveRenderer {
       u.uHelixTurns.value = sc.helixTurns ?? 0;
       u.uHelixRadius.value = sc.helixRadius ?? 0;
       u.uHelixRoll.value = sc.helixRoll ?? 0;
+      u.uHelixTaper.value = sc.helixTaper ?? 1;
       u.uHelixPhase.value = sc.helixPhase ?? 0;
       u.uRadialAmount.value = sc.radialAmount ?? 0;
       u.uRadialArc.value = sc.radialArc ?? 160;
       u.uRadialSpread.value = sc.radialSpread ?? 1;
       u.uRadialRadius.value = sc.radialRadius ?? 40;
       u.uRadialCenter.value = sc.radialCenter ?? 0;
+      const dis = sc.dissolve;
+      u.uDissolveAmount.value = dis?.amount ?? 0;
+      u.uDissolveBand.value = dis?.band ?? 0.35;
+      u.uDissolveScale.value = dis?.scale ?? 90;
+      u.uDissolveBlocky.value = dis?.blocky ?? 0.6;
+      u.uDissolveAxis.value = DISSOLVE_AXIS_INDEX[dis?.axis ?? "length"] ?? 0;
+      u.uDissolveReverse.value = dis?.reverse ? 1 : 0;
+      u.uDissolveDust.value = dis?.dust ?? 1;
       // Mesh transform — each wave's ABSOLUTE scale / rotation / position, applied via
       // modelMatrix using THREE's Euler XYZ order so the on-screen orientation matches the
       // authored view.
@@ -1922,6 +1963,7 @@ export class WaveRenderer {
       "RADIAL",
       "POINTER_FX",
       "POINTER_RIPPLES",
+      "DISSOLVE",
     ]) {
       if (k in all) out[k] = "";
     }

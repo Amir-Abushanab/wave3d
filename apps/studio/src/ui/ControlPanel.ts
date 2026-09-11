@@ -19,6 +19,7 @@ import {
   MAX_WAVES,
 } from "@wave3d/core";
 import type {
+  DissolveAxis,
   ParticleShape,
   StudioConfig,
   WaveConfig,
@@ -273,6 +274,7 @@ const IX_WAVE_TARGETS: Record<string, WaveInteractionTarget> = {
   "Helix phase": "helixPhase",
   "Helix turns": "helixTurns",
   "Helix radius": "helixRadius",
+  "Dissolve amount": "dissolveAmount",
   "Hue shift": "hueShift",
   "Gradient shift": "gradientShift",
   Saturation: "colorSaturation",
@@ -310,6 +312,7 @@ const IX_TARGET_DEFAULT_TO: Record<string, number> = {
   helixPhase: 360, // a full turn — scroll→phase spins the coil exactly once
   helixTurns: 6, // 0..12
   helixRadius: 200, // ±300
+  dissolveAmount: 1, // 0..1 — sweep the front all the way through, so the wave fully disintegrates
   hueShift: 180, // ±180°
   gradientShift: 0.6, // 0..0.6
   colorSaturation: 2, // 0..2
@@ -1379,6 +1382,73 @@ export class ControlPanel {
     this.renderer.setScrollPreview(scrollPrev.preview); // apply the rest state on (re)build
   }
 
+  /** Per-wave "Dissolve" sub-folder: the disintegration front that eats this wave away and (with a
+   *  particle field) sheds the chunks as dust. Bound to a panel-local proxy, never `wave.dissolve`
+   *  directly, so `sync()` writes the block only when `amount` > 0 and deletes it otherwise —
+   *  absent = intact, byte-identical (the present-only idiom the Particles folder uses). */
+  private buildWaveDissolveFolder(sf: FolderApi, wave: WaveConfig, refresh: () => void): FolderApi {
+    const f = sf.addFolder({ title: "Dissolve", expanded: true });
+    const d = wave.dissolve;
+    const uiDissolve = {
+      amount: d?.amount ?? 0,
+      axis: (d?.axis ?? "length") as DissolveAxis,
+      reverse: d?.reverse ?? false,
+      band: d?.band ?? 0.35,
+      scale: d?.scale ?? 90,
+      blocky: d?.blocky ?? 0.6,
+      dust: d?.dust ?? 1,
+    };
+    const sync = (): void => {
+      if (uiDissolve.amount > 0) {
+        wave.dissolve = {
+          amount: uiDissolve.amount,
+          axis: uiDissolve.axis,
+          reverse: uiDissolve.reverse,
+          band: uiDissolve.band,
+          scale: uiDissolve.scale,
+          blocky: uiDissolve.blocky,
+          dust: uiDissolve.dust,
+        };
+      } else {
+        delete wave.dissolve;
+      }
+      refresh();
+    };
+    f.addBinding(uiDissolve, "amount", { min: 0, max: 1, step: 0.01, label: "amount" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiDissolve, "axis", {
+      label: "sweep",
+      // length / width ride the ribbon's own uv; the screen axes are a straight line on the canvas,
+      // which is what makes a whole STACK crumble against one edge.
+      options: {
+        "along length": "length",
+        "across width": "width",
+        "screen →": "screenX",
+        "screen ↑": "screenY",
+      },
+    }).on("change", sync);
+    f.addBinding(uiDissolve, "reverse", { label: "from far end" }).on("change", sync);
+    f.addBinding(uiDissolve, "band", { min: 0.01, max: 1, step: 0.01, label: "fray width" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiDissolve, "scale", { min: 2, max: 400, step: 1, label: "chunk count" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiDissolve, "blocky", { min: 0, max: 1, step: 0.01, label: "blockiness" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiDissolve, "dust", { min: 0, max: 1, step: 0.01, label: "dust follows" }).on(
+      "change",
+      sync,
+    );
+    return f;
+  }
+
   /** Per-wave "Particles" sub-folder: the dust field emitted off THIS wave's deformed surface / edge.
    *  Bound to a panel-local proxy (never `wave.particles` directly), so `sync()` writes the block only
    *  when `count` > 0 and deletes it otherwise — absent = off for this wave, byte-identical (the
@@ -1398,6 +1468,7 @@ export class ControlPanel {
       color: p?.color ?? "#ffd597",
       color2: p?.color2 ?? p?.color ?? "#ffd597",
       shape: (p?.shape ?? "glitter") as ParticleShape,
+      blend: (p?.blend ?? "additive") as "additive" | "normal",
       twinkle: p?.twinkle ?? 0.6,
       life: p?.life ?? 6,
       speed: p?.speed ?? 1,
@@ -1420,6 +1491,7 @@ export class ControlPanel {
           color: uiParticles.color,
           color2: uiParticles.color2,
           shape: uiParticles.shape,
+          blend: uiParticles.blend,
           twinkle: uiParticles.twinkle,
           life: uiParticles.life,
           speed: uiParticles.speed,
@@ -1471,6 +1543,7 @@ export class ControlPanel {
           color: preset.color ?? "#ffd597",
           color2: preset.color2 ?? preset.color ?? "#ffd597",
           shape: preset.shape ?? "glitter",
+          blend: preset.blend ?? "additive",
           twinkle: preset.twinkle ?? 0,
           life: preset.life ?? 6,
           speed: preset.speed ?? 1,
@@ -1537,6 +1610,7 @@ export class ControlPanel {
           ring: "ring",
           star: "star",
           streak: "streak",
+          square: "square",
           "sprite (upload image)": "sprite",
         },
       })
@@ -1551,6 +1625,12 @@ export class ControlPanel {
         lastShape = uiParticles.shape;
         sync();
       });
+    // Compositing: additive glints can only ever brighten, so dark dust on a pale page needs plain
+    // alpha instead. Sits with `shape` because the two together decide what a mote LOOKS like.
+    f.addBinding(uiParticles, "blend", {
+      label: "blend",
+      options: { "additive (glow)": "additive", "normal (ink)": "normal" },
+    }).on("change", sync);
     // The artwork slot: previews the current sprite AND is where you replace or remove it, so
     // "sprite" isn't an opaque setting (at dust size the rendered particles are far too small to
     // check what actually got uploaded). No artwork, no row.
@@ -2431,6 +2511,20 @@ export class ControlPanel {
           label: "line falloff",
         })
         .on("change", refresh);
+      // Stripe hardening: at 0 the strand is a soft ramp (thickness fades the gaps away with the
+      // strands), so raising this turns "line thickness" into a duty cycle and gives dense ink with
+      // crisp gaps — the engraved look. See lineSharpness in config/model.
+      const bLineSharpness = finF
+        .addBinding(wave, "lineSharpness", {
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: "line sharpness",
+        })
+        .on("change", refresh);
+      const bLineDepthFade = finF
+        .addBinding(wave, "lineDepthFade", { min: 0, max: 1, step: 0.01, label: "depth fade" })
+        .on("change", refresh);
       const bRungAmount = finF
         .addBinding(wave, "rungAmount", { min: 0, max: 400, step: 1, label: "rung count" })
         .on("change", refresh);
@@ -2459,6 +2553,8 @@ export class ControlPanel {
         bLineAmount,
         bLineThickness,
         bLineFalloff,
+        bLineSharpness,
+        bLineDepthFade,
         bRungAmount,
         bRungThickness,
         bMaxWidth,
@@ -2578,14 +2674,15 @@ export class ControlPanel {
       raF
         .addBinding(wave, "radialCenter", { min: -180, max: 180, step: 1, label: "center °" })
         .on("change", refresh);
-      // This wave's dust field (emitted off its own deformed surface / edge).
+      // This wave's disintegration front, then the dust field it sheds through.
+      const diF = this.buildWaveDissolveFolder(sf, wave, refresh);
       const paF = this.buildWaveParticlesFolder(sf, wave, refresh);
       // Order the sub-sections: appearance (colour, finish) → shape (displacement, twist) → pose
       // (transform) → advanced (noise bands) → particles → interaction (this wave's reactivity, last —
       // mirrors the global Interaction folder sitting last in the panel). DOM move so blocks stay grouped.
       const waveContent =
         (sf.element.querySelector(":scope > .tp-fldv_c") as HTMLElement | null) ?? sf.element;
-      for (const f of [gradF, finF, dispF, twF, hxF, raF, trF, bandsF, paF, waveIx])
+      for (const f of [gradF, finF, dispF, twF, hxF, raF, trF, bandsF, diF, paF, waveIx])
         waveContent.appendChild(f.element);
     };
 

@@ -201,8 +201,11 @@ export function waveShape(
     const rel = vec2(pos.y, pos.z.sub(RIBBON_Z_CENTER)).toVar();
     pos.y.assign(rel.x.mul(rollC).sub(rel.y.mul(rollS)));
     pos.z.assign(float(RIBBON_Z_CENTER).add(rel.x.mul(rollS)).add(rel.y.mul(rollC)));
-    pos.y.addAssign(u.uHelixRadius.mul(cos(hAng)));
-    pos.z.addAssign(u.uHelixRadius.mul(sin(hAng)));
+    // Taper: scale the orbit radius along the length, so the helix can open from the axis into a
+    // cone (a vortex / plume) instead of only ever being a constant-radius cylinder. 1 = no taper.
+    const hRad = u.uHelixRadius.mul(mix(u.uHelixTaper, float(1.0), uv.y)).toVar();
+    pos.y.addAssign(hRad.mul(cos(hAng)));
+    pos.z.addAssign(hRad.mul(sin(hAng)));
   }
 
   // The X-twist frequency feeding the second rotation. Under TWIST_MOTION it is modulated by

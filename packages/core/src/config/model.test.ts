@@ -220,6 +220,74 @@ describe("ensureStudioConfig repairs configs that used to break the panel", () =
     assertBindableLeaves(p);
   });
 
+  it("backfills the wireframe line fields to their inert values", () => {
+    // lineSharpness 0 is the soft stripe ramp the theme has always drawn and lineDepthFade 1 the
+    // original hardcoded recede, so a config written before either existed renders unchanged — and
+    // the renderer only compiles LINE_SHARP above 0, so a stray undefined would key a variant for
+    // nothing as well as breaking the panel binding.
+    const w = ensureStudioConfig(hostile({ waves: [{}] })).waves[0];
+    expect(w.lineSharpness).toBe(0);
+    expect(w.lineDepthFade).toBe(1);
+    expect(w.helixTaper).toBe(1); // a plain cylinder — the helix as it wound before the taper
+  });
+
+  it("leaves a wave's dissolve absent when absent, and clamps it when present", () => {
+    // Absent → stays absent: no DISSOLVE program for the wave, byte-identical (the particles /
+    // interaction contract).
+    const off = ensureStudioConfig(hostile({ waves: [{}] }));
+    expect(off.waves[0].dissolve).toBeUndefined();
+    // Present → repaired in place: out-of-range clamped, an unknown axis reset, bindable.
+    const on = ensureStudioConfig(
+      hostile({
+        waves: [
+          {
+            dissolve: {
+              amount: 5,
+              axis: "sideways",
+              band: 0,
+              scale: 9999,
+              blocky: -2,
+              dust: 4,
+              reverse: 1,
+            },
+          },
+        ],
+      }),
+    );
+    const d = on.waves[0].dissolve;
+    expect(d).toBeDefined();
+    expect(d?.amount).toBe(1); // clamped 0..1
+    expect(d?.axis).toBe("length"); // unknown axis falls back rather than reaching the shader
+    expect(d?.band).toBe(0.01); // clamped up to the floor — a 0-wide front would divide by zero
+    expect(d?.scale).toBe(600);
+    expect(d?.blocky).toBe(0);
+    expect(d?.dust).toBe(1);
+    expect(d?.reverse).toBe(true);
+    assertBindableLeaves(d);
+  });
+
+  it("keeps a screen-space dissolve axis, which is what makes a STACK crumble as one object", () => {
+    const c = ensureStudioConfig(
+      hostile({ waves: [{ dissolve: { amount: 0.4, axis: "screenX", reverse: true } }] }),
+    );
+    expect(c.waves[0].dissolve?.axis).toBe("screenX");
+    expect(c.waves[0].dissolve?.reverse).toBe(true);
+  });
+
+  it("keeps a dissolveAmount binding, so the front can be driven by scroll", () => {
+    const c = ensureStudioConfig(
+      hostile({
+        waves: [
+          {
+            dissolve: { amount: 0.3 },
+            interaction: { bindings: [{ source: "scroll", target: "dissolveAmount", to: 0.95 }] },
+          },
+        ],
+      }),
+    );
+    expect(c.waves[0].interaction?.bindings?.[0].target).toBe("dissolveAmount");
+  });
+
   it("keeps tilt bindings and clamps the tilt block, without inventing one", () => {
     // A tilt BINDING is what arms the sensor, so it has to survive the source whitelist; the
     // `tilt` block is tuning and must stay absent when the config never asked for it.
