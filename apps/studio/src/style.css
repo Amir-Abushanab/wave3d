@@ -514,6 +514,39 @@ body {
   padding-block-start: 10px;
 }
 
+/* Studio credit: the last row of the pane, under the final section. Dimmer than any label in the
+   panel so it signs the config off instead of reading as one more control. */
+#panel .wv-credit {
+  display: block;
+  margin-block-start: 10px;
+  border-block-start: 1px solid rgba(255, 255, 255, 0.07);
+  padding-block: 10px 3px;
+  color: rgba(255, 255, 255, 0.5);
+  font:
+    11px/1 ui-sans-serif,
+    system-ui,
+    -apple-system,
+    sans-serif;
+  text-decoration: none;
+}
+
+#panel .wv-credit:hover {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+/* The mark is a LETTER in that sentence, not an icon beside it: it sits ON the baseline (which is
+   what `baseline` does to a replaced element — bottom edge on the baseline), and `margin-right` is
+   the sliver of sidebearing the drawing does not carry. 1.3em is the 1.85x cap-height the lockup
+   runs at on principlestash.com — the mascot is a drop cap, not a letter matched to the x-height.
+   Measured, not guessed: at 11px text the cap is 7.75px and the mark 14.3px. */
+#panel .wv-credit img {
+  display: inline-block;
+  width: auto;
+  height: 1.3em;
+  margin-right: 0.06em;
+  vertical-align: baseline;
+}
+
 @media (max-width: 760px) {
   :root {
     --panel-width: calc(100vw - var(--edge) * 2);

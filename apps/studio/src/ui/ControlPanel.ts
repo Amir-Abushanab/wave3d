@@ -1,5 +1,6 @@
 import { Pane } from "tweakpane";
 import waveStudioLogoUrl from "../assets/favicon.png?inline";
+import principleStashMarkUrl from "../assets/principle-stash.svg?inline";
 import { injectStyleOnce } from "../util/dom";
 import { flashButtonSuccess, flashButtonError } from "./buttonFeedback";
 import { roundTo } from "../util/math";
@@ -2654,6 +2655,21 @@ export class ControlPanel {
       const f = this.folders.find((x) => x.title === title);
       if (f) paneContent.appendChild(f.api.element);
     }
+    // Studio credit, last thing in the pane so it closes the config the way the title bar opens it.
+    // Like the nav on principlestash.com the mark IS the "P" of the name — it carries alt="P" and
+    // the text beside it must NOT repeat the letter, so the two read as one phrase either way.
+    const credit = document.createElement("a");
+    credit.className = "wv-credit";
+    credit.href = "https://principlestash.com/";
+    credit.target = "_blank";
+    credit.rel = "noopener noreferrer";
+    const creditMark = document.createElement("img");
+    creditMark.src = principleStashMarkUrl;
+    creditMark.alt = "P";
+    creditMark.width = 11;
+    creditMark.height = 15;
+    credit.append("A ", creditMark, "rinciple\u00a0Stash project");
+    paneContent.appendChild(credit);
     // Seat the search at the top of the pane content now that all the folders are in place.
     paneContent.insertBefore(search, paneContent.firstChild);
     this.applyIcons();
