@@ -844,6 +844,28 @@ void main(){
 #endif
   float a = abs(sin(vUv.x * uLineAmount));
   a = smoothstep(lineThickness, 0.0, a);
+  float rungRate = 0.0; // the cross-wise family's per-pixel rate; 0 unless rungs are compiled in
+#ifdef RUNGS
+  // Rungs: the same carve at constant uv.y instead of uv.x, so this family runs ACROSS the ribbon
+  // where the one above runs along it — together they read as a ladder. Width comes from fwidth()
+  // rather than the lengthwise term's dFdy(vUv).x, which is the derivative of the wrong axis for
+  // this direction: |sin| climbs by ~uRungAmount·fwidth(vUv.y) per pixel, so scaling by that keeps
+  // a rung uRungThickness pixels wide at any zoom or ribbon scale.
+  // rungRate is how fast the stripe argument moves per pixel, so a period spans PI / rungRate pixels
+  // — under about two of them there is nothing left to resolve.
+  rungRate = uRungAmount * fwidth(vUv.y);
+  float rungT = uRungThickness * rungRate;
+  float rung = abs(sin(vUv.y * uRungAmount));
+  float rungCov = smoothstep(rungT, 0.0, rung);
+  // Sub-pixel strands: point-sampling one arbitrary spot per period is meaningless, and it is where
+  // two backends' derivative estimates diverge. Fade to the family's ANALYTIC duty cycle instead —
+  // the fraction of each period that is strand, which is the flat tone they average to. That is also
+  // what a compressed region should look like: solid, not noise.
+  float rungDuty = 0.63661977 * asin(clamp(rungT, 0.0, 1.0)); // (2/PI)·asin(T)
+  rungCov = mix(rungCov, rungDuty, smoothstep(1.2, 3.0, rungRate));
+  a = max(a, rungCov);
+#endif
+
 #ifdef LINE_SHARP
   // Harden the stripe: the value above is a SOFT ramp — |sin| feathered over the whole half-period — so
   // raising uLineThickness widens the strands by fading the gaps out with them, and the surface goes
@@ -857,17 +879,13 @@ void main(){
   // instead of the grey its duty cycle should average to. Holding the transition at ~1.4 px wide
   // makes the edge exactly as crisp as the strand can support — razor-sharp where it is resolvable,
   // and box-filtered down to a flat tone where it is not.
-  a = clamp((a - 0.5) / max(1.0 - uLineSharpness, fwidth(a) * 1.4) + 0.5, 0.0, 1.0);
-#endif
-
-#ifdef RUNGS
-  // Rungs: the same carve at constant uv.y instead of uv.x, so this family runs ACROSS the ribbon
-  // where the one above runs along it — together they read as a ladder. Width comes from fwidth()
-  // rather than the lengthwise term's dFdy(vUv).x, which is the derivative of the wrong axis for
-  // this direction: |sin| climbs by ~uRungAmount·fwidth(vUv.y) per pixel, so scaling by that keeps
-  // a rung uRungThickness pixels wide at any zoom or ribbon scale.
-  float rung = abs(sin(vUv.y * uRungAmount));
-  a = max(a, smoothstep(uRungThickness * uRungAmount * fwidth(vUv.y), 0.0, rung));
+  // The floor is the ANALYTIC rate of the stripe families — how much |sin| moves per pixel — rather
+  // than fwidth() of the merged coverage. Once the rungs are folded in, that coverage is a max() of
+  // two families and its derivative is undefined where they swap over; on strands already finer than
+  // a pixel the two backends then disagree about it, which is a real instability and not just a
+  // parity nuisance. Each family's own rate is well defined everywhere, and the tighter one governs.
+  float aaRate = 0.5 * max(uLineAmount * fwidth(vUv.x), rungRate);
+  a = clamp((a - 0.5) / max(1.0 - uLineSharpness, aaRate * 1.4) + 0.5, 0.0, 1.0);
 #endif
 
   // Depth fade: the wave recedes into the background colour with depth. Watch the

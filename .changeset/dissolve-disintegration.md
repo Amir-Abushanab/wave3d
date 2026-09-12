@@ -44,6 +44,13 @@ Three supporting knobs, each inert at its default:
   into the throat, which is a shape neither the twists nor the helix can reach (a helix carries the
   ribbon around an axis, but its WIDTH never follows the slant).
 
+Rungs (`rungAmount`, the cross-wise stripe family) are now usable as a wave's PRIMARY striping rather
+than just a DNA-ladder accent. `lineSharpness` hardens the merged coverage, after the rungs have been
+folded in, so a cross-wise family reaches dense ink the same way a lengthwise one does; and a rung
+whose period has gone sub-pixel now falls back to its ANALYTIC duty cycle — the flat tone those
+strands average to — instead of being point-sampled once per period, which is both what a compressed
+region should look like and where two backends previously stopped agreeing.
+
 `edgeFeather` now applies to the WIREFRAME theme as well as the solid one. Without it a wireframe
 ribbon stops dead at its end-cap — a flat cross-section that reads as a straight cut drawn across the
 strands, glaring the moment a ribbon curls back into frame. Clear-gap strands also stop writing

@@ -142,6 +142,16 @@ dissolve: { amount: 0.3, axis: "screenX", reverse: true, band: 0.55, scale: 150,
   for hard dark debris — `blend` defaults to `"additive"`, which can only brighten and so is
   invisible on a pale page.
 
+**Which way the stripes run is the biggest single decision.** `lineAmount` carves at constant uv.x, so
+each strand runs the ribbon's LENGTH; `rungAmount` carves at constant uv.y, so each crosses its WIDTH.
+On a twisting ribbon the two look nothing alike: along-stripes just follow the flow, while
+across-stripes ARE the twist made visible — they fan wide where the sheet faces the camera, pinch to a
+dense line where it turns edge-on, and sweep as nested arcs through a fold. For a striped-ribbon look,
+reach for rungs first and set `lineThickness: 0` to switch the lengthwise family off. `rungThickness`
+is in PIXELS, so it must come DOWN as `rungAmount` goes up or the strands merge into solid; and past
+~300-400 rungs the periods go sub-pixel in a small embed, where a pixel-width stripe stops being
+stable (it falls back to the strands' analytic duty cycle, which is a flat tone, not detail).
+
 **Wireframe ink (`theme: "wireframe"`).** The strand is a soft ramp by default, so `lineThickness`
 alone goes from pale hairlines to flat solid without passing through dense ink. `lineSharpness`
 (0..1) steepens it, which turns `lineThickness` into a DUTY CYCLE and gives engraved black strands

@@ -37,6 +37,7 @@ import {
   clamp,
   mix,
   smoothstep,
+  asin,
   cross,
   dot,
   normalize,
@@ -238,30 +239,46 @@ function buildWireframeFragment(
       lineThickness.mulAssign(clamp(float(1).sub(u.uPointerThin.mul(pointerFall)), 0, 1));
     }
     const a = smoothstep(lineThickness, 0.0, tabs(sin(vUv.x.mul(u.uLineAmount)))).toVar("lineA");
-    if (flags.lineSharp) {
-      // Steepen the stripe about its own midpoint, which turns uLineThickness into a DUTY CYCLE and
-      // this into the edge — see the LINE_SHARP block in the GLSL for why the soft ramp alone cannot
-      // reach dense ink, and why the floor is the screen-space derivative rather than a constant
-      // (a hard step on sub-pixel strands is the classic moire generator).
-      a.assign(
-        clamp(
-          a
-            .sub(0.5)
-            .div(max(float(1).sub(u.uLineSharpness), fwidth(a).mul(1.4)))
-            .add(0.5),
-          0,
-          1,
-        ),
-      );
-    }
-
+    // The cross-wise family's per-pixel rate; 0 unless rungs are compiled in (see the GLSL).
+    const rungRate = float(0).toVar("rungRate");
     if (flags.rungs) {
       // The same carve at constant uv.y, so this family runs ACROSS the ribbon where the one above
       // runs along it — together they read as a ladder. Width comes from fwidth(), not the
       // lengthwise term's dFdy(vUv).x, which is the derivative of the wrong axis for this direction.
+      rungRate.assign(u.uRungAmount.mul(fwidth(vUv.y)));
+      const rungT = u.uRungThickness.mul(rungRate).toVar("rungT");
       const rung = tabs(sin(vUv.y.mul(u.uRungAmount)));
+      // Sub-pixel strands fade to the family's analytic duty cycle rather than being point-sampled
+      // — see the GLSL for why that is a stability fix and not just a cosmetic one.
+      const rungDuty = asin(clamp(rungT, 0, 1)).mul(0.63661977);
+      const rungCov = mix(smoothstep(rungT, 0.0, rung), rungDuty, smoothstep(1.2, 3.0, rungRate));
+      a.assign(max(a, rungCov));
+    }
+    if (flags.lineSharp) {
+      // Steepen the stripe about its own midpoint, which turns uLineThickness into a DUTY CYCLE and
+      // this into the edge — see the LINE_SHARP block in the GLSL for why the soft ramp alone cannot
+      // reach dense ink, and why the floor is the screen-space derivative rather than a constant
+      // (a hard step on sub-pixel strands is the classic moire generator). Applied to the MERGED
+      // coverage, after the rungs, so a cross-wise family reaches dense ink the same way a
+      // lengthwise one does.
       a.assign(
-        max(a, smoothstep(u.uRungThickness.mul(u.uRungAmount).mul(fwidth(vUv.y)), 0.0, rung)),
+        clamp(
+          a
+            .sub(0.5)
+            .div(
+              max(
+                float(1).sub(u.uLineSharpness),
+                // The ANALYTIC stripe rate, not fwidth() of the merged coverage — see the GLSL for
+                // why differentiating a max() is unstable on sub-pixel strands.
+                max(u.uLineAmount.mul(fwidth(vUv.x)), rungRate)
+                  .mul(0.5)
+                  .mul(1.4),
+              ),
+            )
+            .add(0.5),
+          0,
+          1,
+        ),
       );
     }
 

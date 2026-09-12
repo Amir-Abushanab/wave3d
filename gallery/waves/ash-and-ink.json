@@ -4,18 +4,18 @@
   "config": {
     "background": "#f7f6f1",
     "transparentBackground": false,
-    "waveCount": 3,
+    "waveCount": 2,
     "cameraPosition": {
       "x": 0,
       "y": 0,
       "z": 5000
     },
     "cameraTarget": {
-      "x": -220,
-      "y": -20,
+      "x": -260,
+      "y": -80,
       "z": 0
     },
-    "cameraZoom": 0.6,
+    "cameraZoom": 0.75,
     "cameraMinVisibleWidth": 0.7,
     "grain": 0,
     "blur": 0,
@@ -64,70 +64,56 @@
         "creaseLight": 1.98,
         "creaseSharpness": 0.806,
         "creaseSoftness": 0.834,
-        "edgeFeather": 0.3,
         "displaceFrequency": {
-          "x": 0.004,
-          "y": 0.006
+          "x": 0.003,
+          "y": 0.008
         },
-        "displaceAmount": 70,
+        "displaceAmount": 6,
         "twistFrequency": {
           "x": 0,
           "y": 0,
-          "z": 0
+          "z": 3
         },
         "twistPower": {
           "x": 4,
           "y": 4,
           "z": 1
         },
-        "radialAmount": 1,
-        "radialArc": 60,
-        "radialSpread": 2.3,
-        "radialRadius": 28,
-        "radialCone": 0.5,
-        "radialSwirl": 200,
+        "helixTurns": 1,
+        "helixRoll": 1,
         "theme": "wireframe",
-        "lineAmount": 160,
-        "lineThickness": 1.1,
-        "lineDerivativePower": 0.4,
+        "lineAmount": 1,
+        "lineThickness": 0,
+        "lineDerivativePower": 0.7,
         "lineDepthFade": 0,
-        "lineSharpness": 0.93,
         "lineGapOpacity": 0,
+        "rungAmount": 300,
+        "rungThickness": 1.8,
         "position": {
           "x": 0,
           "y": 0,
           "z": 0
         },
         "rotation": {
-          "x": 55,
-          "y": 25,
-          "z": -20
+          "x": 0,
+          "y": 30,
+          "z": 40
         },
         "scale": {
-          "x": 1,
-          "y": 1,
-          "z": 1
+          "x": 3,
+          "y": 3,
+          "z": 3
         },
         "blendMode": "normal",
         "speed": 0.08,
         "dissolve": {
-          "amount": 0.22,
+          "amount": 0.24,
           "axis": "screenX",
           "reverse": true,
           "band": 0.22,
           "scale": 38,
           "blocky": 0.8,
           "dust": 1
-        },
-        "interaction": {
-          "bindings": [
-            {
-              "source": "scroll",
-              "target": "dissolveAmount",
-              "to": 0.95,
-              "smoothing": 0.2
-            }
-          ]
         },
         "particles": {
           "count": 5000,
@@ -145,6 +131,16 @@
           "twinkle": 0,
           "life": 6,
           "speed": 1
+        },
+        "interaction": {
+          "bindings": [
+            {
+              "source": "scroll",
+              "target": "dissolveAmount",
+              "to": 0.95,
+              "smoothing": 0.2
+            }
+          ]
         }
       },
       {
@@ -190,70 +186,58 @@
         "creaseLight": 1.98,
         "creaseSharpness": 0.806,
         "creaseSoftness": 0.834,
-        "edgeFeather": 0.3,
         "displaceFrequency": {
-          "x": 0.004,
-          "y": 0.006
+          "x": 0.003,
+          "y": 0.008
         },
-        "displaceAmount": 70,
+        "displaceAmount": 6,
         "twistFrequency": {
           "x": 0,
           "y": 0,
-          "z": 0
+          "z": 3
         },
         "twistPower": {
           "x": 4,
           "y": 4,
           "z": 1
         },
-        "radialAmount": 1,
-        "radialArc": 110,
-        "radialSpread": 2.6,
-        "radialCone": 0.3,
-        "radialSwirl": 120,
+        "helixTurns": 1,
+        "helixRoll": 1,
+        "helixPhase": 180,
         "theme": "wireframe",
-        "lineAmount": 160,
-        "lineThickness": 1.1,
-        "lineDerivativePower": 0.4,
+        "lineAmount": 1,
+        "lineThickness": 0,
+        "lineDerivativePower": 0.7,
         "lineDepthFade": 0,
-        "lineSharpness": 0.93,
         "lineGapOpacity": 0,
+        "rungAmount": 300,
+        "rungThickness": 1.8,
         "position": {
           "x": 0,
           "y": 0,
           "z": 0
         },
         "rotation": {
-          "x": 30,
-          "y": 45,
-          "z": 100
+          "x": 20,
+          "y": 60,
+          "z": 60
         },
         "scale": {
-          "x": 1.3,
-          "y": 1.3,
-          "z": 1.3
+          "x": 2.4,
+          "y": 2.4,
+          "z": 2.4
         },
         "blendMode": "normal",
         "speed": 0.08,
         "seed": 3.7,
         "dissolve": {
-          "amount": 0.22,
+          "amount": 0.24,
           "axis": "screenX",
           "reverse": true,
           "band": 0.22,
           "scale": 38,
           "blocky": 0.8,
           "dust": 1
-        },
-        "interaction": {
-          "bindings": [
-            {
-              "source": "scroll",
-              "target": "dissolveAmount",
-              "to": 0.95,
-              "smoothing": 0.2
-            }
-          ]
         },
         "particles": {
           "count": 3500,
@@ -271,106 +255,6 @@
           "twinkle": 0,
           "life": 6,
           "speed": 1
-        }
-      },
-      {
-        "palette": [
-          {
-            "color": "#cbb9f2",
-            "pos": 0
-          },
-          {
-            "color": "#7a54cf",
-            "pos": 0.05
-          },
-          {
-            "color": "#120b22",
-            "pos": 0.14
-          },
-          {
-            "color": "#050409",
-            "pos": 0.42
-          },
-          {
-            "color": "#050409",
-            "pos": 0.64
-          },
-          {
-            "color": "#1c1233",
-            "pos": 0.86
-          },
-          {
-            "color": "#6f4cc6",
-            "pos": 0.95
-          },
-          {
-            "color": "#d8cbf6",
-            "pos": 1
-          }
-        ],
-        "gradientShift": 0,
-        "usePaletteTexture": false,
-        "hueShift": 0,
-        "colorSaturation": 1,
-        "fiberStrength": 0,
-        "creaseLight": 1.98,
-        "creaseSharpness": 0.806,
-        "creaseSoftness": 0.834,
-        "edgeFeather": 0.3,
-        "displaceFrequency": {
-          "x": 0.004,
-          "y": 0.006
-        },
-        "displaceAmount": 70,
-        "twistFrequency": {
-          "x": 0,
-          "y": 0,
-          "z": 0
-        },
-        "twistPower": {
-          "x": 4,
-          "y": 4,
-          "z": 1
-        },
-        "radialAmount": 1,
-        "radialArc": 45,
-        "radialSpread": 2,
-        "radialRadius": 20,
-        "radialCone": 0.8,
-        "radialSwirl": 280,
-        "theme": "wireframe",
-        "lineAmount": 160,
-        "lineThickness": 1.1,
-        "lineDerivativePower": 0.4,
-        "lineDepthFade": 0,
-        "lineSharpness": 0.93,
-        "lineGapOpacity": 0,
-        "position": {
-          "x": 0,
-          "y": 0,
-          "z": 0
-        },
-        "rotation": {
-          "x": 70,
-          "y": 10,
-          "z": 220
-        },
-        "scale": {
-          "x": 0.8,
-          "y": 0.8,
-          "z": 0.8
-        },
-        "blendMode": "normal",
-        "speed": 0.08,
-        "seed": 7.4,
-        "dissolve": {
-          "amount": 0.22,
-          "axis": "screenX",
-          "reverse": true,
-          "band": 0.22,
-          "scale": 38,
-          "blocky": 0.8,
-          "dust": 1
         },
         "interaction": {
           "bindings": [
@@ -381,23 +265,6 @@
               "smoothing": 0.2
             }
           ]
-        },
-        "particles": {
-          "count": 5000,
-          "size": 15.4,
-          "seed": 25,
-          "sizeJitter": 1,
-          "color": "#0b0812",
-          "color2": "#1d1230",
-          "shape": "square",
-          "blend": "normal",
-          "edgeBias": 0,
-          "drift": 320,
-          "rise": 30,
-          "wander": 60,
-          "twinkle": 0,
-          "life": 6,
-          "speed": 1
         }
       }
     ]

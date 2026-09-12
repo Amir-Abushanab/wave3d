@@ -5,10 +5,10 @@
  */
 import { createDefaultConfig, makeStops, makeWaveSpread } from "./config/model";
 import type {
+  DissolveConfig,
   NoiseBand,
   ParticlesConfig,
   StudioConfig,
-  WaveConfig,
   WaveInteractionConfig,
 } from "./config/model";
 
@@ -103,6 +103,43 @@ export const PARTICLE_PRESETS: Record<string, ParticlesConfig> = {
     twinkle: 0.3,
     life: 7,
   },
+};
+
+/** The disintegration front the {@link PRESETS}["Disintegration"] waves share: one edge on the
+ *  CANVAS rather than on any one ribbon, so both crumble against it however each is posed, with
+ *  `dust: 1` pinning each wave's debris to that same front. */
+const snapFront = (): DissolveConfig => ({
+  amount: 0.24,
+  axis: "screenX",
+  reverse: true, // eat in from the RIGHT, leaving the standing sweep on the left
+  band: 0.22,
+  scale: 38,
+  blocky: 0.8,
+  dust: 1, // each mote is the chunk of surface that just left
+});
+
+/** That preset's debris, alternating a coarse INK field with a fine violet one. Each is nearly
+ *  single-tone on purpose: a continuum between ink and lilac passes through mid-purple, which makes
+ *  a cloud read as haze instead of black-and-violet debris. */
+const snapDust = (i: number): ParticlesConfig => {
+  const ink = i % 2 === 0;
+  return {
+    count: ink ? 5000 : 3500,
+    size: ink ? 15.4 : 8.3,
+    seed: 11 + i * 7,
+    sizeJitter: 1,
+    color: ink ? "#0b0812" : "#9b79ec",
+    color2: ink ? "#1d1230" : "#c9b4f6",
+    shape: "square",
+    blend: "normal", // additive can only brighten; this debris has to read DARK on warm paper
+    edgeBias: 0, // the front decides which motes leave, not the rim
+    drift: ink ? 320 : 520,
+    rise: 30,
+    wander: 60,
+    twinkle: 0,
+    life: 6,
+    speed: 1,
+  };
 };
 
 /** Degrees → radians (for the Particle Zoo's per-wave rotation, authored in degrees). */
@@ -781,31 +818,25 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     return c;
   },
   /**
-   * DISINTEGRATION — the "snap". A broad combed sheet sweeping up out of frame, curling over into a
-   * roll, and crumbling into blocky debris across a straight edge down the canvas.
+   * DISINTEGRATION — the "snap". Two striped ribbons twisting through each other over warm paper,
+   * crumbling into blocky debris across a straight edge down the canvas.
    *
-   * The composition is THREE dissimilar sheets, not a symmetric fan: one wide sweep, one crossing it,
-   * one tight roll. Each is a narrow radial fan, coned onto a trumpet's slant and swirled so its
-   * angle advances along its own length — which is what curls a straight arm into one that wraps.
-   * Giving them different arcs, swirls, poses and scales is what makes them read as sheets crossing
-   * rather than as a pinwheel.
+   * THE STRIPES RUN ACROSS THE RIBBON, NOT ALONG IT. That is the whole thing, and it is worth saying
+   * plainly because it is easy to get backwards: `rungAmount` carves at constant uv.y, so each strand
+   * crosses the sheet from edge to edge, where `lineAmount`'s run end to end. On a twisting ribbon the
+   * two could not look less alike. Along-stripes simply follow the flow — they never compress, never
+   * fan, and tell you nothing about the surface. Across-stripes ARE the twist made visible: they
+   * splay wide where the sheet faces you, pinch to a dense dark line where it turns edge-on, and
+   * sweep as nested arcs through a fold. No amount of shape work substitutes for this; the form here
+   * is only the hero's own twist plus one helix roll, and the striping does the rest.
    *
-   * Four rendering choices carry the look, and none are obvious:
+   * `lineThickness` 0 switches the lengthwise family off entirely so the rungs carry the image alone.
+   * `rungThickness` is in PIXELS, so it has to come DOWN as `rungAmount` goes up or the strands merge
+   * into solid: 1.4 px against a ~3.5 px period is the roughly-even strand-and-gap the reference has.
    *
-   *   - `lineGapOpacity: 0`. The wireframe paints the page colour BETWEEN its strands by default,
-   *     which makes each wave an opaque card that hides the ones behind it. Clear, the combs show
-   *     through each other and the overlaps build the dark masses — this is where all the depth is.
-   *   - `edgeFeather: 0.3`. A wireframe ribbon otherwise stops dead at a flat end-cap that reads as a
-   *     straight cut across the strands. Feathered, the sweeps fade out of frame instead.
-   *   - `lineSharpness` turns the stripe's soft ramp into a duty cycle (without it `lineThickness`
-   *     only goes from pale hairlines to flat solid), and `lineDerivativePower` 0.4 lets the strands
-   *     thicken a little where the surface turns away — the read of light across a curve. Higher and
-   *     the silhouette fuses into a glossy rim the reference does not have.
-   *   - `lineAmount` is only 160 because a stripe count is spread across `radialArc`, and 45-110° of
-   *     arc turns a bigger number into sub-pixel grey.
-   *
-   * The dissolve is one front for all three (`axis: "screenX"`) with `dust: 1` pinning each wave's
-   * debris to it, and scroll runs it to 0.95 — at rest the poster, scrolled the whole thing gone.
+   * Three more things the look needs, each explained where it is set below: clear gaps so the two
+   * ribbons layer instead of occluding, a hardened duty cycle so the strands carry real ink, and a
+   * screen-space dissolve front shared by both waves with the dust pinned to it.
    */
   Disintegration: () => {
     const c = PRESETS["Hero"]();
@@ -825,95 +856,71 @@ export const PRESETS: Record<string, () => StudioConfig> = {
       { color: "#d8cbf6", pos: 1 },
     ];
     base.gradientType = "linear";
-    base.gradientAngle = 90; // across uv.x, which the fan maps to the ARC — so the ramp runs across the sheet
+    base.gradientAngle = 90;
     base.gradientShift = 0;
     base.hueShift = 0;
     base.colorContrast = 1;
     base.colorSaturation = 1;
     base.fiberStrength = 0; // the strands ARE the texture here; streaks would only muddy them
-    base.lineAmount = 160;
-    base.lineThickness = 1.1; // the duty cycle, once lineSharpness has hardened the ramp
-    base.lineDerivativePower = 0.4;
-    base.lineSharpness = 0.93;
-    base.lineDepthFade = 0;
-    base.lineGapOpacity = 0; // see above: this is what lets the combs layer instead of occlude
-    base.edgeFeather = 0.3; // fade the sweeps out of frame instead of cutting them off
+    // The rungs carry the image; the lengthwise family is switched off at the thickness.
+    base.lineAmount = 1;
+    base.lineThickness = 0;
+    // ~95 strands across the sheet. Rungs are a PIXEL-width stripe, so everything about them rides
+    // on fwidth(): push the count much past this and the periods go sub-pixel in a small embed,
+    // where the dense regions stop being a stable tone and start being whatever one arbitrary sample
+    // per period happened to land on. 300 still resolves at 480px, which is the floor worth holding.
+    base.rungAmount = 300;
+    base.rungThickness = 1.8; // PIXELS — must fall as rungAmount rises, or the strands merge to solid
+    base.lineDerivativePower = 0.7;
+    // No stripe hardening: a rung's threshold is already a PIXEL width, so its edge lands inside a
+    // pixel by construction and the duty cycle is set by rungThickness directly. Hardening on top
+    // would only amplify the fwidth() that threshold is built from — a 20x gain on a derivative
+    // estimate, which is where two backends stop agreeing. (lineSharpness is for the lengthwise
+    // family, whose threshold is not pixel-derived.)
+    base.lineSharpness = 0;
+    base.lineDepthFade = 0; // a stack needs full contrast at every depth; the default is tuned for one ribbon
+    base.lineGapOpacity = 0; // clear gaps: the two ribbons layer instead of hiding each other
+    base.edgeFeather = 0.1;
     base.blendMode = "normal";
     base.opacity = 1;
-    base.radialAmount = 1;
-    // A broad slow swell so the sheets undulate; the fan dominates, so it ripples them without
-    // fraying the silhouette the way it would on a flat sheet.
-    base.displaceAmount = 70;
-    base.displaceFrequency = { x: 0.004, y: 0.006 };
-    base.twistFrequency = { x: 0, y: 0, z: 0 };
+    base.radialAmount = 0; // no fan — the twist and one roll are the entire shape
+    base.displaceAmount = 6;
+    base.displaceFrequency = { x: 0.003, y: 0.008 };
+    // A single-ramp Z twist plus one helix roll: the twist bends the sheet, the roll turns it through
+    // itself, and the two together give the pinch the strands fan out of.
+    base.twistFrequency = { x: 0, y: 0, z: 3 };
     base.twistPower = { x: 4, y: 4, z: 1 };
+    base.helixTurns = 1;
+    base.helixRadius = 0;
+    base.helixRoll = 1;
+    base.helixTaper = 1;
+    base.helixPhase = 0;
     base.speed = 0.08;
     base.position = { x: 0, y: 0, z: 0 };
 
-    /** One sheet: its own arc, slant, wrap, reach and pose — they must not match, or it reads as a fan. */
-    const sheet = (
-      i: number,
-      scale: number,
-      rot: [number, number, number],
-      arc: number,
-      cone: number,
-      swirl: number,
-      radius: number,
-      spread: number,
-    ): WaveConfig => {
-      const w = structuredClone(base);
-      w.seed = i * 3.7;
-      w.scale = { x: scale, y: scale, z: scale };
-      w.rotation = { x: rot[0], y: rot[1], z: rot[2] };
-      w.radialArc = arc;
-      w.radialCone = cone;
-      w.radialSwirl = swirl;
-      w.radialRadius = radius;
-      w.radialSpread = spread;
-      w.radialCenter = 0;
-      w.dissolve = {
-        amount: 0.22,
-        axis: "screenX",
-        reverse: true, // eat in from the RIGHT edge, leaving the standing sweep on the left
-        band: 0.22,
-        scale: 38,
-        blocky: 0.8,
-        dust: 1,
-      };
-      // Scroll takes the front the rest of the way. `from` is omitted, so at scroll 0 the wave sits
-      // at its authored 0.22 and the still frame above is what a reader sees before they move.
+    // The sweep, and a second ribbon half a turn out of phase twisting through it.
+    const a = structuredClone(base);
+    a.seed = 0;
+    a.scale = { x: 3, y: 3, z: 3 };
+    a.rotation = { x: 0, y: 30, z: 40 };
+    a.dissolve = snapFront();
+    a.particles = snapDust(0);
+    const b = structuredClone(base);
+    b.seed = 3.7;
+    b.scale = { x: 2.4, y: 2.4, z: 2.4 };
+    b.rotation = { x: 20, y: 60, z: 60 };
+    b.helixPhase = 180;
+    b.dissolve = snapFront();
+    b.particles = snapDust(1);
+    // Scroll takes the front the rest of the way. `from` is omitted, so at scroll 0 both sit at their
+    // authored 0.24 and the still frame is what a reader sees before they move.
+    for (const w of [a, b]) {
       w.interaction = {
         bindings: [{ source: "scroll", target: "dissolveAmount", to: 0.95, smoothing: 0.2 }],
       };
-      const ink = i % 2 === 0;
-      w.particles = {
-        count: ink ? 5000 : 3500,
-        size: ink ? 15.4 : 8.3,
-        seed: 11 + i * 7,
-        sizeJitter: 1,
-        // Nearly single-tone per field: a continuum between ink and lilac passes through mid-purple,
-        // which is what makes a cloud read as haze instead of black-and-violet debris.
-        color: ink ? "#0b0812" : "#9b79ec",
-        color2: ink ? "#1d1230" : "#c9b4f6",
-        shape: "square",
-        blend: "normal", // additive can only brighten; this debris has to read DARK on warm paper
-        edgeBias: 0, // spawn across the whole surface — the front decides which motes leave, not the rim
-        drift: ink ? 320 : 520, // the fine violet grit carries furthest
-        rise: 30,
-        wander: 60,
-        twinkle: 0,
-        life: 6,
-        speed: 1,
-      };
-      return w;
-    };
-
-    c.waves = [
-      sheet(0, 1.0, [55, 25, -20], 60, 0.5, 200, 28, 2.3), // the wide sweep
-      sheet(1, 1.3, [30, 45, 100], 110, 0.3, 120, 40, 2.6), // crossing it, broader and flatter
-      sheet(2, 0.8, [70, 10, 220], 45, 0.8, 280, 20, 2.0), // the tight roll it curls into
-    ];
-    c.waveCount = c.waves.length;
+    }
+    c.waves = [a, b];
+    c.waveCount = 2;
 
     c.background = "#f7f6f1"; // warm paper
     c.backgroundMode = "color";
@@ -922,11 +929,11 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     c.blur = 0;
     c.cameraDistance = 5001;
     c.cameraPosition = { x: 0, y: 0, z: 5000 };
-    c.cameraTarget = { x: -220, y: -20, z: 0 };
-    c.cameraZoom = 0.6;
-    // The front is a SCREEN edge, so a narrow phone cropping to a quarter of the authored width
-    // would put it somewhere else entirely on the composition. Holding 70% of that width on screen
-    // keeps the sweep, the roll and the debris in the same relationship.
+    c.cameraTarget = { x: -260, y: -80, z: 0 };
+    c.cameraZoom = 0.75;
+    // The front is a SCREEN edge, so a narrow phone cropping to a quarter of the authored width would
+    // put it somewhere else entirely on the composition. Holding 70% of that width on screen keeps
+    // the sweep, the fold and the debris in the same relationship.
     c.cameraMinVisibleWidth = 0.7;
     return c;
   },
