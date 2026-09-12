@@ -656,6 +656,7 @@ export class WaveRenderer {
       uRadialSpread: { value: 1 },
       uRadialRadius: { value: 40 },
       uRadialCenter: { value: 0 },
+      uRadialCone: { value: 0 },
       uRungAmount: { value: 0 },
       uRungThickness: { value: 1 },
       // Dissolve (both fragment shaders, under DISSOLVE). Always present JS-side; three uploads
@@ -1035,6 +1036,7 @@ export class WaveRenderer {
       u.uRadialSpread.value = sc.radialSpread ?? 1;
       u.uRadialRadius.value = sc.radialRadius ?? 40;
       u.uRadialCenter.value = sc.radialCenter ?? 0;
+      u.uRadialCone.value = sc.radialCone ?? 0;
       const dis = sc.dissolve;
       u.uDissolveAmount.value = dis?.amount ?? 0;
       u.uDissolveBand.value = dis?.band ?? 0.35;

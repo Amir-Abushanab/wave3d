@@ -38,8 +38,19 @@ Three supporting knobs, each inert at its default:
   page still showing between them. `lineDepthFade` turns off the recede into the background colour,
   which a deep or stacked composition needs — the default is tuned for a single ribbon.
 - `helixTaper` scales the helix radius along the ribbon's length, so the coil can open from the axis
-  into a cone: the vortex / funnel / plume a constant-radius helix cannot reach. 1 (the default) is
-  the cylinder it always wound.
+  into a cone: the vortex a constant-radius helix cannot reach. 1 (the default) is the cylinder it
+  always wound. `radialCone` does the equivalent for the radial fan — it lifts the fan out of its own
+  plane as it spreads, turning the flat plume into a TRUMPET whose combed strands run down the slant
+  into the throat, which is a shape neither the twists nor the helix can reach (a helix carries the
+  ribbon around an axis, but its WIDTH never follows the slant).
 
-New preset **Disintegration**: an engraved cluster of ribbons on warm paper, crumbling into blocky
-dust across a straight edge, with scroll wired to finish the job.
+Two rendering fixes the look depends on. The hardened stripe's edge is floored by its own
+SCREEN-SPACE derivative rather than a constant: a hard step on strands already thinner than a pixel
+is the classic moire generator, and holding the transition at ~1.4 px makes the edge exactly as crisp
+as the strand can support — razor-sharp where it resolves, box-filtered to a flat tone where it does
+not. And a `"square"` particle now cuts its OWN shard from its quad — its own extent, proportion and
+quarter-turn, with a squared extent for the heavy tail real rubble has — because a field of identical
+squares reads as grain rather than debris.
+
+New preset **Disintegration**: engraved bands converging on a throat over warm paper, crumbling into
+blocky debris across a straight edge, with scroll wired to finish the job.

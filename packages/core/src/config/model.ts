@@ -242,6 +242,13 @@ export interface WaveConfig {
   radialSpread?: number; // along-length → radius scale
   radialRadius?: number; // source / inner radius (world units, pre-scale)
   radialCenter?: number; // base angle, degrees
+  /** Lift the fan out of its own plane as it spreads, turning the flat plume into a CONE — a
+   *  trumpet / morning-glory mouth whose combed strands run down the slant into the throat, which is
+   *  the one thing neither the twists nor the helix can reach (a helix carries the ribbon around an
+   *  axis, but its WIDTH never follows the slant). Measured as lift per ribbon-length of radius:
+   *  0 = the flat fan (the default, byte-identical), ~0.6 a wide mouth, ~1.4 a narrow horn.
+   *  Negative cones the other way. Inert unless `radialAmount` > 0. */
+  radialCone?: number;
   // Material ("solid" surface vs "wireframe" line shader)
   theme?: "solid" | "wireframe";
   lineAmount?: number;
@@ -833,6 +840,7 @@ function defaultWave(): WaveConfig {
     radialSpread: 1,
     radialRadius: 40,
     radialCenter: 0,
+    radialCone: 0,
     theme: "solid",
     lineAmount: 425, // wireframe-theme line params (defaults)
     lineThickness: 1,
@@ -1094,6 +1102,7 @@ export function normalizeWave(s: WaveConfig): void {
   if (!Number.isFinite(s.radialSpread)) s.radialSpread = 1;
   if (!Number.isFinite(s.radialRadius)) s.radialRadius = 40;
   if (!Number.isFinite(s.radialCenter)) s.radialCenter = 0;
+  if (!Number.isFinite(s.radialCone)) s.radialCone = 0;
   if (typeof s.theme !== "string") s.theme = "solid";
   if (!Number.isFinite(s.lineAmount)) s.lineAmount = 425;
   if (!Number.isFinite(s.lineThickness)) s.lineThickness = 1;

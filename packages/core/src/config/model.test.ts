@@ -184,6 +184,7 @@ describe("ensureStudioConfig repairs configs that used to break the panel", () =
     expect(w.radialAmount).toBe(0);
     expect(w.radialArc).toBe(160);
     expect(w.radialRadius).toBe(40);
+    expect(w.radialCone).toBe(0); // flat fan — the shape the mode had before the cone existed
   });
 
   it("leaves authored radial values alone", () => {

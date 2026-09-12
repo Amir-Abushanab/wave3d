@@ -2674,6 +2674,11 @@ export class ControlPanel {
       raF
         .addBinding(wave, "radialCenter", { min: -180, max: 180, step: 1, label: "center °" })
         .on("change", refresh);
+      // Cone: lift the fan out of its own plane as it spreads, so the flat plume becomes a trumpet
+      // whose strands run down the slant into the throat. 0 = the flat fan.
+      raF
+        .addBinding(wave, "radialCone", { min: -2, max: 2, step: 0.01, label: "cone" })
+        .on("change", refresh);
       // This wave's disintegration front, then the dust field it sheds through.
       const diF = this.buildWaveDissolveFolder(sf, wave, refresh);
       const paF = this.buildWaveParticlesFolder(sf, wave, refresh);

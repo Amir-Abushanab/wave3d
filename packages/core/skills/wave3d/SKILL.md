@@ -110,7 +110,11 @@ a repeating helix:
   two long edges onto opposite sides of the axis, so **one wave becomes a ladder whose edges are
   both strands**. Add `rungAmount` (wireframe theme) for the rungs between them.
 - `helixTaper` scales that radius along the length (1 = the cylinder a plain helix winds, 0 = a cone
-  that starts on the axis and flares) — the vortex / funnel a constant-radius helix can't reach.
+  that starts on the axis and flares) — the vortex a constant-radius helix can't reach.
+- `radialCone` (on the radial fan, not the helix) lifts the fan out of its own plane as it spreads,
+  turning the flat plume into a TRUMPET whose combed strands run down the slant into the throat. A
+  helix carries the ribbon around an axis but its WIDTH never follows the slant, so this is the only
+  route to a cone mouth. Narrow the `radialArc` and several of these, posed apart, read as one spiral.
 - Both are off at 0, and the helix code path isn't compiled unless `helixRadius` or `helixRoll` is
   non-zero — a wave without one renders byte-identically to before.
 

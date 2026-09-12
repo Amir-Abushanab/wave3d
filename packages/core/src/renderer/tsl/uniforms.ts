@@ -149,6 +149,7 @@ export function makeTslUniforms(drawingBufferSize: Vector2) {
     uRadialSpread: uniform(1),
     uRadialRadius: uniform(40),
     uRadialCenter: uniform(0),
+    uRadialCone: uniform(0),
     uRungAmount: uniform(0),
     uRungThickness: uniform(1),
 

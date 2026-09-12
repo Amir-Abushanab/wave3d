@@ -239,12 +239,13 @@ function buildWireframeFragment(
     if (flags.lineSharp) {
       // Steepen the stripe about its own midpoint, which turns uLineThickness into a DUTY CYCLE and
       // this into the edge — see the LINE_SHARP block in the GLSL for why the soft ramp alone cannot
-      // reach dense ink. Capped at 50x so the edge lands inside a pixel or two.
+      // reach dense ink, and why the floor is the screen-space derivative rather than a constant
+      // (a hard step on sub-pixel strands is the classic moire generator).
       a.assign(
         clamp(
           a
             .sub(0.5)
-            .div(max(float(1).sub(u.uLineSharpness), 0.02))
+            .div(max(float(1).sub(u.uLineSharpness), fwidth(a).mul(1.4)))
             .add(0.5),
           0,
           1,

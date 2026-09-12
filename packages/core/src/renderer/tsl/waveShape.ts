@@ -129,6 +129,7 @@ export function applyRadial(
   spread: FloatNode,
   radius: FloatNode,
   center: FloatNode,
+  cone: FloatNode,
 ): Vec3Node {
   const rAng = radians(center)
     .add(clamp(uv.x, 0, 1).sub(0.5).mul(radians(arc)))
@@ -139,7 +140,9 @@ export function applyRadial(
   const fanned = rEr
     .mul(rRho)
     .add(rEt.mul(pos.z.sub(RIBBON_Z_CENTER)).mul(0.5))
-    .add(vec3(0.0, 0.0, pos.y));
+    // Cone: lift the fan out of its own plane as it spreads, so the flat plume becomes a TRUMPET
+    // whose combed strands run down the slant into the throat. 0 is the flat fan.
+    .add(vec3(0.0, 0.0, pos.y.add(uv.y.mul(400.0).mul(cone))));
   return mix(pos, fanned, clamp(amount, 0, 1));
 }
 
@@ -236,6 +239,7 @@ export function waveShape(
       u.uRadialSpread,
       u.uRadialRadius,
       u.uRadialCenter,
+      u.uRadialCone,
     ),
     twists,
   };

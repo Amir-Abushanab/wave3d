@@ -781,114 +781,132 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     return c;
   },
   /**
-   * DISINTEGRATION — the "snap". An engraved cluster of ribbons on warm paper, crumbling into
-   * blocky dust across a straight edge that runs down the frame.
+   * DISINTEGRATION — the "snap". Engraved bands converging on a throat, crumbling into blocky
+   * debris across a straight edge down the frame.
    *
-   * Everything here is the disintegration layer working as one thing, so it is worth reading as a
-   * recipe rather than a pile of numbers:
+   * Worth reading as a recipe rather than a pile of numbers, because four separate things have to
+   * agree for it to read at all:
    *
-   *   - `dissolve.axis: "screenX"` puts the front on the CANVAS, not on any one ribbon, so all four
-   *     waves crumble against the same vertical edge however each is rotated — the stack reads as a
-   *     single object coming apart rather than four sheets eroding independently.
-   *   - `dissolve.dust: 1` pins each wave's particle field to that same front, so a mote is the chunk
-   *     of surface that just left: it does not exist until the front reaches its patch, and then
-   *     peels off and blows on. The dust and the holes are one event.
-   *   - the fields alternate COARSE INK with fine violet grit down the stack, which is what puts the
-   *     heavy black chunks near the standing ribbon and the fine haze out at the edge of frame.
-   *   - `lineSharpness` 0.93 with `lineThickness` 1.3 is the engraved look: the wireframe's soft
-   *     stripe ramp alone can only go pale-and-thin or flat-solid, and hardening it turns thickness
-   *     into a duty cycle so the strands carry real ink with the paper still showing between them.
-   *   - `lineDepthFade` 0 keeps every strand at full contrast wherever it sits in depth, which a
-   *     deep stack needs — the default fade is tuned for one ribbon and washes four of them out.
+   *   - The SHAPE is six narrow radial fans (`radialArc` 60°) coned out of plane by `radialCone`, so
+   *     each is a band running down a trumpet's slant into a common throat, not a flat plume. Their
+   *     rotations walk around in all three axes, which is what turns six identical bands into one
+   *     spiral. The twists are off entirely — they ramp once and cannot converge like this.
+   *   - The INK comes from `lineSharpness`: the wireframe's stripe is a soft ramp, so `lineThickness`
+   *     alone goes from pale hairlines to flat solid without passing through dense ink. Hardened, it
+   *     becomes a duty cycle instead, and 1.7 is heavy black with the paper still showing between
+   *     strands. `lineAmount` is only 105 because the arc is narrow — a stripe count is spread across
+   *     `radialArc`, so the same number that resolves on a wide fan turns a 60° one into grey mush.
+   *     `lineDepthFade` 0 holds every band at full contrast wherever it sits in depth.
+   *   - The FRONT is `axis: "screenX"`, a line on the CANVAS rather than on any one band, so all six
+   *     crumble against the same edge however each is rotated — the cluster comes apart as one object.
+   *   - The DUST is pinned to that same front by `dust: 1`, so a mote is the chunk of surface that
+   *     just left. The fields alternate coarse INK with fine violet, and each is nearly single-tone:
+   *     a continuum between the two would pass through mid-purple and read as haze instead of
+   *     black-and-violet debris.
    *
-   * The scroll binding is the point of the preset: at rest it is the poster above, and scrolling
-   * runs `dissolve.amount` to 0.95, taking the whole cluster apart.
+   * The scroll binding is the point of the preset: at rest it is the poster above, and scrolling runs
+   * `dissolve.amount` to 0.95, taking the whole cluster apart.
    */
   Disintegration: () => {
     const c = PRESETS["Hero"]();
     const base = c.waves[0];
     base.theme = "wireframe";
-    // Ink-dominant with violet only at the two ends of the ramp, so each sheet is a black engraving
-    // rimmed in violet rather than a violet sheet with dark edges.
+    // Ink-dominant, with violet only in two narrow bands at the ends of the ramp — so each band is a
+    // black engraving rimmed in violet rather than a violet sheet with dark edges.
     base.usePaletteTexture = false;
     base.palette = [
-      { color: "#ded2f6", pos: 0 },
-      { color: "#8f6ce0", pos: 0.09 },
-      { color: "#1a1030", pos: 0.24 },
-      { color: "#07060c", pos: 0.5 },
-      { color: "#150e26", pos: 0.76 },
-      { color: "#7d57d4", pos: 0.92 },
-      { color: "#e6dcf5", pos: 1 },
+      { color: "#cbb9f2", pos: 0 },
+      { color: "#7a54cf", pos: 0.05 },
+      { color: "#120b22", pos: 0.14 },
+      { color: "#050409", pos: 0.42 },
+      { color: "#050409", pos: 0.64 },
+      { color: "#1c1233", pos: 0.86 },
+      { color: "#6f4cc6", pos: 0.95 },
+      { color: "#d8cbf6", pos: 1 },
     ];
     base.gradientType = "linear";
-    base.gradientAngle = 90; // across the folded WIDTH, so the ramp wraps the hairpin cross-section
+    base.gradientAngle = 90; // across uv.x, which the fan maps to the ARC — so the ramp runs across the band
     base.gradientShift = 0;
     base.hueShift = 0;
     base.colorContrast = 1;
     base.colorSaturation = 1;
     base.fiberStrength = 0; // the strands ARE the texture here; streaks would only muddy them
-    base.lineAmount = 420;
-    base.lineThickness = 1.3;
-    base.lineDerivativePower = 0; // hold the duty cycle steady instead of letting foreshortening set it
+    base.lineAmount = 105;
+    base.lineThickness = 1.7; // the duty cycle, once lineSharpness has hardened the ramp
+    base.lineDerivativePower = 0; // hold that duty steady rather than letting foreshortening set it
     base.lineSharpness = 0.93;
     base.lineDepthFade = 0;
     base.blendMode = "normal";
     base.opacity = 1;
-    // One broad swell plus a hard single-ramp Z twist: the twist curls each sheet into a lobe, and
-    // the four rotations below splay those lobes into the knot.
+    // A narrow fan, coned into a trumpet slant. Spread 2.3 runs each band well past the throat so it
+    // sweeps out of frame rather than ending in a tidy petal.
+    base.radialAmount = 1;
+    base.radialArc = 60;
+    base.radialCone = 0.5;
+    base.radialRadius = 28;
+    base.radialSpread = 2.3;
+    base.radialCenter = 0;
+    // A broad slow swell so the bands undulate; the fan dominates, so it ripples them without
+    // fraying the silhouette the way it would on a flat sheet.
     base.displaceAmount = 70;
     base.displaceFrequency = { x: 0.004, y: 0.006 };
-    base.twistFrequency = { x: 0, y: 0, z: 3.2 };
-    base.twistPower = { x: 4, y: 4, z: 0.75 };
-    base.speed = 0.12;
+    base.twistFrequency = { x: 0, y: 0, z: 0 };
+    base.twistPower = { x: 4, y: 4, z: 1 };
+    base.speed = 0.08;
     base.position = { x: 0, y: 0, z: 0 };
-    base.rotation = { x: 0, y: 0, z: 0 };
-    base.scale = { x: 2.1, y: 2.1, z: 2.1 };
 
+    // Rotations walking in all three axes: the spiral is in how they are POSED, not in any one band.
+    const poses: [number, number, number][] = [
+      [70, 0, 0],
+      [62, 10, 58],
+      [54, 20, 116],
+      [46, 30, 174],
+      [38, 40, 232],
+      [30, 50, 290],
+    ];
     const waves: WaveConfig[] = [];
-    for (let i = 0; i < 4; i++) {
+    poses.forEach(([rx, ry, rz], i) => {
       const w = structuredClone(base);
       w.seed = i * 4.1;
-      w.rotation = { x: 0, y: 0, z: i * 48 };
-      const k = 2.1 * (1 - i * 0.12);
+      w.rotation = { x: rx, y: ry, z: rz };
+      const k = 1 - i * 0.03; // barely tapering, so no band hides the ones behind it
       w.scale = { x: k, y: k, z: k };
-      w.position = { x: 0, y: 0, z: -i * 30 };
       w.dissolve = {
-        amount: 0.3,
+        amount: 0.26,
         axis: "screenX",
-        reverse: true, // eat in from the RIGHT edge, leaving the standing ribbons on the left
-        band: 0.55,
-        scale: 150,
-        blocky: 0.75,
+        reverse: true, // eat in from the RIGHT edge, leaving the standing bands on the left
+        band: 0.25,
+        scale: 38,
+        blocky: 0.8,
         dust: 1,
       };
       // Scroll takes the front the rest of the way. `from` is omitted, so at scroll 0 the wave sits
-      // at its authored 0.3 and the still frame above is what a reader sees before they move.
+      // at its authored 0.26 and the still frame above is what a reader sees before they move.
       w.interaction = {
         bindings: [{ source: "scroll", target: "dissolveAmount", to: 0.95, smoothing: 0.2 }],
       };
       const ink = i % 2 === 0;
       w.particles = {
-        count: ink ? 11000 : 8800,
-        size: ink ? 5.1 : 3.0,
+        count: ink ? 5000 : 3500,
+        size: ink ? 15.4 : 8.3,
         seed: 11 + i * 7,
         sizeJitter: 1,
-        // Alternating coarse ink / fine violet down the stack: the heavy chunks stay near the
-        // standing ribbon, the fine grit carries out to the edge of frame.
-        color: ink ? "#0d0916" : "#8f6ce0",
-        color2: ink ? "#3a2060" : "#cdbaf5",
+        // Nearly single-tone per field: a continuum between ink and lilac passes through mid-purple,
+        // which is what makes a cloud read as haze instead of black-and-violet debris.
+        color: ink ? "#0b0812" : "#9b79ec",
+        color2: ink ? "#1d1230" : "#c9b4f6",
         shape: "square",
-        blend: "normal", // additive can only brighten; this dust has to read DARK on warm paper
+        blend: "normal", // additive can only brighten; this debris has to read DARK on warm paper
         edgeBias: 0, // spawn across the whole surface — the front decides which motes leave, not the rim
-        drift: ink ? 390 : 650,
-        rise: 40,
-        wander: 70,
+        drift: ink ? 320 : 520, // the fine violet grit carries furthest
+        rise: 30,
+        wander: 60,
         twinkle: 0,
         life: 6,
         speed: 1,
       };
       waves.push(w);
-    }
+    });
     c.waves = waves;
     c.waveCount = waves.length;
 
@@ -899,11 +917,11 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     c.blur = 0;
     c.cameraDistance = 5001;
     c.cameraPosition = { x: 0, y: 0, z: 5000 };
-    c.cameraTarget = { x: -230, y: 25, z: 0 };
-    c.cameraZoom = 1.35;
+    c.cameraTarget = { x: -250, y: -70, z: 0 };
+    c.cameraZoom = 0.7;
     // The front is a SCREEN edge, so a narrow phone cropping to a quarter of the authored width
     // would put it somewhere else entirely on the composition. Holding 70% of that width on screen
-    // keeps the standing ribbons, the crumble edge and the dust in the same relationship.
+    // keeps the standing bands, the crumble edge and the debris in the same relationship.
     c.cameraMinVisibleWidth = 0.7;
     return c;
   },

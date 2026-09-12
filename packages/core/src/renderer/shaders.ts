@@ -265,7 +265,9 @@ WaveShape waveShape(vec3 position, vec2 uv, float t, vec2 loopOff){
     vec3 rEt = vec3(-sin(rAng), cos(rAng), 0.0);               // tangential
     vec3 fanned = rEr * rRho
                 + rEt * (pos.z - ${RIBBON_Z_CENTER.toFixed(1)}) * 0.5
-                + vec3(0.0, 0.0, pos.y);
+                // Cone: lift the fan out of its own plane as it spreads, so the flat plume becomes a
+                // TRUMPET whose combed strands run down the slant into the throat. 0 is the flat fan.
+                + vec3(0.0, 0.0, pos.y + uv.y * 400.0 * uRadialCone);
     pos = mix(pos, fanned, clamp(uRadialAmount, 0.0, 1.0));
   }
 #endif
@@ -473,6 +475,7 @@ uniform float uRadialArc;    // fan spread, degrees
 uniform float uRadialSpread; // length → radius scale
 uniform float uRadialRadius; // source / inner radius
 uniform float uRadialCenter; // base angle, degrees
+uniform float uRadialCone;   // lift per unit radius: 0 = a flat fan, >0 = a cone / trumpet
 #endif
 
 varying vec2 vUv;
@@ -835,9 +838,14 @@ void main(){
   // from pale hairlines straight to flat solid without ever passing through dense ink. Steepening it
   // about its own midpoint separates the two: uLineThickness becomes the DUTY CYCLE (where the ramp
   // crosses 0.5) and this becomes the edge, so a wave can be 70% ink with crisp gaps still showing.
-  // The steepest setting is capped at 50× so the edge always lands inside a pixel or two rather than
-  // aliasing into a shimmer on dense strands.
-  a = clamp((a - 0.5) / max(1.0 - uLineSharpness, 0.02) + 0.5, 0.0, 1.0);
+  //
+  // The floor on that steepening is the SCREEN-SPACE derivative of the ramp, not a constant. A hard
+  // step on strands that are already thinner than a pixel is the classic moiré generator: each pixel
+  // samples one arbitrary point of the stripe, and a foreshortened sheet turns into crawling noise
+  // instead of the grey its duty cycle should average to. Holding the transition at ~1.4 px wide
+  // makes the edge exactly as crisp as the strand can support — razor-sharp where it is resolvable,
+  // and box-filtered down to a flat tone where it is not.
+  a = clamp((a - 0.5) / max(1.0 - uLineSharpness, fwidth(a) * 1.4) + 0.5, 0.0, 1.0);
 #endif
 
 #ifdef RUNGS
@@ -1155,7 +1163,7 @@ uniform float uTwFreqX, uTwFreqY, uTwFreqZ, uTwPowX, uTwPowY, uTwPowZ;
 uniform float uHelixTurns, uHelixRadius, uHelixRoll, uHelixPhase, uHelixTaper;
 #endif
 #ifdef RADIAL
-uniform float uRadialAmount, uRadialArc, uRadialSpread, uRadialRadius, uRadialCenter;
+uniform float uRadialAmount, uRadialArc, uRadialSpread, uRadialRadius, uRadialCenter, uRadialCone;
 #endif
 uniform mat4 uShedModel;              // the wave's matrixWorld (deformed LOCAL → world)
 uniform float uShedSpeed, uShedSeed;
@@ -1179,7 +1187,8 @@ uniform float uPartShove; // how hard the cursor shoves dust that has already dr
 
 varying float vAlpha;
 varying vec3 vColor;
-varying vec2 vDir; // screen-space motion direction (for the streak sprite)
+varying vec2 vDir;  // screen-space motion direction (for the streak sprite)
+varying float vSeed; // this particle's seed (the square sprite cuts its own shard from it)
 
 const float TAU = 6.28318530718;
 
@@ -1306,6 +1315,7 @@ void main(){
   vAlpha = fade * mix(1.0, tw, clamp(uTwinkle, 0.0, 1.0));
   vColor = mix(uColor, uColor2, aRnd.w); // two-tone dust: per-particle blend of the two colours
   vDir = normalize(vec2(dot(outward, uRight), dot(outward, uUp)) + vec2(1e-4)); // outward, in screen space
+  vSeed = aSeed;
   gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
   // Orthographic camera → point size is constant in device pixels (no perspective depth divide).
   float jitter = 1.0 + uSizeJitter * (aSeed - 0.5) * 2.0;
@@ -1315,10 +1325,11 @@ void main(){
 
 export const particleFragmentShader = /* glsl */ `
 precision highp float;
-uniform float uShape; // 0 glitter · 1 soft · 2 ring · 3 star · 4 streak
+uniform float uShape; // 0 glitter · 1 soft · 2 ring · 3 star · 4 streak · 5 square
 varying float vAlpha;
 varying vec3 vColor;
 varying vec2 vDir;
+varying float vSeed; // this particle's seed — the square sprite cuts its own shard from it
 // User artwork (shape "sprite"), behind a define so a field without one compiles the exact same
 // program — and so the sampler only exists once a texture is actually bound to it. ONE texture is
 // shared by every particle in the field; see ParticleField.loadSprite for the rasterization.
@@ -1353,12 +1364,23 @@ void main(){
     float along = dot(pc, vDir);
     float perp = dot(pc, vec2(-vDir.y, vDir.x));
     a = smoothstep(0.5, 0.0, length(vec2(along * 0.42, perp * 2.2)));
-  } else if (s == 5) {             // square: a hard-edged chip (blocky debris)
-    // Chebyshev distance instead of Euclidean — the same smoothstep then cuts a SQUARE, and a point
-    // sprite is already screen-aligned, so these read as pixel-crisp blocks at any zoom. The 0.02
-    // ramp is one texel of softness, enough to keep the edge from crawling without rounding it.
-    float m = max(abs(pc.x), abs(pc.y));
-    a = smoothstep(0.36, 0.34, m);
+  } else if (s == 5) {             // square: a hard-edged chip of debris
+    // A rectangle, not a disc: Chebyshev distance in place of Euclidean, screen-aligned because a
+    // point sprite already is. But a field of IDENTICAL squares reads as grain rather than debris,
+    // so each one cuts its own shard out of its quad — its own extent, proportion and quarter-turn,
+    // from three hashes of the particle seed. The extent is SQUARED, which gives the heavy tail real
+    // rubble has: mostly small chips with a few big slabs among them, rather than one uniform size.
+    float h1 = fract(sin(vSeed * 127.1) * 43758.5453);
+    float h2 = fract(sin(vSeed * 311.7) * 24634.6345);
+    float h3 = fract(sin(vSeed * 74.7) * 39158.5453);
+    float ext = mix(0.10, 0.47, h1 * h1);
+    float asp = mix(0.38, 1.0, h2);
+    vec2 q = h3 > 0.5 ? pc.yx : pc; // half the shards are bars the other way round
+    float m = max(abs(q.x) / asp, abs(q.y));
+    // Antialias over one pixel of the sprite quad, so a 3px chip has a clean edge and a 30px slab
+    // is not blurred by a fixed ramp sized for the small ones.
+    float w = max(fwidth(m), 1.0e-4);
+    a = 1.0 - smoothstep(ext - w, ext + w, m);
   } else {                         // glitter (0): the soft round additive disc
     a = smoothstep(0.5, 0.0, d);
   }
