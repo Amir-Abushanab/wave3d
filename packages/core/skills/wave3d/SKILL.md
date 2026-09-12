@@ -155,7 +155,8 @@ each other and their overlaps build real depth — this is the difference betwee
 reads as one flat sheet and one that reads as a layered object. Also lets a solid wave sit behind a
 comb as a dark backing. Note that `lineAmount` counts strands across the whole of uv.x, which the
 radial fan maps to `radialArc`, so a narrow arc needs a proportionally SMALLER count or the strands
-go sub-pixel and average to grey.
+go sub-pixel and average to grey. `edgeFeather` now applies to the wireframe too — without it a
+ribbon ends at a flat end-cap that reads as a straight cut across the strands.
 
 **React flat props** are a shortcut mapped onto `waves[0]` and the scene:
 `palette` (`string[]` | `ColorStop[]`), `fiberCount`, `fiberStrength`, `sheen`, `iridescence`,

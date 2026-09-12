@@ -791,6 +791,9 @@ uniform float uLineAmount;          // default 425
 uniform float uLineThickness;       // default 1
 uniform float uLineDerivativePower; // default 0.95
 uniform float uLineDepthFade;       // 1 = the original hardcoded recede, 0 = flat/graphic
+#ifdef EDGE_FEATHER
+uniform float uEdgeFeather;         // softness of the ribbon's two ENDS (shared with the solid theme)
+#endif
 #ifdef LINE_CLEAR_GAPS
 uniform float uLineGapOpacity;      // how much page colour the gaps between strands carry (0 = clear)
 #endif
@@ -874,6 +877,16 @@ void main(){
   // gives the proper subtle far-end fade and thin-line look.
   float depthFade = clamp(vClipPosition.z * 6.0, 0.0, 1.0) * uLineDepthFade;
   float cov = a * (1.0 - depthFade);
+  // Soft ribbon ENDS, exactly as the solid theme fades them (on vUv.y, the length). Without this a
+  // wireframe ribbon stops dead: its end-cap is a flat cross-section that reads as a straight cut
+  // drawn across the strands, which is glaring the moment a ribbon curls back into frame. The 0.1
+  // default matches the solid theme's hardcoded value, so a wave that never set edgeFeather keeps
+  // its old ends — this only ever softens what was already an abrupt stop.
+#ifdef EDGE_FEATHER
+  cov *= smoothstep(0.0, uEdgeFeather, vUv.y) * (1.0 - smoothstep(1.0 - uEdgeFeather, 1.0, vUv.y));
+#else
+  cov *= smoothstep(0.0, 0.1, vUv.y) * (1.0 - smoothstep(0.9, 1.0, vUv.y));
+#endif
 #ifdef LINE_CLEAR_GAPS
   // CLEAR GAPS. By default the gaps between strands are painted with the page colour, which makes a
   // wireframe wave an opaque card: stack two and the front one's gaps hide the back one behind flat

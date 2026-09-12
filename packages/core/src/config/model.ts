@@ -192,7 +192,8 @@ export interface WaveConfig {
   edgeFade: number;
   /** Softness of the ribbon's two ENDS — it smoothsteps on uv.y, which is the length, not the
    *  long edges. 0.1 = the original hardcoded value; smaller = razor-crisp graphic ribbons,
-   *  larger = soft vapor. */
+   *  larger = soft vapor. Both themes honour it: on the wireframe it is what stops a sweep ending
+   *  at a flat end-cap that reads as a straight cut drawn across the strands. */
   edgeFeather: number;
   /** Depth tint (solid theme): fade far fragments toward depthTintColor for atmospheric
    *  separation in multi-wave stacks (0 = off). */

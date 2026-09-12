@@ -781,39 +781,38 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     return c;
   },
   /**
-   * DISINTEGRATION — the "snap". Engraved strands spiralling into a throat over warm paper, and
-   * crumbling into blocky debris across a straight edge down the frame.
+   * DISINTEGRATION — the "snap". A broad combed sheet sweeping up out of frame, curling over into a
+   * roll, and crumbling into blocky debris across a straight edge down the canvas.
    *
-   * Five things have to agree for this to read at all, and none of them are obvious:
+   * The composition is THREE dissimilar sheets, not a symmetric fan: one wide sweep, one crossing it,
+   * one tight roll. Each is a narrow radial fan, coned onto a trumpet's slant and swirled so its
+   * angle advances along its own length — which is what curls a straight arm into one that wraps.
+   * Giving them different arcs, swirls, poses and scales is what makes them read as sheets crossing
+   * rather than as a pinwheel.
    *
-   *   - CLEAR GAPS. `lineGapOpacity: 0` is what makes it a stack rather than a pile. By default the
-   *     wireframe paints the page colour between its strands, which makes each wave an opaque card
-   *     that hides the ones behind it; clear, the combs show through each other and the overlaps
-   *     build the dark masses that give the whole thing depth.
-   *   - SPIRAL ARMS. `radialSwirl` lets the fan's angle advance along the band as well as across it.
-   *     Radius already grows with uv.y, so angle growing with it too is exactly what curls a
-   *     straight arm around the throat — the motif the piece is built on, and one the twists (which
-   *     ramp once) and the helix (whose width never follows a slant) both cannot reach.
-   *   - SLANT. `radialCone` lifts the fan out of its own plane so each arm runs down a trumpet's
-   *     slant rather than lying flat.
-   *   - INK. `lineSharpness` turns the stripe's soft ramp into a duty cycle — without it
-   *     `lineThickness` only goes from pale hairlines to flat solid, never through dense ink — and
-   *     `lineDerivativePower` 0.7 lets the strands thicken where the surface foreshortens, which is
-   *     what reads as light falling across a curve. `lineAmount` is only 160 because a stripe count
-   *     is spread across `radialArc`, and 60° of arc turns a bigger number into grey mush.
-   *   - ONE FRONT. `axis: "screenX"` puts the dissolve on the CANVAS rather than on any one band, so
-   *     all four crumble against the same edge however each is posed, and `dust: 1` pins each wave's
-   *     debris to that same front — a mote is the chunk of surface that just left.
+   * Four rendering choices carry the look, and none are obvious:
    *
-   * The scroll binding is the point of the preset: at rest it is the poster above, and scrolling runs
-   * `dissolve.amount` to 0.95, taking the whole thing apart.
+   *   - `lineGapOpacity: 0`. The wireframe paints the page colour BETWEEN its strands by default,
+   *     which makes each wave an opaque card that hides the ones behind it. Clear, the combs show
+   *     through each other and the overlaps build the dark masses — this is where all the depth is.
+   *   - `edgeFeather: 0.3`. A wireframe ribbon otherwise stops dead at a flat end-cap that reads as a
+   *     straight cut across the strands. Feathered, the sweeps fade out of frame instead.
+   *   - `lineSharpness` turns the stripe's soft ramp into a duty cycle (without it `lineThickness`
+   *     only goes from pale hairlines to flat solid), and `lineDerivativePower` 0.4 lets the strands
+   *     thicken a little where the surface turns away — the read of light across a curve. Higher and
+   *     the silhouette fuses into a glossy rim the reference does not have.
+   *   - `lineAmount` is only 160 because a stripe count is spread across `radialArc`, and 45-110° of
+   *     arc turns a bigger number into sub-pixel grey.
+   *
+   * The dissolve is one front for all three (`axis: "screenX"`) with `dust: 1` pinning each wave's
+   * debris to it, and scroll runs it to 0.95 — at rest the poster, scrolled the whole thing gone.
    */
   Disintegration: () => {
     const c = PRESETS["Hero"]();
     const base = c.waves[0];
     base.theme = "wireframe";
-    // Ink-dominant, with violet only in two narrow bands at the ends of the ramp — so a strand is a
-    // black engraving that lights to violet as the surface turns, not a violet sheet with dark edges.
+    // Ink-dominant, with violet at both ends of the ramp — a strand is a black engraving that lights
+    // to violet as the surface turns, not a violet sheet with dark edges.
     base.usePaletteTexture = false;
     base.palette = [
       { color: "#cbb9f2", pos: 0 },
@@ -826,31 +825,24 @@ export const PRESETS: Record<string, () => StudioConfig> = {
       { color: "#d8cbf6", pos: 1 },
     ];
     base.gradientType = "linear";
-    base.gradientAngle = 90; // across uv.x, which the fan maps to the ARC — so the ramp runs across the band
+    base.gradientAngle = 90; // across uv.x, which the fan maps to the ARC — so the ramp runs across the sheet
     base.gradientShift = 0;
     base.hueShift = 0;
     base.colorContrast = 1;
     base.colorSaturation = 1;
     base.fiberStrength = 0; // the strands ARE the texture here; streaks would only muddy them
     base.lineAmount = 160;
-    base.lineThickness = 0.6; // the duty cycle, once lineSharpness has hardened the ramp
-    base.lineDerivativePower = 0.7; // strands thicken where the surface turns away — the light on the curve
+    base.lineThickness = 1.1; // the duty cycle, once lineSharpness has hardened the ramp
+    base.lineDerivativePower = 0.4;
     base.lineSharpness = 0.93;
     base.lineDepthFade = 0;
     base.lineGapOpacity = 0; // see above: this is what lets the combs layer instead of occlude
+    base.edgeFeather = 0.3; // fade the sweeps out of frame instead of cutting them off
     base.blendMode = "normal";
     base.opacity = 1;
-    // A narrow fan, coned onto a trumpet slant and swirled into a spiral arm. Spread 2.3 runs each
-    // arm well past the throat, so it sweeps out of frame rather than ending in a tidy petal.
     base.radialAmount = 1;
-    base.radialArc = 60;
-    base.radialCone = 0.5;
-    base.radialSwirl = 200;
-    base.radialRadius = 28;
-    base.radialSpread = 2.3;
-    base.radialCenter = 0;
-    // A broad slow swell so the arms undulate; the fan dominates, so it ripples them without fraying
-    // the silhouette the way it would on a flat sheet.
+    // A broad slow swell so the sheets undulate; the fan dominates, so it ripples them without
+    // fraying the silhouette the way it would on a flat sheet.
     base.displaceAmount = 70;
     base.displaceFrequency = { x: 0.004, y: 0.006 };
     base.twistFrequency = { x: 0, y: 0, z: 0 };
@@ -858,26 +850,38 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     base.speed = 0.08;
     base.position = { x: 0, y: 0, z: 0 };
 
-    // Four arms a quarter-turn apart, all tipped the same way so the spiral reads as one object seen
-    // from one angle rather than four fans pointing in different directions.
-    const waves: WaveConfig[] = [];
-    for (let i = 0; i < 4; i++) {
+    /** One sheet: its own arc, slant, wrap, reach and pose — they must not match, or it reads as a fan. */
+    const sheet = (
+      i: number,
+      scale: number,
+      rot: [number, number, number],
+      arc: number,
+      cone: number,
+      swirl: number,
+      radius: number,
+      spread: number,
+    ): WaveConfig => {
       const w = structuredClone(base);
-      w.seed = i * 4.1;
-      w.rotation = { x: 55, y: 25, z: -20 + i * 90 };
-      const k = 1 - i * 0.05; // barely tapering, so no arm hides the ones behind it
-      w.scale = { x: k, y: k, z: k };
+      w.seed = i * 3.7;
+      w.scale = { x: scale, y: scale, z: scale };
+      w.rotation = { x: rot[0], y: rot[1], z: rot[2] };
+      w.radialArc = arc;
+      w.radialCone = cone;
+      w.radialSwirl = swirl;
+      w.radialRadius = radius;
+      w.radialSpread = spread;
+      w.radialCenter = 0;
       w.dissolve = {
-        amount: 0.26,
+        amount: 0.22,
         axis: "screenX",
-        reverse: true, // eat in from the RIGHT edge, leaving the standing arms on the left
-        band: 0.25,
+        reverse: true, // eat in from the RIGHT edge, leaving the standing sweep on the left
+        band: 0.22,
         scale: 38,
         blocky: 0.8,
         dust: 1,
       };
       // Scroll takes the front the rest of the way. `from` is omitted, so at scroll 0 the wave sits
-      // at its authored 0.26 and the still frame above is what a reader sees before they move.
+      // at its authored 0.22 and the still frame above is what a reader sees before they move.
       w.interaction = {
         bindings: [{ source: "scroll", target: "dissolveAmount", to: 0.95, smoothing: 0.2 }],
       };
@@ -901,10 +905,15 @@ export const PRESETS: Record<string, () => StudioConfig> = {
         life: 6,
         speed: 1,
       };
-      waves.push(w);
-    }
-    c.waves = waves;
-    c.waveCount = waves.length;
+      return w;
+    };
+
+    c.waves = [
+      sheet(0, 1.0, [55, 25, -20], 60, 0.5, 200, 28, 2.3), // the wide sweep
+      sheet(1, 1.3, [30, 45, 100], 110, 0.3, 120, 40, 2.6), // crossing it, broader and flatter
+      sheet(2, 0.8, [70, 10, 220], 45, 0.8, 280, 20, 2.0), // the tight roll it curls into
+    ];
+    c.waveCount = c.waves.length;
 
     c.background = "#f7f6f1"; // warm paper
     c.backgroundMode = "color";
@@ -913,11 +922,11 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     c.blur = 0;
     c.cameraDistance = 5001;
     c.cameraPosition = { x: 0, y: 0, z: 5000 };
-    c.cameraTarget = { x: -360, y: -40, z: 0 };
-    c.cameraZoom = 0.8;
+    c.cameraTarget = { x: -220, y: -20, z: 0 };
+    c.cameraZoom = 0.6;
     // The front is a SCREEN edge, so a narrow phone cropping to a quarter of the authored width
     // would put it somewhere else entirely on the composition. Holding 70% of that width on screen
-    // keeps the standing arms, the crumble edge and the debris in the same relationship.
+    // keeps the sweep, the roll and the debris in the same relationship.
     c.cameraMinVisibleWidth = 0.7;
     return c;
   },

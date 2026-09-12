@@ -268,6 +268,13 @@ function buildWireframeFragment(
     // Depth fade: the wave recedes into the background colour with depth.
     const depthFade = clamp(clipZ.mul(6.0), 0, 1).mul(u.uLineDepthFade);
     const cov = a.mul(float(1).sub(depthFade)).toVar("lineCov");
+    // Soft ribbon ENDS, as the solid theme fades them — see the GLSL for why a wireframe needs it.
+    const feather = flags.edgeFeather ? u.uEdgeFeather : float(0.1);
+    cov.mulAssign(
+      smoothstep(0.0, feather, vUv.y).mul(
+        float(1).sub(smoothstep(float(1).sub(feather), 1.0, vUv.y)),
+      ),
+    );
     if (flags.lineClearGaps) {
       // CLEAR GAPS: the gaps carry the page colour only as far as uLineGapOpacity and are otherwise
       // transparent, so the strands composite over whatever is really behind them rather than over a

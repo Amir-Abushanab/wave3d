@@ -969,6 +969,14 @@ export class WaveRenderer {
       u.uLineDepthFade.value = sc.lineDepthFade ?? 1;
       u.uLineSharpness.value = sc.lineSharpness ?? 0;
       u.uLineGapOpacity.value = sc.lineGapOpacity ?? 1;
+      // Clear-gap strands must not write DEPTH. They are thin transparent slivers layered many deep,
+      // and any two sheets that pass close to coplanar then decide who occludes whom by depth
+      // precision — which is arbitrary, differs between backends, and shows up as strands winking in
+      // and out along a rim. With the write off they simply composite in draw order, which is the
+      // wave order and therefore stable. Opaque gaps keep writing depth exactly as before.
+      const clearGaps = sc.theme === "wireframe" && (sc.lineGapOpacity ?? 1) < 1;
+      const wantDepthWrite = !clearGaps;
+      if (wave.material.depthWrite !== wantDepthWrite) wave.material.depthWrite = wantDepthWrite;
       u.uRungAmount.value = sc.rungAmount ?? 0;
       u.uRungThickness.value = sc.rungThickness ?? 1;
       u.uMaxWidth.value = sc.maxWidth ?? 1232;

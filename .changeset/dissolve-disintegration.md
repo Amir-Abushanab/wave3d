@@ -44,6 +44,13 @@ Three supporting knobs, each inert at its default:
   into the throat, which is a shape neither the twists nor the helix can reach (a helix carries the
   ribbon around an axis, but its WIDTH never follows the slant).
 
+`edgeFeather` now applies to the WIREFRAME theme as well as the solid one. Without it a wireframe
+ribbon stops dead at its end-cap — a flat cross-section that reads as a straight cut drawn across the
+strands, glaring the moment a ribbon curls back into frame. Clear-gap strands also stop writing
+DEPTH: they are thin transparent slivers layered many deep, and two sheets passing near-coplanar
+would otherwise decide who occludes whom by depth precision, which is arbitrary and differs between
+backends; with the write off they composite in wave order, which is stable.
+
 `lineGapOpacity` decides what sits between the strands. At 1 (the default) the gaps are painted with
 the page background, which is what the wireframe theme has always done — and which makes a wireframe
 wave an opaque CARD: stack two and the front one's gaps hide the back one behind flat page colour
