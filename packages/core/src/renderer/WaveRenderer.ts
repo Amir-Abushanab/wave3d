@@ -636,6 +636,7 @@ export class WaveRenderer {
       uLineDerivativePower: { value: 0.95 },
       uLineDepthFade: { value: 1 },
       uLineSharpness: { value: 0 },
+      uLineGapOpacity: { value: 1 },
       uMaxWidth: { value: 1232 },
       uClearColor: { value: new THREE.Vector3(1, 1, 1) },
       // Interaction / pointer field. ALWAYS present in JS (read only under POINTER_FX /
@@ -657,6 +658,7 @@ export class WaveRenderer {
       uRadialRadius: { value: 40 },
       uRadialCenter: { value: 0 },
       uRadialCone: { value: 0 },
+      uRadialSwirl: { value: 0 },
       uRungAmount: { value: 0 },
       uRungThickness: { value: 1 },
       // Dissolve (both fragment shaders, under DISSOLVE). Always present JS-side; three uploads
@@ -720,6 +722,9 @@ export class WaveRenderer {
     // Stripe hardening, wireframe only and only when asked for: 0 is the soft ramp the theme has
     // always drawn, and leaving the block uncompiled keeps that byte-identical.
     if (sc?.theme === "wireframe" && (sc.lineSharpness ?? 0) > 0) defines.LINE_SHARP = "";
+    // Clear gaps, wireframe only: 1 is the opaque card the theme has always drawn, and leaving the
+    // block uncompiled keeps that byte-identical (it also keeps the discard out of the program).
+    if (sc?.theme === "wireframe" && (sc.lineGapOpacity ?? 1) < 1) defines.LINE_CLEAR_GAPS = "";
     // Dissolve: a `dissolveAmount` binding counts too — driving the front up from an authored 0
     // has to have somewhere to land (as with detailAmount / helix above).
     const bindsDissolve =
@@ -963,6 +968,7 @@ export class WaveRenderer {
       u.uLineDerivativePower.value = sc.lineDerivativePower ?? 0.95;
       u.uLineDepthFade.value = sc.lineDepthFade ?? 1;
       u.uLineSharpness.value = sc.lineSharpness ?? 0;
+      u.uLineGapOpacity.value = sc.lineGapOpacity ?? 1;
       u.uRungAmount.value = sc.rungAmount ?? 0;
       u.uRungThickness.value = sc.rungThickness ?? 1;
       u.uMaxWidth.value = sc.maxWidth ?? 1232;
@@ -1037,6 +1043,7 @@ export class WaveRenderer {
       u.uRadialRadius.value = sc.radialRadius ?? 40;
       u.uRadialCenter.value = sc.radialCenter ?? 0;
       u.uRadialCone.value = sc.radialCone ?? 0;
+      u.uRadialSwirl.value = sc.radialSwirl ?? 0;
       const dis = sc.dissolve;
       u.uDissolveAmount.value = dis?.amount ?? 0;
       u.uDissolveBand.value = dis?.band ?? 0.35;

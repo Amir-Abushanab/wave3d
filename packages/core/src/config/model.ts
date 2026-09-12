@@ -249,6 +249,12 @@ export interface WaveConfig {
    *  0 = the flat fan (the default, byte-identical), ~0.6 a wide mouth, ~1.4 a narrow horn.
    *  Negative cones the other way. Inert unless `radialAmount` > 0. */
   radialCone?: number;
+  /** Degrees of ANGLE the band gains along its own length. The fan's angle otherwise comes from uv.x
+   *  alone, so every arm runs straight out from the throat; radius already grows with uv.y, and
+   *  letting angle grow with it too is exactly what turns a straight arm into a SPIRAL one that
+   *  curves around the throat. 0 = straight (the default, byte-identical); 150 wraps most of a
+   *  half-turn. Negative spirals the other way. Inert unless `radialAmount` > 0. */
+  radialSwirl?: number;
   // Material ("solid" surface vs "wireframe" line shader)
   theme?: "solid" | "wireframe";
   lineAmount?: number;
@@ -268,6 +274,14 @@ export interface WaveConfig {
    *  this becomes the edge. 0.9 with `lineThickness` ~1.5 is heavy ink with crisp gaps still
    *  reading — the engraved / guilloché look. Default 0 (the original soft ramp). */
   lineSharpness?: number;
+  /** Wireframe only: how much of the page background the GAPS between strands carry. 1 (the default)
+   *  paints them solid with it, which is what the theme has always done — and which makes a wireframe
+   *  wave an opaque CARD: stack two and the front one's gaps hide the back one behind flat page
+   *  colour instead of showing it through. 0 leaves them clear, so the strands composite over
+   *  whatever is really behind: the next wave in the stack, a solid wave used as a dark backing, the
+   *  page itself. A stack of clear-gap combs is how a wireframe reads as depth rather than as one
+   *  flat sheet. Values between are a veil. */
+  lineGapOpacity?: number;
   /** Wireframe RUNGS: a second line family carved at constant uv.y, so these run ACROSS the ribbon
    *  where `lineAmount`'s run along it — the two cross into a ladder. Frequency, like `lineAmount`
    *  (rungs ≈ amount / π). 0 = off, and the cross-wise path isn't compiled. */
@@ -841,12 +855,14 @@ function defaultWave(): WaveConfig {
     radialRadius: 40,
     radialCenter: 0,
     radialCone: 0,
+    radialSwirl: 0,
     theme: "solid",
     lineAmount: 425, // wireframe-theme line params (defaults)
     lineThickness: 1,
     lineDerivativePower: 0.95,
     lineDepthFade: 1,
     lineSharpness: 0,
+    lineGapOpacity: 1,
     rungAmount: 0, // cross-wise rungs off
     rungThickness: 1,
     maxWidth: 1232,
@@ -1103,12 +1119,14 @@ export function normalizeWave(s: WaveConfig): void {
   if (!Number.isFinite(s.radialRadius)) s.radialRadius = 40;
   if (!Number.isFinite(s.radialCenter)) s.radialCenter = 0;
   if (!Number.isFinite(s.radialCone)) s.radialCone = 0;
+  if (!Number.isFinite(s.radialSwirl)) s.radialSwirl = 0;
   if (typeof s.theme !== "string") s.theme = "solid";
   if (!Number.isFinite(s.lineAmount)) s.lineAmount = 425;
   if (!Number.isFinite(s.lineThickness)) s.lineThickness = 1;
   if (!Number.isFinite(s.lineDerivativePower)) s.lineDerivativePower = 0.95;
   if (!Number.isFinite(s.lineDepthFade)) s.lineDepthFade = 1;
   if (!Number.isFinite(s.lineSharpness)) s.lineSharpness = 0;
+  if (!Number.isFinite(s.lineGapOpacity)) s.lineGapOpacity = 1;
   if (!Number.isFinite(s.rungAmount)) s.rungAmount = 0;
   if (!Number.isFinite(s.rungThickness)) s.rungThickness = 1;
   if (!Number.isFinite(s.maxWidth)) s.maxWidth = 1232;

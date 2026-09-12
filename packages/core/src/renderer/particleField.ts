@@ -93,6 +93,7 @@ const SHAPE_UNIFORMS = [
   "uRadialRadius",
   "uRadialCenter",
   "uRadialCone",
+  "uRadialSwirl",
   // Dissolve: the front the ribbon is crumbling along, plus how hard this field is pinned to it.
   // Mirrored like everything else here, so the dust leaves exactly where the surface goes.
   "uDissolveAmount",
@@ -294,6 +295,7 @@ export class ParticleField {
         uRadialRadius: { value: 0 },
         uRadialCenter: { value: 0 },
         uRadialCone: { value: 0 },
+        uRadialSwirl: { value: 0 },
         uDissolveAmount: { value: 0 },
         uDissolveBand: { value: 0.35 },
         uDissolveScale: { value: 90 },

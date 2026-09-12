@@ -69,6 +69,8 @@ export interface WaveMaterialFlags extends WaveShapeFlags {
   lineSharp: boolean;
   /** The disintegration front: compiled only when the wave has one, as in the GLSL. */
   dissolve: boolean;
+  /** Clear gaps (wireframe only): compiled only when lineGapOpacity < 1, as in the GLSL. */
+  lineClearGaps: boolean;
   /**
    * True when the active backend uses [0,1] clip Z (WebGPU) rather than [-1,1] (WebGL).
    *
@@ -265,7 +267,20 @@ function buildWireframeFragment(
 
     // Depth fade: the wave recedes into the background colour with depth.
     const depthFade = clamp(clipZ.mul(6.0), 0, 1).mul(u.uLineDepthFade);
-    const faded = mix(u.uClearColor, color, a.mul(float(1).sub(depthFade))).toVar("lineFaded");
+    const cov = a.mul(float(1).sub(depthFade)).toVar("lineCov");
+    if (flags.lineClearGaps) {
+      // CLEAR GAPS: the gaps carry the page colour only as far as uLineGapOpacity and are otherwise
+      // transparent, so the strands composite over whatever is really behind them rather than over a
+      // flat card of page colour. See the LINE_CLEAR_GAPS block in the GLSL.
+      const gapA = float(1).sub(cov).mul(u.uLineGapOpacity).toVar("lineGapA");
+      const outA = cov.add(gapA).toVar("lineOutA");
+      // A fully clear gap must not reach the depth buffer, or it occludes the wave behind it.
+      Discard(outA.lessThanEqual(0.002));
+      const straight = color.mul(cov).add(u.uClearColor.mul(gapA)).div(outA).toVar("lineStraight");
+      const outC = select(u.uSquared.greaterThan(0.5), straight.mul(straight), straight);
+      return vec4(outC, u.uOpacity.mul(outA));
+    }
+    const faded = mix(u.uClearColor, color, cov).toVar("lineFaded");
     // Deep "squared" look — composited, not replace-blended (see applyBlendMode).
     const out = select(u.uSquared.greaterThan(0.5), faded.mul(faded), faded);
     return vec4(out, u.uOpacity);

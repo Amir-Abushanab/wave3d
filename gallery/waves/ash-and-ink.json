@@ -4,18 +4,18 @@
   "config": {
     "background": "#f7f6f1",
     "transparentBackground": false,
-    "waveCount": 6,
+    "waveCount": 4,
     "cameraPosition": {
       "x": 0,
       "y": 0,
       "z": 5000
     },
     "cameraTarget": {
-      "x": -250,
-      "y": -70,
+      "x": -360,
+      "y": -40,
       "z": 0
     },
-    "cameraZoom": 0.7,
+    "cameraZoom": 0.8,
     "cameraMinVisibleWidth": 0.7,
     "grain": 0,
     "blur": 0,
@@ -84,21 +84,23 @@
         "radialSpread": 2.3,
         "radialRadius": 28,
         "radialCone": 0.5,
+        "radialSwirl": 200,
         "theme": "wireframe",
-        "lineAmount": 105,
-        "lineThickness": 1.7,
-        "lineDerivativePower": 0,
+        "lineAmount": 160,
+        "lineThickness": 0.6,
+        "lineDerivativePower": 0.7,
         "lineDepthFade": 0,
         "lineSharpness": 0.93,
+        "lineGapOpacity": 0,
         "position": {
           "x": 0,
           "y": 0,
           "z": 0
         },
         "rotation": {
-          "x": 70,
-          "y": 0,
-          "z": 0
+          "x": 55,
+          "y": 25,
+          "z": -20
         },
         "scale": {
           "x": 1,
@@ -207,26 +209,28 @@
         "radialSpread": 2.3,
         "radialRadius": 28,
         "radialCone": 0.5,
+        "radialSwirl": 200,
         "theme": "wireframe",
-        "lineAmount": 105,
-        "lineThickness": 1.7,
-        "lineDerivativePower": 0,
+        "lineAmount": 160,
+        "lineThickness": 0.6,
+        "lineDerivativePower": 0.7,
         "lineDepthFade": 0,
         "lineSharpness": 0.93,
+        "lineGapOpacity": 0,
         "position": {
           "x": 0,
           "y": 0,
           "z": 0
         },
         "rotation": {
-          "x": 62,
-          "y": 10,
-          "z": 58
+          "x": 55,
+          "y": 25,
+          "z": 70
         },
         "scale": {
-          "x": 0.97,
-          "y": 0.97,
-          "z": 0.97
+          "x": 0.95,
+          "y": 0.95,
+          "z": 0.95
         },
         "blendMode": "normal",
         "speed": 0.08,
@@ -331,26 +335,28 @@
         "radialSpread": 2.3,
         "radialRadius": 28,
         "radialCone": 0.5,
+        "radialSwirl": 200,
         "theme": "wireframe",
-        "lineAmount": 105,
-        "lineThickness": 1.7,
-        "lineDerivativePower": 0,
+        "lineAmount": 160,
+        "lineThickness": 0.6,
+        "lineDerivativePower": 0.7,
         "lineDepthFade": 0,
         "lineSharpness": 0.93,
+        "lineGapOpacity": 0,
         "position": {
           "x": 0,
           "y": 0,
           "z": 0
         },
         "rotation": {
-          "x": 54,
-          "y": 20,
-          "z": 116
+          "x": 55,
+          "y": 25,
+          "z": 160
         },
         "scale": {
-          "x": 0.94,
-          "y": 0.94,
-          "z": 0.94
+          "x": 0.9,
+          "y": 0.9,
+          "z": 0.9
         },
         "blendMode": "normal",
         "speed": 0.08,
@@ -455,26 +461,28 @@
         "radialSpread": 2.3,
         "radialRadius": 28,
         "radialCone": 0.5,
+        "radialSwirl": 200,
         "theme": "wireframe",
-        "lineAmount": 105,
-        "lineThickness": 1.7,
-        "lineDerivativePower": 0,
+        "lineAmount": 160,
+        "lineThickness": 0.6,
+        "lineDerivativePower": 0.7,
         "lineDepthFade": 0,
         "lineSharpness": 0.93,
+        "lineGapOpacity": 0,
         "position": {
           "x": 0,
           "y": 0,
           "z": 0
         },
         "rotation": {
-          "x": 46,
-          "y": 30,
-          "z": 174
+          "x": 55,
+          "y": 25,
+          "z": 250
         },
         "scale": {
-          "x": 0.91,
-          "y": 0.91,
-          "z": 0.91
+          "x": 0.85,
+          "y": 0.85,
+          "z": 0.85
         },
         "blendMode": "normal",
         "speed": 0.08,
@@ -502,254 +510,6 @@
           "count": 3500,
           "size": 8.3,
           "seed": 32,
-          "sizeJitter": 1,
-          "color": "#9b79ec",
-          "color2": "#c9b4f6",
-          "shape": "square",
-          "blend": "normal",
-          "edgeBias": 0,
-          "drift": 520,
-          "rise": 30,
-          "wander": 60,
-          "twinkle": 0,
-          "life": 6,
-          "speed": 1
-        }
-      },
-      {
-        "palette": [
-          {
-            "color": "#cbb9f2",
-            "pos": 0
-          },
-          {
-            "color": "#7a54cf",
-            "pos": 0.05
-          },
-          {
-            "color": "#120b22",
-            "pos": 0.14
-          },
-          {
-            "color": "#050409",
-            "pos": 0.42
-          },
-          {
-            "color": "#050409",
-            "pos": 0.64
-          },
-          {
-            "color": "#1c1233",
-            "pos": 0.86
-          },
-          {
-            "color": "#6f4cc6",
-            "pos": 0.95
-          },
-          {
-            "color": "#d8cbf6",
-            "pos": 1
-          }
-        ],
-        "gradientShift": 0,
-        "usePaletteTexture": false,
-        "hueShift": 0,
-        "colorSaturation": 1,
-        "fiberStrength": 0,
-        "creaseLight": 1.98,
-        "creaseSharpness": 0.806,
-        "creaseSoftness": 0.834,
-        "displaceFrequency": {
-          "x": 0.004,
-          "y": 0.006
-        },
-        "displaceAmount": 70,
-        "twistFrequency": {
-          "x": 0,
-          "y": 0,
-          "z": 0
-        },
-        "twistPower": {
-          "x": 4,
-          "y": 4,
-          "z": 1
-        },
-        "radialAmount": 1,
-        "radialArc": 60,
-        "radialSpread": 2.3,
-        "radialRadius": 28,
-        "radialCone": 0.5,
-        "theme": "wireframe",
-        "lineAmount": 105,
-        "lineThickness": 1.7,
-        "lineDerivativePower": 0,
-        "lineDepthFade": 0,
-        "lineSharpness": 0.93,
-        "position": {
-          "x": 0,
-          "y": 0,
-          "z": 0
-        },
-        "rotation": {
-          "x": 38,
-          "y": 40,
-          "z": 232
-        },
-        "scale": {
-          "x": 0.88,
-          "y": 0.88,
-          "z": 0.88
-        },
-        "blendMode": "normal",
-        "speed": 0.08,
-        "seed": 16.4,
-        "dissolve": {
-          "amount": 0.26,
-          "axis": "screenX",
-          "reverse": true,
-          "band": 0.25,
-          "scale": 38,
-          "blocky": 0.8,
-          "dust": 1
-        },
-        "interaction": {
-          "bindings": [
-            {
-              "source": "scroll",
-              "target": "dissolveAmount",
-              "to": 0.95,
-              "smoothing": 0.2
-            }
-          ]
-        },
-        "particles": {
-          "count": 5000,
-          "size": 15.4,
-          "seed": 39,
-          "sizeJitter": 1,
-          "color": "#0b0812",
-          "color2": "#1d1230",
-          "shape": "square",
-          "blend": "normal",
-          "edgeBias": 0,
-          "drift": 320,
-          "rise": 30,
-          "wander": 60,
-          "twinkle": 0,
-          "life": 6,
-          "speed": 1
-        }
-      },
-      {
-        "palette": [
-          {
-            "color": "#cbb9f2",
-            "pos": 0
-          },
-          {
-            "color": "#7a54cf",
-            "pos": 0.05
-          },
-          {
-            "color": "#120b22",
-            "pos": 0.14
-          },
-          {
-            "color": "#050409",
-            "pos": 0.42
-          },
-          {
-            "color": "#050409",
-            "pos": 0.64
-          },
-          {
-            "color": "#1c1233",
-            "pos": 0.86
-          },
-          {
-            "color": "#6f4cc6",
-            "pos": 0.95
-          },
-          {
-            "color": "#d8cbf6",
-            "pos": 1
-          }
-        ],
-        "gradientShift": 0,
-        "usePaletteTexture": false,
-        "hueShift": 0,
-        "colorSaturation": 1,
-        "fiberStrength": 0,
-        "creaseLight": 1.98,
-        "creaseSharpness": 0.806,
-        "creaseSoftness": 0.834,
-        "displaceFrequency": {
-          "x": 0.004,
-          "y": 0.006
-        },
-        "displaceAmount": 70,
-        "twistFrequency": {
-          "x": 0,
-          "y": 0,
-          "z": 0
-        },
-        "twistPower": {
-          "x": 4,
-          "y": 4,
-          "z": 1
-        },
-        "radialAmount": 1,
-        "radialArc": 60,
-        "radialSpread": 2.3,
-        "radialRadius": 28,
-        "radialCone": 0.5,
-        "theme": "wireframe",
-        "lineAmount": 105,
-        "lineThickness": 1.7,
-        "lineDerivativePower": 0,
-        "lineDepthFade": 0,
-        "lineSharpness": 0.93,
-        "position": {
-          "x": 0,
-          "y": 0,
-          "z": 0
-        },
-        "rotation": {
-          "x": 30,
-          "y": 50,
-          "z": 290
-        },
-        "scale": {
-          "x": 0.85,
-          "y": 0.85,
-          "z": 0.85
-        },
-        "blendMode": "normal",
-        "speed": 0.08,
-        "seed": 20.5,
-        "dissolve": {
-          "amount": 0.26,
-          "axis": "screenX",
-          "reverse": true,
-          "band": 0.25,
-          "scale": 38,
-          "blocky": 0.8,
-          "dust": 1
-        },
-        "interaction": {
-          "bindings": [
-            {
-              "source": "scroll",
-              "target": "dissolveAmount",
-              "to": 0.95,
-              "smoothing": 0.2
-            }
-          ]
-        },
-        "particles": {
-          "count": 3500,
-          "size": 8.3,
-          "seed": 46,
           "sizeJitter": 1,
           "color": "#9b79ec",
           "color2": "#c9b4f6",

@@ -781,38 +781,39 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     return c;
   },
   /**
-   * DISINTEGRATION — the "snap". Engraved bands converging on a throat, crumbling into blocky
-   * debris across a straight edge down the frame.
+   * DISINTEGRATION — the "snap". Engraved strands spiralling into a throat over warm paper, and
+   * crumbling into blocky debris across a straight edge down the frame.
    *
-   * Worth reading as a recipe rather than a pile of numbers, because four separate things have to
-   * agree for it to read at all:
+   * Five things have to agree for this to read at all, and none of them are obvious:
    *
-   *   - The SHAPE is six narrow radial fans (`radialArc` 60°) coned out of plane by `radialCone`, so
-   *     each is a band running down a trumpet's slant into a common throat, not a flat plume. Their
-   *     rotations walk around in all three axes, which is what turns six identical bands into one
-   *     spiral. The twists are off entirely — they ramp once and cannot converge like this.
-   *   - The INK comes from `lineSharpness`: the wireframe's stripe is a soft ramp, so `lineThickness`
-   *     alone goes from pale hairlines to flat solid without passing through dense ink. Hardened, it
-   *     becomes a duty cycle instead, and 1.7 is heavy black with the paper still showing between
-   *     strands. `lineAmount` is only 105 because the arc is narrow — a stripe count is spread across
-   *     `radialArc`, so the same number that resolves on a wide fan turns a 60° one into grey mush.
-   *     `lineDepthFade` 0 holds every band at full contrast wherever it sits in depth.
-   *   - The FRONT is `axis: "screenX"`, a line on the CANVAS rather than on any one band, so all six
-   *     crumble against the same edge however each is rotated — the cluster comes apart as one object.
-   *   - The DUST is pinned to that same front by `dust: 1`, so a mote is the chunk of surface that
-   *     just left. The fields alternate coarse INK with fine violet, and each is nearly single-tone:
-   *     a continuum between the two would pass through mid-purple and read as haze instead of
-   *     black-and-violet debris.
+   *   - CLEAR GAPS. `lineGapOpacity: 0` is what makes it a stack rather than a pile. By default the
+   *     wireframe paints the page colour between its strands, which makes each wave an opaque card
+   *     that hides the ones behind it; clear, the combs show through each other and the overlaps
+   *     build the dark masses that give the whole thing depth.
+   *   - SPIRAL ARMS. `radialSwirl` lets the fan's angle advance along the band as well as across it.
+   *     Radius already grows with uv.y, so angle growing with it too is exactly what curls a
+   *     straight arm around the throat — the motif the piece is built on, and one the twists (which
+   *     ramp once) and the helix (whose width never follows a slant) both cannot reach.
+   *   - SLANT. `radialCone` lifts the fan out of its own plane so each arm runs down a trumpet's
+   *     slant rather than lying flat.
+   *   - INK. `lineSharpness` turns the stripe's soft ramp into a duty cycle — without it
+   *     `lineThickness` only goes from pale hairlines to flat solid, never through dense ink — and
+   *     `lineDerivativePower` 0.7 lets the strands thicken where the surface foreshortens, which is
+   *     what reads as light falling across a curve. `lineAmount` is only 160 because a stripe count
+   *     is spread across `radialArc`, and 60° of arc turns a bigger number into grey mush.
+   *   - ONE FRONT. `axis: "screenX"` puts the dissolve on the CANVAS rather than on any one band, so
+   *     all four crumble against the same edge however each is posed, and `dust: 1` pins each wave's
+   *     debris to that same front — a mote is the chunk of surface that just left.
    *
    * The scroll binding is the point of the preset: at rest it is the poster above, and scrolling runs
-   * `dissolve.amount` to 0.95, taking the whole cluster apart.
+   * `dissolve.amount` to 0.95, taking the whole thing apart.
    */
   Disintegration: () => {
     const c = PRESETS["Hero"]();
     const base = c.waves[0];
     base.theme = "wireframe";
-    // Ink-dominant, with violet only in two narrow bands at the ends of the ramp — so each band is a
-    // black engraving rimmed in violet rather than a violet sheet with dark edges.
+    // Ink-dominant, with violet only in two narrow bands at the ends of the ramp — so a strand is a
+    // black engraving that lights to violet as the surface turns, not a violet sheet with dark edges.
     base.usePaletteTexture = false;
     base.palette = [
       { color: "#cbb9f2", pos: 0 },
@@ -831,23 +832,25 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     base.colorContrast = 1;
     base.colorSaturation = 1;
     base.fiberStrength = 0; // the strands ARE the texture here; streaks would only muddy them
-    base.lineAmount = 105;
-    base.lineThickness = 1.7; // the duty cycle, once lineSharpness has hardened the ramp
-    base.lineDerivativePower = 0; // hold that duty steady rather than letting foreshortening set it
+    base.lineAmount = 160;
+    base.lineThickness = 0.6; // the duty cycle, once lineSharpness has hardened the ramp
+    base.lineDerivativePower = 0.7; // strands thicken where the surface turns away — the light on the curve
     base.lineSharpness = 0.93;
     base.lineDepthFade = 0;
+    base.lineGapOpacity = 0; // see above: this is what lets the combs layer instead of occlude
     base.blendMode = "normal";
     base.opacity = 1;
-    // A narrow fan, coned into a trumpet slant. Spread 2.3 runs each band well past the throat so it
-    // sweeps out of frame rather than ending in a tidy petal.
+    // A narrow fan, coned onto a trumpet slant and swirled into a spiral arm. Spread 2.3 runs each
+    // arm well past the throat, so it sweeps out of frame rather than ending in a tidy petal.
     base.radialAmount = 1;
     base.radialArc = 60;
     base.radialCone = 0.5;
+    base.radialSwirl = 200;
     base.radialRadius = 28;
     base.radialSpread = 2.3;
     base.radialCenter = 0;
-    // A broad slow swell so the bands undulate; the fan dominates, so it ripples them without
-    // fraying the silhouette the way it would on a flat sheet.
+    // A broad slow swell so the arms undulate; the fan dominates, so it ripples them without fraying
+    // the silhouette the way it would on a flat sheet.
     base.displaceAmount = 70;
     base.displaceFrequency = { x: 0.004, y: 0.006 };
     base.twistFrequency = { x: 0, y: 0, z: 0 };
@@ -855,26 +858,19 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     base.speed = 0.08;
     base.position = { x: 0, y: 0, z: 0 };
 
-    // Rotations walking in all three axes: the spiral is in how they are POSED, not in any one band.
-    const poses: [number, number, number][] = [
-      [70, 0, 0],
-      [62, 10, 58],
-      [54, 20, 116],
-      [46, 30, 174],
-      [38, 40, 232],
-      [30, 50, 290],
-    ];
+    // Four arms a quarter-turn apart, all tipped the same way so the spiral reads as one object seen
+    // from one angle rather than four fans pointing in different directions.
     const waves: WaveConfig[] = [];
-    poses.forEach(([rx, ry, rz], i) => {
+    for (let i = 0; i < 4; i++) {
       const w = structuredClone(base);
       w.seed = i * 4.1;
-      w.rotation = { x: rx, y: ry, z: rz };
-      const k = 1 - i * 0.03; // barely tapering, so no band hides the ones behind it
+      w.rotation = { x: 55, y: 25, z: -20 + i * 90 };
+      const k = 1 - i * 0.05; // barely tapering, so no arm hides the ones behind it
       w.scale = { x: k, y: k, z: k };
       w.dissolve = {
         amount: 0.26,
         axis: "screenX",
-        reverse: true, // eat in from the RIGHT edge, leaving the standing bands on the left
+        reverse: true, // eat in from the RIGHT edge, leaving the standing arms on the left
         band: 0.25,
         scale: 38,
         blocky: 0.8,
@@ -906,7 +902,7 @@ export const PRESETS: Record<string, () => StudioConfig> = {
         speed: 1,
       };
       waves.push(w);
-    });
+    }
     c.waves = waves;
     c.waveCount = waves.length;
 
@@ -917,11 +913,11 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     c.blur = 0;
     c.cameraDistance = 5001;
     c.cameraPosition = { x: 0, y: 0, z: 5000 };
-    c.cameraTarget = { x: -250, y: -70, z: 0 };
-    c.cameraZoom = 0.7;
+    c.cameraTarget = { x: -360, y: -40, z: 0 };
+    c.cameraZoom = 0.8;
     // The front is a SCREEN edge, so a narrow phone cropping to a quarter of the authored width
     // would put it somewhere else entirely on the composition. Holding 70% of that width on screen
-    // keeps the standing bands, the crumble edge and the debris in the same relationship.
+    // keeps the standing arms, the crumble edge and the debris in the same relationship.
     c.cameraMinVisibleWidth = 0.7;
     return c;
   },

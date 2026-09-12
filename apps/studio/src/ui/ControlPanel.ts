@@ -2525,6 +2525,11 @@ export class ControlPanel {
       const bLineDepthFade = finF
         .addBinding(wave, "lineDepthFade", { min: 0, max: 1, step: 0.01, label: "depth fade" })
         .on("change", refresh);
+      // Gap opacity: 1 fills the gaps between strands with the page colour (an opaque card that
+      // hides whatever is behind); 0 leaves them clear, so a stack of combs layers instead.
+      const bLineGap = finF
+        .addBinding(wave, "lineGapOpacity", { min: 0, max: 1, step: 0.01, label: "gap opacity" })
+        .on("change", refresh);
       const bRungAmount = finF
         .addBinding(wave, "rungAmount", { min: 0, max: 400, step: 1, label: "rung count" })
         .on("change", refresh);
@@ -2555,6 +2560,7 @@ export class ControlPanel {
         bLineFalloff,
         bLineSharpness,
         bLineDepthFade,
+        bLineGap,
         bRungAmount,
         bRungThickness,
         bMaxWidth,
@@ -2678,6 +2684,11 @@ export class ControlPanel {
       // whose strands run down the slant into the throat. 0 = the flat fan.
       raF
         .addBinding(wave, "radialCone", { min: -2, max: 2, step: 0.01, label: "cone" })
+        .on("change", refresh);
+      // Swirl: the angle advances along the band as well as across it, curling each arm around the
+      // throat into a spiral rather than running it straight out.
+      raF
+        .addBinding(wave, "radialSwirl", { min: -360, max: 360, step: 1, label: "swirl °" })
         .on("change", refresh);
       // This wave's disintegration front, then the dust field it sheds through.
       const diF = this.buildWaveDissolveFolder(sf, wave, refresh);

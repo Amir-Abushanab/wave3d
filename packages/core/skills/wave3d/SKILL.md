@@ -114,7 +114,11 @@ a repeating helix:
 - `radialCone` (on the radial fan, not the helix) lifts the fan out of its own plane as it spreads,
   turning the flat plume into a TRUMPET whose combed strands run down the slant into the throat. A
   helix carries the ribbon around an axis but its WIDTH never follows the slant, so this is the only
-  route to a cone mouth. Narrow the `radialArc` and several of these, posed apart, read as one spiral.
+  route to a cone mouth.
+- `radialSwirl` (degrees) lets the fan's ANGLE advance along the band as well as across it. Radius
+  already grows with uv.y, so angle growing with it too is what curls a straight arm into a SPIRAL
+  one wrapping the throat. Narrow the `radialArc` and a few of these, posed a quarter-turn apart,
+  read as one vortex.
 - Both are off at 0, and the helix code path isn't compiled unless `helixRadius` or `helixRoll` is
   non-zero — a wave without one renders byte-identically to before.
 
@@ -143,6 +147,15 @@ alone goes from pale hairlines to flat solid without passing through dense ink. 
 (0..1) steepens it, which turns `lineThickness` into a DUTY CYCLE and gives engraved black strands
 with the background still showing between them; `lineDepthFade` (default 1) turns off the recede
 into the background colour, which a deep or stacked composition needs.
+
+**`lineGapOpacity` is the one to know about.** By default the gaps between strands are painted with
+the page background, which makes a wireframe wave an opaque CARD: stack two and the front one hides
+the back one behind flat page colour. Set it to 0 and the gaps are clear, so the combs show through
+each other and their overlaps build real depth — this is the difference between a wireframe that
+reads as one flat sheet and one that reads as a layered object. Also lets a solid wave sit behind a
+comb as a dark backing. Note that `lineAmount` counts strands across the whole of uv.x, which the
+radial fan maps to `radialArc`, so a narrow arc needs a proportionally SMALLER count or the strands
+go sub-pixel and average to grey.
 
 **React flat props** are a shortcut mapped onto `waves[0]` and the scene:
 `palette` (`string[]` | `ColorStop[]`), `fiberCount`, `fiberStrength`, `sheen`, `iridescence`,

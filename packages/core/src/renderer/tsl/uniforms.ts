@@ -135,6 +135,7 @@ export function makeTslUniforms(drawingBufferSize: Vector2) {
     uLineDerivativePower: uniform(0.95),
     uLineDepthFade: uniform(1),
     uLineSharpness: uniform(0),
+    uLineGapOpacity: uniform(1),
     uMaxWidth: uniform(1232),
     uClearColor: uniform(new Vector3(1, 1, 1)),
 
@@ -150,6 +151,7 @@ export function makeTslUniforms(drawingBufferSize: Vector2) {
     uRadialRadius: uniform(40),
     uRadialCenter: uniform(0),
     uRadialCone: uniform(0),
+    uRadialSwirl: uniform(0),
     uRungAmount: uniform(0),
     uRungThickness: uniform(1),
 

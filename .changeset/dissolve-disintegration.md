@@ -44,6 +44,14 @@ Three supporting knobs, each inert at its default:
   into the throat, which is a shape neither the twists nor the helix can reach (a helix carries the
   ribbon around an axis, but its WIDTH never follows the slant).
 
+`lineGapOpacity` decides what sits between the strands. At 1 (the default) the gaps are painted with
+the page background, which is what the wireframe theme has always done — and which makes a wireframe
+wave an opaque CARD: stack two and the front one's gaps hide the back one behind flat page colour
+instead of showing it through. At 0 they are clear, so the strands composite over whatever is really
+behind them and a stack of combs builds depth out of its own overlaps. `radialSwirl` lets the radial
+fan's ANGLE advance along the band as well as across it; radius already grows with uv.y, so angle
+growing with it too is exactly what curls a straight arm into a spiral one wrapping the throat.
+
 Two rendering fixes the look depends on. The hardened stripe's edge is floored by its own
 SCREEN-SPACE derivative rather than a constant: a hard step on strands already thinner than a pixel
 is the classic moire generator, and holding the transition at ~1.4 px makes the edge exactly as crisp

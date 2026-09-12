@@ -185,6 +185,7 @@ describe("ensureStudioConfig repairs configs that used to break the panel", () =
     expect(w.radialArc).toBe(160);
     expect(w.radialRadius).toBe(40);
     expect(w.radialCone).toBe(0); // flat fan — the shape the mode had before the cone existed
+    expect(w.radialSwirl).toBe(0); // straight arms, not spiral ones
   });
 
   it("leaves authored radial values alone", () => {
@@ -229,6 +230,7 @@ describe("ensureStudioConfig repairs configs that used to break the panel", () =
     const w = ensureStudioConfig(hostile({ waves: [{}] })).waves[0];
     expect(w.lineSharpness).toBe(0);
     expect(w.lineDepthFade).toBe(1);
+    expect(w.lineGapOpacity).toBe(1); // opaque gaps — the card the theme has always drawn
     expect(w.helixTaper).toBe(1); // a plain cylinder — the helix as it wound before the taper
   });
 

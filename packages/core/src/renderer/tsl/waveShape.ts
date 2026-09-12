@@ -130,9 +130,13 @@ export function applyRadial(
   radius: FloatNode,
   center: FloatNode,
   cone: FloatNode,
+  swirl: FloatNode,
 ): Vec3Node {
+  // Swirl: the angle advances along the band as well as across it, so the arm curves around the
+  // throat into a spiral rather than running straight out from it.
   const rAng = radians(center)
     .add(clamp(uv.x, 0, 1).sub(0.5).mul(radians(arc)))
+    .add(uv.y.mul(radians(swirl)))
     .toVar("rAng");
   const rRho = radius.add(uv.y.mul(400.0).mul(spread)); // 400 = native ribbon length
   const rEr = vec3(cos(rAng), sin(rAng), 0.0); // radial dir, in local X-Y (the screen plane)
@@ -240,6 +244,7 @@ export function waveShape(
       u.uRadialRadius,
       u.uRadialCenter,
       u.uRadialCone,
+      u.uRadialSwirl,
     ),
     twists,
   };

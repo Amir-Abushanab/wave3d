@@ -259,7 +259,12 @@ WaveShape waveShape(vec3 position, vec2 uv, float t, vec2 loopOff){
   // combed fiber becomes a constant-angle radial spoke. mix(pos, fanned, 0) is identity → off is
   // byte-identical. (Placement is the wave's position transform — the fan has no separate pivot.)
   {
-    float rAng = radians(uRadialCenter) + (clamp(uv.x, 0.0, 1.0) - 0.5) * radians(uRadialArc);
+    // Swirl: let the ANGLE advance along the band as well as across it, so the arm curves around the
+    // throat into a spiral instead of running straight out from it. Radius already grows with uv.y,
+    // so angle gaining with uv.y too is exactly what makes a spiral — and it is the one thing a fan
+    // cannot do otherwise, since its angle comes from uv.x alone.
+    float rAng = radians(uRadialCenter) + (clamp(uv.x, 0.0, 1.0) - 0.5) * radians(uRadialArc)
+               + uv.y * radians(uRadialSwirl);
     float rRho = uRadialRadius + uv.y * 400.0 * uRadialSpread; // 400 = native ribbon length
     vec3 rEr = vec3(cos(rAng), sin(rAng), 0.0);                // radial dir, in local X–Y (screen plane)
     vec3 rEt = vec3(-sin(rAng), cos(rAng), 0.0);               // tangential
@@ -476,6 +481,7 @@ uniform float uRadialSpread; // length → radius scale
 uniform float uRadialRadius; // source / inner radius
 uniform float uRadialCenter; // base angle, degrees
 uniform float uRadialCone;   // lift per unit radius: 0 = a flat fan, >0 = a cone / trumpet
+uniform float uRadialSwirl;  // degrees of angle gained over the band's length: 0 = straight arms
 #endif
 
 varying vec2 vUv;
@@ -785,6 +791,9 @@ uniform float uLineAmount;          // default 425
 uniform float uLineThickness;       // default 1
 uniform float uLineDerivativePower; // default 0.95
 uniform float uLineDepthFade;       // 1 = the original hardcoded recede, 0 = flat/graphic
+#ifdef LINE_CLEAR_GAPS
+uniform float uLineGapOpacity;      // how much page colour the gaps between strands carry (0 = clear)
+#endif
 #ifdef LINE_SHARP
 uniform float uLineSharpness;       // 0..1 — steepen the stripe profile toward a hard duty cycle
 #endif
@@ -864,9 +873,31 @@ void main(){
   // range) collapses the whole wave to the background. The correct clamp(z*6, 0, 1)
   // gives the proper subtle far-end fade and thin-line look.
   float depthFade = clamp(vClipPosition.z * 6.0, 0.0, 1.0) * uLineDepthFade;
-  color = mix(uClearColor, color, a * (1.0 - depthFade));
+  float cov = a * (1.0 - depthFade);
+#ifdef LINE_CLEAR_GAPS
+  // CLEAR GAPS. By default the gaps between strands are painted with the page colour, which makes a
+  // wireframe wave an opaque card: stack two and the front one's gaps hide the back one behind flat
+  // page colour instead of showing it. Here the gaps only carry that colour as far as
+  // uLineGapOpacity and are otherwise transparent, so the strands composite over whatever is really
+  // behind them — the next wave in the stack, a solid wave used as a dark backing, or the page.
+  //
+  // Straight alpha-over, unpremultiplied: the visible colour is the strand and the gap weighted by
+  // their coverages, divided back out by the total so the result is a colour rather than a
+  // premultiplied one (Three's own PREMULTIPLIED_ALPHA step below does that part).
+  float gapA = (1.0 - cov) * uLineGapOpacity;
+  float outA = cov + gapA;
+  // A fully clear gap must not reach the depth buffer, or it would occlude the wave behind it just
+  // as the opaque version did. Strand EDGES keep their partial alpha (and their depth), which is a
+  // pixel either side and exactly what antialiasing them is for.
+  if (outA <= 0.002) discard;
+  color = (color * cov + uClearColor * gapA) / outA;
+  if (uSquared > 0.5) color *= color; // deep "squared" look, now composited not replace-blended
+  gl_FragColor = vec4(color, uOpacity * outA);
+#else
+  color = mix(uClearColor, color, cov);
   if (uSquared > 0.5) color *= color; // deep "squared" look, now composited not replace-blended
   gl_FragColor = vec4(color, uOpacity);
+#endif
 #ifdef PREMULTIPLIED_ALPHA
   gl_FragColor.rgb *= gl_FragColor.a;
 #endif
@@ -1163,7 +1194,7 @@ uniform float uTwFreqX, uTwFreqY, uTwFreqZ, uTwPowX, uTwPowY, uTwPowZ;
 uniform float uHelixTurns, uHelixRadius, uHelixRoll, uHelixPhase, uHelixTaper;
 #endif
 #ifdef RADIAL
-uniform float uRadialAmount, uRadialArc, uRadialSpread, uRadialRadius, uRadialCenter, uRadialCone;
+uniform float uRadialAmount, uRadialArc, uRadialSpread, uRadialRadius, uRadialCenter, uRadialCone, uRadialSwirl;
 #endif
 uniform mat4 uShedModel;              // the wave's matrixWorld (deformed LOCAL → world)
 uniform float uShedSpeed, uShedSeed;
