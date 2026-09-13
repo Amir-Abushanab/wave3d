@@ -186,6 +186,22 @@ describe("ensureStudioConfig repairs configs that used to break the panel", () =
     expect(w.radialRadius).toBe(40);
     expect(w.radialCone).toBe(0); // flat fan — the shape the mode had before the cone existed
     expect(w.radialSwirl).toBe(0); // straight arms, not spiral ones
+    expect(w.pinch).toBe(0); // full width — the strip the fold gives, with no waist
+    expect(w.pinchWidth).toBe(0.2);
+    expect(w.pinchCenter).toBe(0.5);
+    expect(w.wrapAmount).toBe(0); // straight, not bent into a ring
+  });
+
+  it("leaves authored pinch + wrap values alone", () => {
+    // Both gate a shader block on being non-zero, so an authored value has to survive intact or the
+    // wave silently renders as the un-pinched, un-wrapped strip.
+    const w = ensureStudioConfig(
+      hostile({ waves: [{ pinch: 0.9, pinchWidth: 0.15, pinchCenter: 0.3, wrapAmount: 1 }] }),
+    ).waves[0];
+    expect(w.pinch).toBe(0.9);
+    expect(w.pinchWidth).toBe(0.15);
+    expect(w.pinchCenter).toBe(0.3);
+    expect(w.wrapAmount).toBe(1);
   });
 
   it("leaves authored radial values alone", () => {

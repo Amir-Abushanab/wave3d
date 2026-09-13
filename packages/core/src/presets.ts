@@ -5,7 +5,6 @@
  */
 import { createDefaultConfig, makeStops, makeWaveSpread } from "./config/model";
 import type {
-  DissolveConfig,
   NoiseBand,
   ParticlesConfig,
   StudioConfig,
@@ -104,19 +103,6 @@ export const PARTICLE_PRESETS: Record<string, ParticlesConfig> = {
     life: 7,
   },
 };
-
-/** The disintegration front the {@link PRESETS}["Disintegration"] waves share: one edge on the
- *  CANVAS rather than on any one ribbon, so both crumble against it however each is posed, with
- *  `dust: 1` pinning each wave's debris to that same front. */
-const snapFront = (): DissolveConfig => ({
-  amount: 0.24,
-  axis: "screenX",
-  reverse: true, // eat in from the RIGHT, leaving the standing sweep on the left
-  band: 0.22,
-  scale: 38,
-  blocky: 0.8,
-  dust: 1, // each mote is the chunk of surface that just left
-});
 
 /** That preset's debris, alternating a coarse INK field with a fine violet one. Each is nearly
  *  single-tone on purpose: a continuum between ink and lilac passes through mid-purple, which makes
@@ -818,25 +804,31 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     return c;
   },
   /**
-   * DISINTEGRATION — the "snap". Two striped ribbons twisting through each other over warm paper,
+   * DISINTEGRATION — the "snap". A combed ribbon pinched to a throat with a band wrapped around it,
    * crumbling into blocky debris across a straight edge down the canvas.
    *
-   * THE STRIPES RUN ACROSS THE RIBBON, NOT ALONG IT. That is the whole thing, and it is worth saying
-   * plainly because it is easy to get backwards: `rungAmount` carves at constant uv.y, so each strand
-   * crosses the sheet from edge to edge, where `lineAmount`'s run end to end. On a twisting ribbon the
-   * two could not look less alike. Along-stripes simply follow the flow — they never compress, never
-   * fan, and tell you nothing about the surface. Across-stripes ARE the twist made visible: they
-   * splay wide where the sheet faces you, pinch to a dense dark line where it turns edge-on, and
-   * sweep as nested arcs through a fold. No amount of shape work substitutes for this; the form here
-   * is only the hero's own twist plus one helix roll, and the striping does the rest.
+   * TWO SHAPES DO ALL THE WORK, and neither was reachable before:
    *
-   * `lineThickness` 0 switches the lengthwise family off entirely so the rungs carry the image alone.
-   * `rungThickness` is in PIXELS, so it has to come DOWN as `rungAmount` goes up or the strands merge
-   * into solid: 1.4 px against a ~3.5 px period is the roughly-even strand-and-gap the reference has.
+   *   - `pinch` closes the ribbon's WIDTH to a waist, so the strip becomes a bow tie. Everything
+   *     else here moves a sheet of FIXED width around — the twists, the helix, the radial fan — so
+   *     none of them can make a THROAT. Once the width closes, the combed strands converge through
+   *     it and fan out the other side on their own: the throat is not drawn, it is what a pinched
+   *     sheet of parallel lines does. `pinchWidth` 0.15 keeps the taper short, so the fans stay wide
+   *     either side of a tight waist rather than reading as one long cone.
+   *   - `wrapAmount` bends the SECOND wave's length into a closed ring, which is the band around the
+   *     throat. Its Euler is the first wave's with 90 added to Y: the wrap bends about the ribbon's
+   *     width axis, so the ring's axis is its local Z, and that quarter turn is what aims it down the
+   *     pinched wave's length. Pose them together and the ring sits around the waist with no
+   *     position offset at all, because a full wrap centres itself on its own centre.
    *
-   * Three more things the look needs, each explained where it is set below: clear gaps so the two
-   * ribbons layer instead of occluding, a hardened duty cycle so the strands carry real ink, and a
-   * screen-space dissolve front shared by both waves with the dust pinned to it.
+   * The rest is the striping. `lineGapOpacity: 0` leaves the gaps between strands clear, so the ring
+   * and the ribbon show through each other and their overlaps make the dark masses — a wireframe
+   * paints its gaps with the page colour by default, which would make each an opaque card. And
+   * `lineSharpness` turns the stripe's soft ramp into a duty cycle, without which `lineThickness`
+   * only ever goes from pale hairlines to flat solid, never through dense ink.
+   *
+   * The dissolve is one screen-space front shared by both waves with `dust: 1` pinning the debris to
+   * it, and scroll runs it to 0.95 — at rest the poster, scrolled the whole thing gone.
    */
   Disintegration: () => {
     const c = PRESETS["Hero"]();
@@ -856,70 +848,75 @@ export const PRESETS: Record<string, () => StudioConfig> = {
       { color: "#d8cbf6", pos: 1 },
     ];
     base.gradientType = "linear";
-    base.gradientAngle = 90;
+    base.gradientAngle = 90; // across uv.x, the folded width — so the ramp runs across the strands
     base.gradientShift = 0;
     base.hueShift = 0;
     base.colorContrast = 1;
     base.colorSaturation = 1;
     base.fiberStrength = 0; // the strands ARE the texture here; streaks would only muddy them
-    // The rungs carry the image; the lengthwise family is switched off at the thickness.
-    base.lineAmount = 1;
-    base.lineThickness = 0;
-    // ~95 strands across the sheet. Rungs are a PIXEL-width stripe, so everything about them rides
-    // on fwidth(): push the count much past this and the periods go sub-pixel in a small embed,
-    // where the dense regions stop being a stable tone and start being whatever one arbitrary sample
-    // per period happened to land on. 300 still resolves at 480px, which is the floor worth holding.
-    base.rungAmount = 300;
-    base.rungThickness = 1.8; // PIXELS — must fall as rungAmount rises, or the strands merge to solid
-    base.lineDerivativePower = 0.7;
-    // No stripe hardening: a rung's threshold is already a PIXEL width, so its edge lands inside a
-    // pixel by construction and the duty cycle is set by rungThickness directly. Hardening on top
-    // would only amplify the fwidth() that threshold is built from — a 20x gain on a derivative
-    // estimate, which is where two backends stop agreeing. (lineSharpness is for the lengthwise
-    // family, whose threshold is not pixel-derived.)
-    base.lineSharpness = 0;
-    base.lineDepthFade = 0; // a stack needs full contrast at every depth; the default is tuned for one ribbon
-    base.lineGapOpacity = 0; // clear gaps: the two ribbons layer instead of hiding each other
+    base.lineAmount = 400;
+    base.lineThickness = 1.2; // the duty cycle, once lineSharpness has hardened the ramp
+    base.lineDerivativePower = 0.7; // strands thicken where the surface turns away — light on a curve
+    base.lineSharpness = 0.96;
+    base.lineDepthFade = 0; // full contrast at every depth; the default is tuned for a single ribbon
+    base.lineGapOpacity = 0; // clear gaps: the ring and the ribbon layer instead of hiding each other
+    base.rungAmount = 0;
     base.edgeFeather = 0.1;
     base.blendMode = "normal";
     base.opacity = 1;
-    base.radialAmount = 0; // no fan — the twist and one roll are the entire shape
+    base.radialAmount = 0; // no fan: the pinch and the wrap are the entire shape
     base.displaceAmount = 6;
     base.displaceFrequency = { x: 0.003, y: 0.008 };
-    // A single-ramp Z twist plus one helix roll: the twist bends the sheet, the roll turns it through
-    // itself, and the two together give the pinch the strands fan out of.
-    base.twistFrequency = { x: 0, y: 0, z: 3 };
-    base.twistPower = { x: 4, y: 4, z: 1 };
-    base.helixTurns = 1;
+    base.twistFrequency = { x: 0, y: 0, z: 0 };
+    base.twistPower = { x: 4, y: 4, z: 4 };
     base.helixRadius = 0;
-    base.helixRoll = 1;
     base.helixTaper = 1;
     base.helixPhase = 0;
     base.speed = 0.08;
     base.position = { x: 0, y: 0, z: 0 };
+    base.dissolve = {
+      amount: 0.24,
+      axis: "screenX", // on the CANVAS, so both waves crumble against one edge however each is posed
+      reverse: true, // eat in from the RIGHT, leaving the standing sweep on the left
+      band: 0.22,
+      scale: 38,
+      blocky: 0.8,
+      dust: 1, // each mote is the chunk of surface that just left
+    };
+    // Scroll takes the front the rest of the way. `from` is omitted, so at scroll 0 both waves sit at
+    // their authored 0.24 and the still frame is what a reader sees before they move.
+    base.interaction = {
+      bindings: [{ source: "scroll", target: "dissolveAmount", to: 0.95, smoothing: 0.2 }],
+    };
 
-    // The sweep, and a second ribbon half a turn out of phase twisting through it.
-    const a = structuredClone(base);
-    a.seed = 0;
-    a.scale = { x: 3, y: 3, z: 3 };
-    a.rotation = { x: 0, y: 30, z: 40 };
-    a.dissolve = snapFront();
-    a.particles = snapDust(0);
-    const b = structuredClone(base);
-    b.seed = 3.7;
-    b.scale = { x: 2.4, y: 2.4, z: 2.4 };
-    b.rotation = { x: 20, y: 60, z: 60 };
-    b.helixPhase = 180;
-    b.dissolve = snapFront();
-    b.particles = snapDust(1);
-    // Scroll takes the front the rest of the way. `from` is omitted, so at scroll 0 both sit at their
-    // authored 0.24 and the still frame is what a reader sees before they move.
-    for (const w of [a, b]) {
-      w.interaction = {
-        bindings: [{ source: "scroll", target: "dissolveAmount", to: 0.95, smoothing: 0.2 }],
-      };
-    }
-    c.waves = [a, b];
+    // The pinched ribbon. A half turn of helix roll twists the two fans against each other, so the
+    // waist reads as a throat rather than as a flat bow tie.
+    const ribbon = structuredClone(base);
+    ribbon.seed = 0;
+    ribbon.pinch = 0.9;
+    ribbon.pinchWidth = 0.15;
+    ribbon.pinchCenter = 0.5;
+    ribbon.helixTurns = 0.5;
+    ribbon.helixRoll = 1;
+    ribbon.scale = { x: 3, y: 3, z: 3 };
+    ribbon.rotation = { x: 55, y: 70, z: 40 };
+    ribbon.particles = snapDust(0);
+
+    // The band around the throat: the same ribbon wrapped into a closed ring, flattened on its own
+    // width (scale.z) so it reads as a band rather than a tube, and combed coarser so its strands
+    // stay legible where they compress around the turn.
+    const ring = structuredClone(base);
+    ring.seed = 3.7;
+    ring.wrapAmount = 1;
+    ring.helixTurns = 0;
+    ring.helixRoll = 0;
+    ring.lineAmount = 240;
+    ring.lineThickness = 0.7;
+    ring.scale = { x: 2.4, y: 2.4, z: 0.7 };
+    ring.rotation = { x: 55, y: 160, z: 40 }; // = the ribbon's, +90 on Y — see the note above
+    ring.particles = snapDust(1);
+
+    c.waves = [ribbon, ring];
     c.waveCount = 2;
 
     c.background = "#f7f6f1"; // warm paper
@@ -929,11 +926,11 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     c.blur = 0;
     c.cameraDistance = 5001;
     c.cameraPosition = { x: 0, y: 0, z: 5000 };
-    c.cameraTarget = { x: -260, y: -80, z: 0 };
-    c.cameraZoom = 0.75;
-    // The front is a SCREEN edge, so a narrow phone cropping to a quarter of the authored width would
-    // put it somewhere else entirely on the composition. Holding 70% of that width on screen keeps
-    // the sweep, the fold and the debris in the same relationship.
+    c.cameraTarget = { x: -190, y: -20, z: 0 };
+    c.cameraZoom = 0.62;
+    // The front is a SCREEN edge, so a narrow phone cropping to a quarter of the authored width
+    // would put it somewhere else entirely on the composition. Holding 70% of that width on screen
+    // keeps the throat, the ring and the debris in the same relationship.
     c.cameraMinVisibleWidth = 0.7;
     return c;
   },

@@ -44,6 +44,17 @@ Three supporting knobs, each inert at its default:
   into the throat, which is a shape neither the twists nor the helix can reach (a helix carries the
   ribbon around an axis, but its WIDTH never follows the slant).
 
+Two new shape controls, `pinch` and `wrapAmount`, each doing something the existing deforms
+structurally could not — the twists, the helix and the radial fan all move a sheet of FIXED width
+around. `pinch` (0..1, with `pinchWidth` / `pinchCenter`) closes the ribbon's WIDTH to a waist, so a
+strip becomes a bow tie and its combed strands converge through a throat and fan out the other side;
+the throat is not drawn, it is what a pinched sheet of parallel lines does. `wrapAmount` bends the
+ribbon's LENGTH into a circle, in turns, so it closes into a ring — a helix carries a ribbon around
+an axis while it still travels along it, where this bends the length itself, which is what a band
+wrapped around something has to do. The bend is about the width axis, so the ring's radius comes from
+the length (its size is the wave's `scale`) and a full wrap centres itself on its own centre: ring one
+wave around another's waist by giving it the same rotation with 90 added to Y, and the same position.
+
 Rungs (`rungAmount`, the cross-wise stripe family) are now usable as a wave's PRIMARY striping rather
 than just a DNA-ladder accent. `lineSharpness` hardens the merged coverage, after the rungs have been
 folded in, so a cross-wise family reaches dense ink the same way a lengthwise one does; and a rung
@@ -74,5 +85,5 @@ not. And a `"square"` particle now cuts its OWN shard from its quad — its own 
 quarter-turn, with a squared extent for the heavy tail real rubble has — because a field of identical
 squares reads as grain rather than debris.
 
-New preset **Disintegration**: engraved bands converging on a throat over warm paper, crumbling into
-blocky debris across a straight edge, with scroll wired to finish the job.
+New preset **Disintegration**: a combed ribbon pinched to a throat with a band wrapped around it over
+warm paper, crumbling into blocky debris across a straight edge, with scroll wired to finish the job.

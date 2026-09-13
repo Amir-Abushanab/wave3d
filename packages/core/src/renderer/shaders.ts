@@ -216,6 +216,25 @@ WaveShape waveShape(vec3 position, vec2 uv, float t, vec2 loopOff){
 #endif
 #endif
 
+#ifdef PINCH
+  // PINCH — narrow the ribbon's WIDTH toward a waist somewhere along its length, so a flat strip
+  // becomes a bow tie. This is the one thing the twists, the helix and the radial fan all leave
+  // alone: they move the sheet around, but its width is the fixed ~188 units the fold gives it, and
+  // a sheet of constant width can never make a THROAT. Here the combed strands (constant uv.x)
+  // converge as the width closes and fan out again past it, which is what reads as one.
+  //
+  // The profile is hyperbolic near the waist and flattens to full width away from it:
+  // sqrt(m² + (1-m²)·(1 - exp(-(d/w)²))), m = 1 - uPinch. A plain gaussian dip bottoms out
+  // quadratically — a rounded pinch — where this goes to a V with a rounded tip of size m, which is
+  // what makes the flanks read as straight fans converging on a point.
+  {
+    float pd = (uv.y - uPinchCenter) / max(uPinchWidth, 1.0e-3);
+    float pm = 1.0 - clamp(uPinch, 0.0, 1.0);
+    float pw = 1.0 - exp(-pd * pd);
+    pos.z = ${RIBBON_Z_CENTER.toFixed(1)} + (pos.z - ${RIBBON_Z_CENTER.toFixed(1)}) * sqrt(pm * pm + (1.0 - pm * pm) * pw);
+  }
+#endif
+
 #ifdef HELIX
   // Helix — the periodic sweep the three twists (monotone falloffs) can't reach. Runs AFTER the
   // displacement (so the noise still samples undeformed pos) and BEFORE the twist (so they compose).
@@ -252,6 +271,26 @@ WaveShape waveShape(vec3 position, vec2 uv, float t, vec2 loopOff){
   pos = (vec4(pos, 1.0) * rotA).xyz;
   pos = (vec4(pos, 1.0) * rotB).xyz;
   pos = (vec4(pos, 1.0) * rotC).xyz;
+
+#ifdef WRAP
+  // WRAP — bend the ribbon's LENGTH around a circle, so the strip closes into a ring. A helix can
+  // carry a ribbon around an axis while still travelling ALONG it (a coil); nothing here could bend
+  // the length itself, which is what a band wrapped around something has to do.
+  //
+  // The bend is around the ribbon's width axis, so the strip rolls up the way paper does and its
+  // width lies along the ring's axis — a band, not a flat washer. uWrapAmount is turns: 1 closes the
+  // ring exactly, 0.5 is a half-pipe, 2 laps it twice. The radius follows from the length (400 units
+  // over that many turns), so the RING SIZE is the wave's scale, and the displacement rides it as a
+  // radial ripple. Centred on the ring's own centre at a full turn, which is what lets a wrapped wave
+  // sit at the same position transform as the thing it encircles.
+  {
+    float wa = max(uWrapAmount, 1.0e-3);
+    float wR = 400.0 / (6.28318530718 * wa);      // radius that spends the whole length on wa turns
+    float wTh = pos.x * 6.28318530718 * wa / 400.0;
+    float wRad = wR - pos.y;                      // displacement pushes the band off the ring radially
+    pos = vec3(wRad * sin(wTh), wR - wRad * cos(wTh) - wa * 63.66197724, pos.z);
+  }
+#endif
 
 #ifdef RADIAL
   // Radial fan: remap the ribbon to polar around the LOCAL origin so its LENGTH fans into a plume.
@@ -470,6 +509,16 @@ uniform float uHelixRadius; // orbit radius: carries the whole ribbon around the
 uniform float uHelixRoll;   // cross-section roll, as a fraction of the turns (1 = rigid ladder)
 uniform float uHelixPhase;  // degrees
 uniform float uHelixTaper;  // radius scale at the START end (1 = a cylinder, 0 = a cone / vortex)
+#endif
+
+// Pinch / wrap (optional), each behind its own gate like HELIX / RADIAL above.
+#ifdef PINCH
+uniform float uPinch;        // 0 = full width, 1 = the waist closes to a point
+uniform float uPinchWidth;   // how far along the length the narrowing reaches, in uv
+uniform float uPinchCenter;  // where the waist sits along the length, in uv
+#endif
+#ifdef WRAP
+uniform float uWrapAmount;   // turns the length is bent through: 1 = a closed ring
 #endif
 
 // Radial fan (optional). Behind RADIAL so a wave without one compiles the exact same program (same
@@ -842,28 +891,32 @@ void main(){
 #ifdef POINTER_FX
   lineThickness *= clamp(1.0 - uPointerThin * vPointerFall, 0.0, 1.0); // wireframe: taper strands
 #endif
+  // Each stripe family's per-pixel RATE — how fast its |sin| argument moves — and the DUTY CYCLE it
+  // averages to, which is the fraction of a period that is strand. Both are needed below: once a
+  // period is finer than a pixel, sampling |sin| at one arbitrary point per period is meaningless
+  // (and is where two backends' derivative estimates diverge), so the coverage fades to the tone the
+  // strands actually average to. That is also what a compressed region should look like: a solid
+  // tone, not noise.
+  float lineRate = uLineAmount * fwidth(vUv.x);
   float a = abs(sin(vUv.x * uLineAmount));
   a = smoothstep(lineThickness, 0.0, a);
-  float rungRate = 0.0; // the cross-wise family's per-pixel rate; 0 unless rungs are compiled in
+  // NOTE there is deliberately no duty-cycle fallback for the LENGTHWISE family, though the rungs
+  // below have one. Its threshold is lineThickness, which is itself built from dFdy(vUv).x, so a
+  // fallback keyed on it would add a SECOND derivative for the two backends to disagree about —
+  // measured, it made cross-backend agreement worse, not better. The rungs' threshold is a plain
+  // pixel width, which is why the same trick works there.
+  float rungRate = 0.0;   // the cross-wise family's rate / duty; 0 unless rungs are compiled in
+  float dutyRung = 0.0;
 #ifdef RUNGS
   // Rungs: the same carve at constant uv.y instead of uv.x, so this family runs ACROSS the ribbon
   // where the one above runs along it — together they read as a ladder. Width comes from fwidth()
   // rather than the lengthwise term's dFdy(vUv).x, which is the derivative of the wrong axis for
   // this direction: |sin| climbs by ~uRungAmount·fwidth(vUv.y) per pixel, so scaling by that keeps
   // a rung uRungThickness pixels wide at any zoom or ribbon scale.
-  // rungRate is how fast the stripe argument moves per pixel, so a period spans PI / rungRate pixels
-  // — under about two of them there is nothing left to resolve.
   rungRate = uRungAmount * fwidth(vUv.y);
   float rungT = uRungThickness * rungRate;
-  float rung = abs(sin(vUv.y * uRungAmount));
-  float rungCov = smoothstep(rungT, 0.0, rung);
-  // Sub-pixel strands: point-sampling one arbitrary spot per period is meaningless, and it is where
-  // two backends' derivative estimates diverge. Fade to the family's ANALYTIC duty cycle instead —
-  // the fraction of each period that is strand, which is the flat tone they average to. That is also
-  // what a compressed region should look like: solid, not noise.
-  float rungDuty = 0.63661977 * asin(clamp(rungT, 0.0, 1.0)); // (2/PI)·asin(T)
-  rungCov = mix(rungCov, rungDuty, smoothstep(1.2, 3.0, rungRate));
-  a = max(a, rungCov);
+  a = max(a, smoothstep(rungT, 0.0, abs(sin(vUv.y * uRungAmount))));
+  dutyRung = 0.63661977 * asin(clamp(rungT * 0.5, 0.0, 1.0));
 #endif
 
 #ifdef LINE_SHARP
@@ -873,20 +926,17 @@ void main(){
   // about its own midpoint separates the two: uLineThickness becomes the DUTY CYCLE (where the ramp
   // crosses 0.5) and this becomes the edge, so a wave can be 70% ink with crisp gaps still showing.
   //
-  // The floor on that steepening is the SCREEN-SPACE derivative of the ramp, not a constant. A hard
-  // step on strands that are already thinner than a pixel is the classic moiré generator: each pixel
-  // samples one arbitrary point of the stripe, and a foreshortened sheet turns into crawling noise
-  // instead of the grey its duty cycle should average to. Holding the transition at ~1.4 px wide
-  // makes the edge exactly as crisp as the strand can support — razor-sharp where it is resolvable,
-  // and box-filtered down to a flat tone where it is not.
-  // The floor is the ANALYTIC rate of the stripe families — how much |sin| moves per pixel — rather
-  // than fwidth() of the merged coverage. Once the rungs are folded in, that coverage is a max() of
-  // two families and its derivative is undefined where they swap over; on strands already finer than
-  // a pixel the two backends then disagree about it, which is a real instability and not just a
-  // parity nuisance. Each family's own rate is well defined everywhere, and the tighter one governs.
-  float aaRate = 0.5 * max(uLineAmount * fwidth(vUv.x), rungRate);
+  // Applied to the MERGED coverage, after the rungs have been folded in, so a cross-wise family
+  // reaches dense ink the same way a lengthwise one does. The floor is the ANALYTIC stripe rate
+  // rather than fwidth() of that merged value, whose derivative is undefined where the two families
+  // swap over.
+  float aaRate = 0.5 * max(lineRate, rungRate);
   a = clamp((a - 0.5) / max(1.0 - uLineSharpness, aaRate * 1.4) + 0.5, 0.0, 1.0);
 #endif
+
+  // Sub-pixel rungs: fade to the tone those strands average to (see the note above for why only
+  // this family gets it).
+  a = mix(a, max(a, dutyRung), smoothstep(1.2, 3.0, rungRate));
 
   // Depth fade: the wave recedes into the background colour with depth. Watch the
   // argument order: clamp(0.0, 1.0, z*6) is a swapped-args trap — it clamps the
@@ -1223,6 +1273,12 @@ uniform float uDetailFreq, uDetailAmount;
 uniform float uTwFreqX, uTwFreqY, uTwFreqZ, uTwPowX, uTwPowY, uTwPowZ;
 #ifdef HELIX
 uniform float uHelixTurns, uHelixRadius, uHelixRoll, uHelixPhase, uHelixTaper;
+#endif
+#ifdef PINCH
+uniform float uPinch, uPinchWidth, uPinchCenter;
+#endif
+#ifdef WRAP
+uniform float uWrapAmount;
 #endif
 #ifdef RADIAL
 uniform float uRadialAmount, uRadialArc, uRadialSpread, uRadialRadius, uRadialCenter, uRadialCone, uRadialSwirl;

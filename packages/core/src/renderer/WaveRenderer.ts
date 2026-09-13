@@ -650,6 +650,13 @@ export class WaveRenderer {
       uHelixRoll: { value: 0 },
       uHelixPhase: { value: 0 },
       uHelixTaper: { value: 1 },
+      // Pinch (the ribbon's width waist) + wrap (bending its length into a ring), each read only
+      // under its own define. Always present JS-side; three uploads them only when the compiled
+      // program declares them (precedent: uDetailAmount).
+      uPinch: { value: 0 },
+      uPinchWidth: { value: 0.2 },
+      uPinchCenter: { value: 0.5 },
+      uWrapAmount: { value: 0 },
       // Radial fan (vertex, under RADIAL). Always present JS-side; three uploads them only when the
       // compiled program declares them, so a non-radial wave is untouched (precedent: uDetailAmount).
       uRadialAmount: { value: 0 },
@@ -713,6 +720,9 @@ export class WaveRenderer {
     if ((sc?.helixRadius ?? 0) !== 0 || (sc?.helixRoll ?? 0) !== 0 || bindsHelix) {
       defines.HELIX = "";
     }
+    // Pinch / wrap: 0 is the identity for each, so each alone decides whether its block compiles.
+    if ((sc?.pinch ?? 0) !== 0) defines.PINCH = "";
+    if ((sc?.wrapAmount ?? 0) !== 0) defines.WRAP = "";
     // Radial fan: amount 0 is the identity mix, so it alone decides whether the block is compiled.
     // Not binding-driveable in v1 (not in WAVE_TARGET_NAMES), so no bindsRadial term is needed.
     if ((sc?.radialAmount ?? 0) !== 0) defines.RADIAL = "";
@@ -1044,6 +1054,10 @@ export class WaveRenderer {
       u.uHelixRadius.value = sc.helixRadius ?? 0;
       u.uHelixRoll.value = sc.helixRoll ?? 0;
       u.uHelixTaper.value = sc.helixTaper ?? 1;
+      u.uPinch.value = sc.pinch ?? 0;
+      u.uPinchWidth.value = sc.pinchWidth ?? 0.2;
+      u.uPinchCenter.value = sc.pinchCenter ?? 0.5;
+      u.uWrapAmount.value = sc.wrapAmount ?? 0;
       u.uHelixPhase.value = sc.helixPhase ?? 0;
       u.uRadialAmount.value = sc.radialAmount ?? 0;
       u.uRadialArc.value = sc.radialArc ?? 160;
@@ -1978,6 +1992,8 @@ export class WaveRenderer {
       "HELIX",
       "TWIST_MOTION",
       "RADIAL",
+      "PINCH",
+      "WRAP",
       "POINTER_FX",
       "POINTER_RIPPLES",
       "DISSOLVE",

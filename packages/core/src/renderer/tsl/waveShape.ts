@@ -19,8 +19,10 @@ import {
   cos,
   sin,
   radians,
+  exp,
   exp2,
   pow,
+  sqrt,
   max,
   clamp,
   mix,
@@ -157,6 +159,8 @@ export interface WaveShapeFlags {
   helix: boolean;
   twistMotion: boolean;
   radial: boolean;
+  pinch: boolean;
+  wrap: boolean;
 }
 
 export interface WaveShapeResult {
@@ -191,6 +195,19 @@ export function waveShape(
       ? vec2(pos.x.mul(u.uDetailFreq), pos.z.mul(u.uDetailFreq)).add(loopOff)
       : vec2(pos.x.mul(u.uDetailFreq).add(t), pos.z.mul(u.uDetailFreq).add(t));
     pos.y.addAssign(simplexNoise(detailArg).mul(u.uDetailAmount));
+  }
+
+  if (flags.pinch) {
+    // Narrow the ribbon's WIDTH toward a waist, turning the strip into a bow tie. The profile is
+    // hyperbolic near the waist and flattens to full width away from it, so the flanks read as
+    // straight fans converging on a point rather than a rounded dip — see the GLSL for the algebra.
+    const pd = uv.y.sub(u.uPinchCenter).div(max(u.uPinchWidth, 1.0e-3)).toVar("pinchD");
+    const pm = float(1)
+      .sub(clamp(u.uPinch, 0, 1))
+      .toVar("pinchM");
+    const pw = float(1).sub(exp(pd.mul(pd).negate()));
+    const pScale = sqrt(pm.mul(pm).add(float(1).sub(pm.mul(pm)).mul(pw)));
+    pos.z.assign(float(RIBBON_Z_CENTER).add(pos.z.sub(RIBBON_Z_CENTER).mul(pScale)));
   }
 
   if (flags.helix) {
@@ -232,6 +249,19 @@ export function waveShape(
     { axis: vec3(0.5, 0.0, 0.5), angle: u.uTwFreqZ.mul(expStep(uv.y, u.uTwPowZ)) },
   ];
   const twisted = applyTwist(applyTwist(applyTwist(pos, twists[0]), twists[1]), twists[2]).toVar();
+
+  if (flags.wrap) {
+    // Bend the LENGTH around a circle, so the strip closes into a ring — the bend is about the
+    // ribbon's width axis, so it rolls up the way paper does. See the GLSL for why the radius
+    // follows from the length and why a full turn lands centred on the ring's own centre.
+    const wa = max(u.uWrapAmount, 1.0e-3).toVar("wrapA");
+    const wR = float(400.0).div(float(6.28318530718).mul(wa)).toVar("wrapR");
+    const wTh = twisted.x.mul(6.28318530718).mul(wa).div(400.0).toVar("wrapTh");
+    const wRad = wR.sub(twisted.y).toVar("wrapRad");
+    twisted.assign(
+      vec3(wRad.mul(sin(wTh)), wR.sub(wRad.mul(cos(wTh))).sub(wa.mul(63.66197724)), twisted.z),
+    );
+  }
 
   if (!flags.radial) return { pos: twisted, twists };
   return {

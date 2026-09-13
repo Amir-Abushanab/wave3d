@@ -122,6 +122,22 @@ a repeating helix:
 - Both are off at 0, and the helix code path isn't compiled unless `helixRadius` or `helixRoll` is
   non-zero — a wave without one renders byte-identically to before.
 
+**Pinch and wrap (`pinch` / `wrapAmount`).** Two shape controls that do what the twists, the helix and
+the radial fan structurally cannot, because all three move a sheet of FIXED width around:
+
+- `pinch` (0..1) closes the ribbon's WIDTH to a waist, so the strip becomes a bow tie and the combed
+  strands converge through a THROAT and fan out the other side. `pinchWidth` (uv, default 0.2) is how
+  far along the length the taper reaches — small keeps wide fans either side of a tight waist — and
+  `pinchCenter` moves the waist along the length.
+- `wrapAmount` bends the ribbon's LENGTH into a circle, in turns: 1 closes it into a ring. A helix
+  carries a ribbon around an axis while it still travels ALONG it (a coil); this bends the length
+  itself, which is what a band wrapped AROUND something has to do. The bend is about the width axis,
+  so the ring's axis is the wave's local Z and its radius comes from the length — meaning the ring's
+  SIZE is the wave's `scale`, and a full wrap centres itself on its own centre.
+
+They compose: to ring one wave around another's pinched waist, give the ring the SAME rotation with
+90 added to Y (that quarter turn aims its axis down the other's length) and the same `position`.
+
 **Disintegration (`WaveConfig.dissolve`).** A front sweeps across the wave and eats it away chunk by
 chunk, so the surface CRUMBLES rather than fading. Absent ⇒ intact and byte-identical.
 

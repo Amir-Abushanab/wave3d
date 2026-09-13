@@ -2662,6 +2662,21 @@ export class ControlPanel {
         .addBinding(wave, "helixPhase", { min: -180, max: 180, step: 1, label: "phase °" })
         .on("change", refresh);
 
+      // --- Pinch & wrap --- close the ribbon's WIDTH to a waist (a throat the combed strands
+      // converge through), and bend its LENGTH into a ring (a band that can wrap another wave).
+      const pwF = sf.addFolder({ title: "Pinch & Wrap", expanded: true });
+      pwF
+        .addBinding(wave, "pinch", { min: 0, max: 1, step: 0.01, label: "pinch" })
+        .on("change", refresh);
+      pwF
+        .addBinding(wave, "pinchWidth", { min: 0.02, max: 1, step: 0.01, label: "waist length" })
+        .on("change", refresh);
+      pwF
+        .addBinding(wave, "pinchCenter", { min: 0, max: 1, step: 0.01, label: "waist at" })
+        .on("change", refresh);
+      pwF
+        .addBinding(wave, "wrapAmount", { min: 0, max: 3, step: 0.01, label: "wrap turns" })
+        .on("change", refresh);
       // --- Radial --- fan the ribbon into a plume from a source point; the combed fibers then read
       // as the individual radial strands. Inert until "fan amount" is dialled up (RADIAL off at 0).
       const raF = sf.addFolder({ title: "Radial", expanded: true });
@@ -2698,7 +2713,7 @@ export class ControlPanel {
       // mirrors the global Interaction folder sitting last in the panel). DOM move so blocks stay grouped.
       const waveContent =
         (sf.element.querySelector(":scope > .tp-fldv_c") as HTMLElement | null) ?? sf.element;
-      for (const f of [gradF, finF, dispF, twF, hxF, raF, trF, bandsF, diF, paF, waveIx])
+      for (const f of [gradF, finF, dispF, twF, hxF, pwF, raF, trF, bandsF, diF, paF, waveIx])
         waveContent.appendChild(f.element);
     };
 

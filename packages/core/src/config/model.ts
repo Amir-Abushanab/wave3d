@@ -256,6 +256,28 @@ export interface WaveConfig {
    *  curves around the throat. 0 = straight (the default, byte-identical); 150 wraps most of a
    *  half-turn. Negative spirals the other way. Inert unless `radialAmount` > 0. */
   radialSwirl?: number;
+  /** PINCH (0..1): narrow the ribbon's WIDTH toward a waist along its length, turning a flat strip
+   *  into a bow tie. Nothing else here can do it — the twists, the helix and the radial fan all move
+   *  a sheet of FIXED width around, so none of them can make a throat. Combed strands (and the
+   *  wireframe's lengthwise lines) converge as the width closes and fan out past it, which is what
+   *  makes the waist read. 0 = off (the default, byte-identical); 1 closes it to a point. */
+  pinch?: number;
+  /** How far along the length the narrowing reaches, in uv (default 0.2). Small = an abrupt throat
+   *  with wide fans either side; large = a long taper. Inert unless `pinch` > 0. */
+  pinchWidth?: number;
+  /** Where the waist sits along the length, 0..1 in uv (default 0.5, the middle). */
+  pinchCenter?: number;
+  /** WRAP: bend the ribbon's LENGTH around a circle, in turns — 1 closes it into a ring, 0.5 is a
+   *  half-pipe, 2 laps twice. The helix can carry a ribbon around an axis while it still travels
+   *  ALONG it (a coil); this bends the length itself, which is what a band wrapped AROUND something
+   *  has to do — a ring encircling another wave's pinched waist, say.
+   *
+   *  The bend is about the ribbon's width axis, so the strip rolls up the way paper does and its
+   *  width lies along the ring's axis (a band, not a flat washer). The radius follows from the
+   *  length, so the ring's SIZE is the wave's `scale`, and at a full turn it is centred on its own
+   *  centre — which is what lets a wrapped wave sit at the same `position` as what it encircles.
+   *  Compose it with `helixRoll` for a band that twists as it goes round. 0 = off (the default). */
+  wrapAmount?: number;
   // Material ("solid" surface vs "wireframe" line shader)
   theme?: "solid" | "wireframe";
   lineAmount?: number;
@@ -857,6 +879,10 @@ function defaultWave(): WaveConfig {
     radialCenter: 0,
     radialCone: 0,
     radialSwirl: 0,
+    pinch: 0,
+    pinchWidth: 0.2,
+    pinchCenter: 0.5,
+    wrapAmount: 0,
     theme: "solid",
     lineAmount: 425, // wireframe-theme line params (defaults)
     lineThickness: 1,
@@ -1121,6 +1147,10 @@ export function normalizeWave(s: WaveConfig): void {
   if (!Number.isFinite(s.radialCenter)) s.radialCenter = 0;
   if (!Number.isFinite(s.radialCone)) s.radialCone = 0;
   if (!Number.isFinite(s.radialSwirl)) s.radialSwirl = 0;
+  if (!Number.isFinite(s.pinch)) s.pinch = 0;
+  if (!Number.isFinite(s.pinchWidth)) s.pinchWidth = 0.2;
+  if (!Number.isFinite(s.pinchCenter)) s.pinchCenter = 0.5;
+  if (!Number.isFinite(s.wrapAmount)) s.wrapAmount = 0;
   if (typeof s.theme !== "string") s.theme = "solid";
   if (!Number.isFinite(s.lineAmount)) s.lineAmount = 425;
   if (!Number.isFinite(s.lineThickness)) s.lineThickness = 1;
