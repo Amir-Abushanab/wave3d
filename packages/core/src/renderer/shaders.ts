@@ -821,9 +821,11 @@ uniform float uLineDepthFade;       // 1 = the original hardcoded recede, 0 = fl
 // and crease the solid theme uses, so a single strand brightens and darkens ALONG its own length as
 // the ribbon curves — which is the whole difference between a drawing and a lit form.
 #ifdef LINE_LIGHT
-uniform float uLineLight;     // 0 = flat (the theme as it was), 1 = fully shaded
-uniform float uLineSpecular;  // extra specular sharpness along the strands
-uniform float uLineRound;     // 0 = flat ribbons, 1 = each strand shaded as a round filament
+uniform float uLineLight;      // 0 = flat (the theme as it was), 1 = fully shaded
+// Round section and glint are CONSTANTS, not knobs: shading a flat stripe barely reads, so lighting
+// and rounding only make sense together — one control, tuned once.
+#define LINE_ROUND 1.2
+#define LINE_GLINT 1.5
 uniform float uAmbient;
 uniform int uNumLights;
 uniform vec3 uLightPos[MAX_LIGHTS];
@@ -907,7 +909,7 @@ void main(){
     // The across-vector is the world direction of increasing uv.x, recovered from the screen-space
     // derivatives by least squares (the chain rule the other way round): it is the axis to tilt
     // about, and it is what makes the shading follow the strands wherever the surface turns.
-    if (uLineRound > 0.001) {
+    {
       vec2 gu = vec2(dFdx(vUv.x), dFdy(vUv.x));
       float gg = dot(gu, gu);
       if (gg > 1.0e-12) {
@@ -915,7 +917,7 @@ void main(){
         across = normalize(across - N * dot(across, N)); // keep it in the surface
         // Signed position across the strand: 0 at its crest, ±1 at its edges.
         float sAcross = clamp(sin(vUv.x * uLineAmount) / max(lineThickness, 1.0e-4), -1.0, 1.0);
-        N = normalize(N + across * sAcross * uLineRound);
+        N = normalize(N + across * sAcross * LINE_ROUND);
         if (dot(N, Vd) < 0.0) N = -N;
       }
     }
@@ -930,7 +932,7 @@ void main(){
       lit += color * max(dot(N, L), 0.0) * lc * 0.5;
       // A tight specular, which on a combed surface is the glint that runs along one strand and not
       // its neighbour — the thing that reads as filament rather than as print.
-      lit += pow(max(dot(N, normalize(L + Vd)), 0.0), 48.0) * lc * uLineSpecular;
+      lit += pow(max(dot(N, normalize(L + Vd)), 0.0), 48.0) * lc * LINE_GLINT;
     }
     lit *= 0.55 + clamp(uAmbient, 0.0, 1.0);
     color = mix(color, lit, clamp(uLineLight, 0.0, 1.0));

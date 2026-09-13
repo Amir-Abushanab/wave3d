@@ -255,7 +255,7 @@ function buildWireframeFragment(
       If(dot(n, vd).lessThan(0.0), () => {
         n.assign(n.negate());
       });
-      If(u.uLineRound.greaterThan(0.001), () => {
+      {
         // World direction of increasing uv.x, by least squares from the screen derivatives — the
         // axis to tilt each strand about.
         const gu = vec2(dFdx(vUv.x), dFdy(vUv.x)).toVar("lineGu");
@@ -272,12 +272,12 @@ function buildWireframeFragment(
             -1,
             1,
           );
-          n.assign(normalize(n.add(across.mul(sAcross).mul(u.uLineRound))));
+          n.assign(normalize(n.add(across.mul(sAcross).mul(1.2)))); // LINE_ROUND
           If(dot(n, vd).lessThan(0.0), () => {
             n.assign(n.negate());
           });
         });
-      });
+      }
       const facing = tabs(dot(n, vd)).toVar("lineFacing");
       const lit = color.mul(mix(float(0.08), float(1), facing)).toVar("lineLit");
       Loop({ start: 0, end: MAX_LIGHTS, type: "int" }, ({ i }) => {
@@ -293,7 +293,7 @@ function buildWireframeFragment(
             .mul(0.5),
         );
         lit.addAssign(
-          lc.mul(pow(max(dot(n, normalize(l.add(vd))), 0.0), 48.0)).mul(u.uLineSpecular),
+          lc.mul(pow(max(dot(n, normalize(l.add(vd))), 0.0), 48.0)).mul(1.5), // LINE_GLINT
         );
       });
       lit.mulAssign(clamp(u.uAmbient, 0, 1).add(0.55));

@@ -198,9 +198,9 @@ stable (it falls back to the strands' analytic duty cycle, which is a flat tone,
 **A wireframe strand is a MASK, not a material — unless you light it.** Its colour comes from its uv
 alone, so it holds one tone wherever the surface turns, which is why a dense wireframe reads as
 hatching however it is posed. `lineLight` (0..1) shades it with the same derivative normal and scene
-`lights` the solid theme uses, and `lineRound` bends the normal ACROSS each stripe so every strand
-gets a lit crest and dark flanks — that is what lets a specular (`lineSpecular`) travel along one
-strand and not its neighbour, and what separates combed thread from print. All three default to off.
+`lights` the solid theme uses, AND gives each strand a round cross-section so a specular travels along
+one strand and not its neighbour — which is what separates combed thread from print. One knob, not
+three: shading a flat stripe barely reads, so the rounding is not optional to it. Default 0.
 
 **`lineDerivativePower` decides whether a close-framed wave has any ink.** It scales strand thickness
 by the screen-space uv derivative, which is right for a ribbon seen whole (strands thicken where the
@@ -214,12 +214,12 @@ alone goes from pale hairlines to flat solid without passing through dense ink. 
 with the background still showing between them; `lineDepthFade` (default 1) turns off the recede
 into the background colour, which a deep or stacked composition needs.
 
-**`lineGapOpacity` is the one to know about.** By default the gaps between strands are painted with
-the page background, which makes a wireframe wave an opaque CARD: stack two and the front one hides
-the back one behind flat page colour. Set it to 0 and the gaps are clear, so the combs show through
-each other and their overlaps build real depth — this is the difference between a wireframe that
-reads as one flat sheet and one that reads as a layered object. Also lets a solid wave sit behind a
-comb as a dark backing. Note that `lineAmount` counts strands across the whole of uv.x, which the
+**`lineGapColor` is the one to know about** — it decides what sits BETWEEN the strands, which is most
+of what a wireframe looks like. Absent, the gaps take the page background, so the wave is a window
+onto the page (dark strands, paper between) and, being opaque, the near fold HIDES the far one, which
+is what makes a stack read solid. Give it a dark colour and the ribbon becomes its own body: bright
+combed lines on a dark ground. Set it to `"transparent"` (or an 8-digit hex) and the gaps go clear, so
+stacked folds show through each other — airier, at the cost of that occlusion. Note that `lineAmount` counts strands across the whole of uv.x, which the
 radial fan maps to `radialArc`, so a narrow arc needs a proportionally SMALLER count or the strands
 go sub-pixel and average to grey. `edgeFeather` now applies to the wireframe too — without it a
 ribbon ends at a flat end-cap that reads as a straight cut across the strands.

@@ -258,9 +258,8 @@ describe("ensureStudioConfig repairs configs that used to break the panel", () =
     const w = ensureStudioConfig(hostile({ waves: [{}] })).waves[0];
     expect(w.lineSharpness).toBe(0);
     expect(w.lineDepthFade).toBe(1);
-    expect(w.lineGapOpacity).toBe(1); // opaque gaps — the card the theme has always drawn
+    expect(w.lineGapColor).toBeUndefined(); // gaps take the page background, as the theme always did
     expect(w.lineLight).toBe(0); // unlit: a strand's colour is its uv alone, as the theme always was
-    expect(w.lineRound).toBe(0);
   });
 
   it("leaves a wave's dissolve absent when absent, and clamps it when present", () => {

@@ -859,14 +859,13 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     base.lineDerivativePower = 0; // see above — the knob that decides whether there is ink at all
     base.lineSharpness = 0.96;
     base.lineDepthFade = 0; // full contrast at every depth; the default is tuned for a single ribbon
-    base.lineGapOpacity = 1; // opaque: the near lobe hides the far one, which is what reads as solid
+    // Gaps left at the page background (the default): opaque, so the near lobe hides the far one,
+    // which is what makes a stack of folds read as one solid object rather than a transparent weave.
     // Lit, round strands. A stripe is otherwise a MASK — no cross-section, so no highlight can run
     // along one and the bundle reads as hatching however dense it gets. These two give each strand a
     // crest and flanks and shade it as the surface turns, which is the difference between a drawing
     // of a combed surface and a combed surface.
     base.lineLight = 0.8;
-    base.lineRound = 1.2;
-    base.lineSpecular = 1.5;
     base.rungAmount = 0;
     base.edgeFeather = 0.1;
     base.blendMode = "normal";

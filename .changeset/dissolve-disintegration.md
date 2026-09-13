@@ -96,11 +96,12 @@ DEPTH: they are thin transparent slivers layered many deep, and two sheets passi
 would otherwise decide who occludes whom by depth precision, which is arbitrary and differs between
 backends; with the write off they composite in wave order, which is stable.
 
-`lineGapOpacity` decides what sits between the strands. At 1 (the default) the gaps are painted with
-the page background, which is what the wireframe theme has always done — and which makes a wireframe
-wave an opaque CARD: stack two and the front one's gaps hide the back one behind flat page colour
-instead of showing it through. At 0 they are clear, so the strands composite over whatever is really
-behind them and a stack of combs builds depth out of its own overlaps. `radialSwirl` lets the radial
+`lineGapColor` decides what sits between the strands, which is most of what a wireframe looks like.
+Absent (the default, and what the theme has always drawn) the gaps take the page background: the wave
+is a window onto the page, and being opaque the near fold HIDES the far one, which is what makes a
+stack read as one solid object. A colour makes the ribbon its own body — bright combed lines on a
+dark ground. `"transparent"`, or an 8-digit hex, leaves the gaps clear so stacked folds show through
+each other: airier, at the cost of that occlusion. `radialSwirl` lets the radial
 fan's ANGLE advance along the band as well as across it; radius already grows with uv.y, so angle
 growing with it too is exactly what curls a straight arm into a spiral one wrapping the throat.
 

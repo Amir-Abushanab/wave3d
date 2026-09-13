@@ -59,6 +59,22 @@ import {
 } from "../config/model";
 import type { StudioConfig, WaveConfig, BlendMode, CameraFit, DissolveAxis } from "../config/model";
 
+/** How opaque a wave's between-strand colour is. Absent is the page background at full strength (the
+ *  theme as it always drew); `"transparent"` or an 8-digit hex carries its own alpha. */
+function gapAlpha(color: string | undefined): number {
+  if (!color) return 1;
+  if (color === "transparent") return 0;
+  if (/^#[0-9a-f]{8}$/i.test(color)) return parseInt(color.slice(7, 9), 16) / 255;
+  return 1;
+}
+
+/** The colour half of the same field — the alpha is stripped, and `"transparent"` has no colour of
+ *  its own, so it falls back to the page background it is standing in for. */
+function gapColorHex(color: string | undefined): string | undefined {
+  if (!color || color === "transparent") return undefined;
+  return /^#[0-9a-f]{8}$/i.test(color) ? color.slice(0, 7) : color;
+}
+
 /** Dissolve axis name → the float the shaders branch on (see dissolveChunk's dissolveCoord). */
 const DISSOLVE_AXIS_INDEX: Record<DissolveAxis, number> = {
   length: 0,
@@ -643,8 +659,6 @@ export class WaveRenderer {
       uLineSharpness: { value: 0 },
       uLineGapOpacity: { value: 1 },
       uLineLight: { value: 0 },
-      uLineSpecular: { value: 0.35 },
-      uLineRound: { value: 0 },
       uMaxWidth: { value: 1232 },
       uClearColor: { value: new THREE.Vector3(1, 1, 1) },
       // Interaction / pointer field. ALWAYS present in JS (read only under POINTER_FX /
@@ -763,7 +777,7 @@ export class WaveRenderer {
     if (sc?.theme === "wireframe" && (sc.lineSharpness ?? 0) > 0) defines.LINE_SHARP = "";
     // Clear gaps, wireframe only: 1 is the opaque card the theme has always drawn, and leaving the
     // block uncompiled keeps that byte-identical (it also keeps the discard out of the program).
-    if (sc?.theme === "wireframe" && (sc.lineGapOpacity ?? 1) < 1) defines.LINE_CLEAR_GAPS = "";
+    if (sc?.theme === "wireframe" && gapAlpha(sc.lineGapColor) < 1) defines.LINE_CLEAR_GAPS = "";
     // Lighting, wireframe only and only when asked for: 0 is the flat theme, and leaving the block
     // uncompiled keeps that byte-identical (it also keeps the light uniforms out of the program).
     if (sc?.theme === "wireframe" && (sc.lineLight ?? 0) > 0) defines.LINE_LIGHT = "";
@@ -1010,16 +1024,16 @@ export class WaveRenderer {
       u.uLineDerivativePower.value = sc.lineDerivativePower ?? 0.95;
       u.uLineDepthFade.value = sc.lineDepthFade ?? 1;
       u.uLineSharpness.value = sc.lineSharpness ?? 0;
-      u.uLineGapOpacity.value = sc.lineGapOpacity ?? 1;
+      // One authored field decides both what colour sits between the strands and how much of it
+      // shows: absent = the page background, "transparent" or an 8-digit hex = partly or fully clear.
+      u.uLineGapOpacity.value = gapAlpha(sc.lineGapColor);
       u.uLineLight.value = sc.lineLight ?? 0;
-      u.uLineSpecular.value = sc.lineSpecular ?? 0.35;
-      u.uLineRound.value = sc.lineRound ?? 0;
       // Clear-gap strands must not write DEPTH. They are thin transparent slivers layered many deep,
       // and any two sheets that pass close to coplanar then decide who occludes whom by depth
       // precision — which is arbitrary, differs between backends, and shows up as strands winking in
       // and out along a rim. With the write off they simply composite in draw order, which is the
       // wave order and therefore stable. Opaque gaps keep writing depth exactly as before.
-      const clearGaps = sc.theme === "wireframe" && (sc.lineGapOpacity ?? 1) < 1;
+      const clearGaps = sc.theme === "wireframe" && gapAlpha(sc.lineGapColor) < 1;
       const wantDepthWrite = !clearGaps;
       if (wave.material.depthWrite !== wantDepthWrite) wave.material.depthWrite = wantDepthWrite;
       u.uRungAmount.value = sc.rungAmount ?? 0;
@@ -1030,7 +1044,7 @@ export class WaveRenderer {
       // gaps with bright strands combed over them, which is what an opaque striped surface looks
       // like, rather than bright paper showing between dark lines.
       hexToLinearVec3(
-        sc.lineGapColor ?? this.config.background,
+        gapColorHex(sc.lineGapColor) ?? this.config.background,
         u.uClearColor.value as THREE.Vector3,
       );
       u.uFiberCount.value = sc.fiberCount;

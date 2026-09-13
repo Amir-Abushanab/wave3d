@@ -301,38 +301,22 @@ export interface WaveConfig {
    *  this becomes the edge. 0.9 with `lineThickness` ~1.5 is heavy ink with crisp gaps still
    *  reading — the engraved / guilloché look. Default 0 (the original soft ramp). */
   lineSharpness?: number;
-  /** Wireframe only: how much of the page background the GAPS between strands carry. 1 (the default)
-   *  paints them solid with it, which is what the theme has always done — and which makes a wireframe
-   *  wave an opaque CARD: stack two and the front one's gaps hide the back one behind flat page
-   *  colour instead of showing it through. 0 leaves them clear, so the strands composite over
-   *  whatever is really behind: the next wave in the stack, a solid wave used as a dark backing, the
-   *  page itself. A stack of clear-gap combs is how a wireframe reads as depth rather than as one
-   *  flat sheet. Values between are a veil. */
-  lineGapOpacity?: number;
-  /** Wireframe only: what colour the GAPS between strands carry. Absent = the page background, which
-   *  makes the wave a window onto the page: dark strands with paper showing between them. Set it and
-   *  the ribbon becomes its own BODY — a dark gap colour with a bright palette is an opaque striped
-   *  surface, bright combed lines on a dark ground, which is the other half of this theme's range
-   *  and the one that reads as a lit solid rather than as a drawing. Pair it with `lineGapOpacity`
-   *  1 so the body is opaque and the folds occlude each other. */
+  /** Wireframe only: what sits between the strands. ABSENT = the page background, which makes the
+   *  wave a window onto the page (dark strands, paper showing through) — the theme as it has always
+   *  drawn. A colour makes the ribbon its own BODY: a dark gap colour under a bright palette is an
+   *  opaque striped surface, which is the other half of this theme's range and the one that reads as
+   *  a lit solid rather than a drawing. `"transparent"` (or an 8-digit hex with a low alpha) leaves
+   *  the gaps CLEAR instead, so stacked folds show through each other rather than occluding —
+   *  airier, but the near fold no longer hides the far one, which is what makes a stack read solid. */
   lineGapColor?: string;
   /** Wireframe only: 0..1, how much the strands are LIT. The line theme is otherwise unlit — a
-   *  strand's colour comes from its uv alone, so it holds the same tone wherever the surface turns,
-   *  which is exactly why a dense wireframe reads as a printed pattern instead of an object. Turn
-   *  this up and the same derivative normal, scene `lights` and view-facing term the solid theme uses
-   *  shade it, so one strand brightens and darkens ALONG its own length as the ribbon curves. That is
-   *  the difference between a drawing of a form and a lit form. Default 0 (flat, as the theme was). */
+   *  strand's colour comes from its uv alone, so it holds one tone wherever the surface turns, which
+   *  is why a dense wireframe reads as a printed pattern instead of an object. Turn this up and the
+   *  same derivative normal and scene `lights` the solid theme uses shade it, AND each strand is
+   *  given a round cross-section, so a specular runs along one strand and not its neighbour. (Those
+   *  are one knob on purpose: shading a flat stripe barely reads — it is the round section that makes
+   *  a strand look like a filament.) Default 0. */
   lineLight?: number;
-  /** Tightness of the specular glint under {@link lineLight} — on a combed surface it runs along one
-   *  strand and not its neighbour, which is what reads as filament rather than print. Default 0.35;
-   *  inert unless `lineLight` > 0. */
-  lineSpecular?: number;
-  /** 0..1 — shade each strand as a ROUND filament instead of a flat stripe. A stripe is a mask: it
-   *  has no cross-section, so no highlight can run along it and a dense wireframe reads as hatching
-   *  however hard it is lit. This bends the surface normal across each strand, giving every one a
-   *  lit crest and dark flanks and letting a specular travel down one strand and not its neighbour —
-   *  which is what reads as combed thread. Default 0; needs {@link lineLight} to do anything. */
-  lineRound?: number;
   /** Wireframe RUNGS: a second line family carved at constant uv.y, so these run ACROSS the ribbon
    *  where `lineAmount`'s run along it — the two cross into a ladder. Frequency, like `lineAmount`
    *  (rungs ≈ amount / π). 0 = off, and the cross-wise path isn't compiled. */
@@ -912,10 +896,7 @@ function defaultWave(): WaveConfig {
     lineDerivativePower: 0.95,
     lineDepthFade: 1,
     lineSharpness: 0,
-    lineGapOpacity: 1,
     lineLight: 0,
-    lineSpecular: 0.35,
-    lineRound: 0,
     rungAmount: 0, // cross-wise rungs off
     rungThickness: 1,
     maxWidth: 1232,
@@ -1178,12 +1159,9 @@ export function normalizeWave(s: WaveConfig): void {
   if (!Number.isFinite(s.lineDerivativePower)) s.lineDerivativePower = 0.95;
   if (!Number.isFinite(s.lineDepthFade)) s.lineDepthFade = 1;
   if (!Number.isFinite(s.lineSharpness)) s.lineSharpness = 0;
-  if (!Number.isFinite(s.lineGapOpacity)) s.lineGapOpacity = 1;
   // Absent is meaningful (= the page background), so this is repaired only when present and wrong.
   if (s.lineGapColor !== undefined && typeof s.lineGapColor !== "string") delete s.lineGapColor;
   if (!Number.isFinite(s.lineLight)) s.lineLight = 0;
-  if (!Number.isFinite(s.lineSpecular)) s.lineSpecular = 0.35;
-  if (!Number.isFinite(s.lineRound)) s.lineRound = 0;
   if (!Number.isFinite(s.rungAmount)) s.rungAmount = 0;
   if (!Number.isFinite(s.rungThickness)) s.rungThickness = 1;
   if (!Number.isFinite(s.maxWidth)) s.maxWidth = 1232;

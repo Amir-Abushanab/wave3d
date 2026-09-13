@@ -98,8 +98,6 @@
         "lineDepthFade": 0,
         "lineSharpness": 0.96,
         "lineLight": 0.8,
-        "lineSpecular": 1.5,
-        "lineRound": 1.2,
         "position": {
           "x": 0,
           "y": 0,
@@ -267,8 +265,6 @@
         "lineDepthFade": 0,
         "lineSharpness": 0.96,
         "lineLight": 0.8,
-        "lineSpecular": 1.5,
-        "lineRound": 1.2,
         "position": {
           "x": 0,
           "y": 0,

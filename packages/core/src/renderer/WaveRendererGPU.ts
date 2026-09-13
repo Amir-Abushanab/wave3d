@@ -166,7 +166,10 @@ export function withTslBackend<TBase extends typeof WaveRenderer>(Base: TBase): 
         edgeFeather: (sc?.edgeFeather ?? 0.1) !== 0.1,
         rungs: sc?.theme === "wireframe" && (sc.rungAmount ?? 0) > 0,
         lineSharp: sc?.theme === "wireframe" && (sc.lineSharpness ?? 0) > 0,
-        lineClearGaps: sc?.theme === "wireframe" && (sc.lineGapOpacity ?? 1) < 1,
+        lineClearGaps:
+          sc?.theme === "wireframe" &&
+          !!sc.lineGapColor &&
+          (sc.lineGapColor === "transparent" || /^#[0-9a-f]{8}$/i.test(sc.lineGapColor)),
         lineLight: sc?.theme === "wireframe" && (sc.lineLight ?? 0) > 0,
         dissolve: !!sc?.dissolve && ((sc.dissolve.amount ?? 0) > 0 || bindsDissolve),
         pointerFx: pointer,
