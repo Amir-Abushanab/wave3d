@@ -41,6 +41,7 @@ function variantKey(f: WaveMaterialFlags): string {
     f.lineSharp && "lineSharp",
     f.lineClearGaps && "clearGaps",
     f.lineLight && "lineLight",
+    f.premultiplied && "premul",
     f.dissolve && "dissolve",
     f.pointerFx && "pointer",
     f.pointerRipples && "ripples",
@@ -166,6 +167,9 @@ export function withTslBackend<TBase extends typeof WaveRenderer>(Base: TBase): 
         edgeFeather: (sc?.edgeFeather ?? 0.1) !== 0.1,
         rungs: sc?.theme === "wireframe" && (sc.rungAmount ?? 0) > 0,
         lineSharp: sc?.theme === "wireframe" && (sc.lineSharpness ?? 0) > 0,
+        // The same rule applyBlendMode uses to set material.premultipliedAlpha, so the graph and
+        // the blend factors can never disagree about which convention the output is in.
+        premultiplied: ((m) => m === "squared" || m === "multiply")(sc?.blendMode ?? "squared"),
         lineClearGaps:
           sc?.theme === "wireframe" &&
           !!sc.lineGapColor &&

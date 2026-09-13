@@ -351,44 +351,55 @@ export interface DiffResult {
   diffPng: string;
 }
 
+/** Half-width of the window {@link edgeMask} measures a boundary over. 2 (a 5x5 window) is the
+ *  width of the ribbon's own feathered rim; see the note there for why it is not 1 or 3. */
+const EDGE_RADIUS = 2;
+
 /**
- * Mark pixels lying on a coverage boundary — anywhere the reference's alpha jumps between
- * neighbours.
+ * Mark pixels lying on a coverage boundary — anywhere the reference changes steeply enough that
+ * which sample a rasteriser takes decides the value.
  *
  * Two rasterisers disagree at a silhouette for reasons that have nothing to do with the shader:
  * which samples a triangle covers on a given edge is not specified to the last pixel. Those pixels
  * are reported separately so a real shading regression cannot hide behind them, and so an edge
  * difference cannot fail the gate on its own.
+ *
+ * The boundary is measured as the SPAN (max - min) over a small window, not as a step between
+ * touching pixels, and that distinction is the whole point. A ribbon does not end at a hard step:
+ * `edgeFeather` ramps it into the background over several pixels by design, so every individual
+ * step along that ramp is small while the ramp as a whole is a full silhouette. A single-hop test
+ * therefore scored the entire feathered rim as INTERIOR and charged its rasteriser disagreement to
+ * the shader — which was most of what the interior figures were reporting: masking by span instead
+ * takes preset:Hero from 1.24% of interior pixels over 8 to 0.09%, and the ribbon's true interior
+ * (everything past the rim) was already at 0.2%.
+ *
+ * The radius is the rim's own width and no more. At 3 the window starts swallowing genuinely
+ * interior pixels, and it shows: preset:Vaporwave Sunset RISES from 0.44% to 2.66%, because the
+ * pixels being excluded were the agreeing ones. A mask that only ever improves the number is a mask
+ * that has stopped measuring.
  */
 function edgeMask(img: ImageData): Uint8Array {
   const { width: w, height: h, data } = img;
   const mask = new Uint8Array(w * h);
-  // Gradient over RGB *and* alpha: a capture composited onto an opaque background has uniform
-  // alpha, so the silhouette shows up only as a colour step.
-  const stepBetween = (x0: number, y0: number, x1: number, y1: number) => {
-    const i = (y0 * w + x0) * 4;
-    const j = (y1 * w + x1) * 4;
-    let m = 0;
-    for (let k = 0; k < 4; k++) m = Math.max(m, Math.abs(data[i + k] - data[j + k]));
-    return m;
-  };
-  for (let y = 1; y < h - 1; y++) {
-    for (let x = 1; x < w - 1; x++) {
-      let edge = false;
-      for (let dy = -1; dy <= 1 && !edge; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          if (stepBetween(x, y, x + dx, y + dy) > 24) {
-            edge = true;
-            break;
+  const R = EDGE_RADIUS;
+  // Span over RGB *and* alpha: a capture composited onto an opaque background has uniform alpha, so
+  // the silhouette shows up only as a colour change.
+  for (let y = R; y < h - R; y++) {
+    for (let x = R; x < w - R; x++) {
+      let span = 0;
+      for (let k = 0; k < 4 && span <= 24; k++) {
+        let lo = 255;
+        let hi = 0;
+        for (let dy = -R; dy <= R; dy++) {
+          for (let dx = -R; dx <= R; dx++) {
+            const v = data[((y + dy) * w + x + dx) * 4 + k];
+            if (v < lo) lo = v;
+            if (v > hi) hi = v;
           }
         }
+        if (hi - lo > span) span = hi - lo;
       }
-      if (edge) {
-        // Dilate by one: a boundary pixel's immediate neighbours inherit the disagreement.
-        for (let dy = -1; dy <= 1; dy++) {
-          for (let dx = -1; dx <= 1; dx++) mask[(y + dy) * w + (x + dx)] = 1;
-        }
-      }
+      if (span > 24) mask[y * w + x] = 1;
     }
   }
   return mask;

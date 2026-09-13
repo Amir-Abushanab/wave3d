@@ -4,11 +4,16 @@
  * The GLSL `#ifdef` variants become JS flags, so each material builds exactly the graph it needs
  * instead of relying on a define set and a program cache key.
  *
- * Two deliberate differences from the GLSL, both because the node pipeline already does the work:
- *   - No `PREMULTIPLIED_ALPHA` block. `NodeMaterial.setupOutput()` calls `setupPremultipliedAlpha()`
- *     when `material.premultipliedAlpha` is set, so premultiplying here would double-apply it.
- *   - No output colour-space conversion. The material writes LINEAR, exactly as the GLSL does; the
- *     conversion happens once at the end of the post chain, matching `OutputPass` on the WebGL path.
+ * One deliberate difference from the GLSL: no output colour-space conversion. The material writes
+ * LINEAR, exactly as the GLSL does; the conversion happens once at the end of the post chain,
+ * matching `OutputPass` on the WebGL path.
+ *
+ * Premultiplied alpha, by contrast, has to be done HERE. `NodeMaterial.setupOutput()` does call
+ * `setupPremultipliedAlpha()` — but on its own `basicOutput`, which it then discards the moment a
+ * custom `outputNode` is set (`if (isCustomOutput) resultNode = this.outputNode`). So a material
+ * that writes its own output gets the premultiplied BLEND FACTORS without the premultiply, and
+ * every partly transparent pixel composites too bright. The GLSL does the same multiply under the
+ * PREMULTIPLIED_ALPHA define Three injects for it; this is that line.
  */
 import { NodeMaterial } from "three/webgpu";
 import {
@@ -74,6 +79,12 @@ export interface WaveMaterialFlags extends WaveShapeFlags {
   lineClearGaps: boolean;
   /** Lit / round strands (wireframe only): compiled only when lineLight > 0, as in the GLSL. */
   lineLight: boolean;
+  /**
+   * Premultiply the output, for the blend modes that ask for premultiplied factors ("squared" —
+   * the default — and "multiply"). Mirrors `applyBlendMode`'s own rule; see the note at the top of
+   * this file for why the node pipeline cannot do it for us.
+   */
+  premultiplied: boolean;
   /**
    * True when the active backend uses [0,1] clip Z (WebGPU) rather than [-1,1] (WebGL).
    *
@@ -205,10 +216,14 @@ export function buildWaveMaterial(u: WaveTslUniforms, flags: WaveMaterialFlags):
   // This fragment's 0..1 screen position — read only by a screen-axis dissolve front. Taken from
   // the same clip vector the depth fade uses, so the two never disagree about where a fragment is.
   const ndc = rawClip.xy.div(max(rawClip.w, 1.0e-6)).mul(0.5).add(0.5);
-  material.outputNode =
+  const fragment = (
     flags.theme === "wireframe"
       ? buildWireframeFragment(u, flags, clipZ, pointerFall, ndc)
-      : buildSolidFragment(u, flags, clipZ, pointerFall, ndc);
+      : buildSolidFragment(u, flags, clipZ, pointerFall, ndc)
+  ).toVar("fragOut");
+  material.outputNode = flags.premultiplied
+    ? vec4(fragment.rgb.mul(fragment.a), fragment.a)
+    : fragment;
 
   return material;
 }
