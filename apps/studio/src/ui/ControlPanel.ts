@@ -2552,9 +2552,6 @@ export class ControlPanel {
       const bRungThickness = finF
         .addBinding(wave, "rungThickness", { min: 0, max: 6, step: 0.05, label: "rung thickness" })
         .on("change", refresh);
-      const bMaxWidth = finF
-        .addBinding(wave, "maxWidth", { min: 1, max: 3000, step: 1, label: "max width" })
-        .on("change", refresh);
       const solidOnly = [
         bFiberCount,
         bFiberStrength,
@@ -2580,7 +2577,6 @@ export class ControlPanel {
         bLineLight,
         bRungAmount,
         bRungThickness,
-        bMaxWidth,
       ];
       const updateMaterialControls = (): void => {
         const wire = wave.theme === "wireframe";

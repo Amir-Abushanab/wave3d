@@ -843,7 +843,6 @@ uniform float uLineGapOpacity;      // how much page colour the gaps between str
 #ifdef LINE_SHARP
 uniform float uLineSharpness;       // 0..1 — steepen the stripe profile toward a hard duty cycle
 #endif
-uniform float uMaxWidth;            // default 1232
 // Cross-wise rungs (optional) — behind RUNGS so a wave without them compiles the same program.
 #ifdef RUNGS
 uniform float uRungAmount;    // frequency across the ribbon (rungs ≈ amount / π)
@@ -882,7 +881,10 @@ void main(){
 
   // Carve into fine lengthwise strands; thickness from the screen-space uv derivative.
   vec2 dy = dFdy(vUv);
-  float lineThickness = uLineThickness * pow(abs(dy.x * uMaxWidth), uLineDerivativePower);
+  // 1232 is a fixed reference width, not a knob: the old uMaxWidth uniform only ever multiplied the
+  // derivative before the power, and pow(a*b, p) = pow(a, p)·pow(b, p) — so every value of it was
+  // reachable by scaling lineThickness instead. See normalizeWave, which migrates the old field.
+  float lineThickness = uLineThickness * pow(abs(dy.x * 1232.0), uLineDerivativePower);
 #ifdef POINTER_FX
   lineThickness *= clamp(1.0 - uPointerThin * vPointerFall, 0.0, 1.0); // wireframe: taper strands
 #endif

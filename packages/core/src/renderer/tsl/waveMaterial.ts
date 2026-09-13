@@ -234,7 +234,7 @@ function buildWireframeFragment(
     // Carve into fine lengthwise strands; thickness from the screen-space uv derivative.
     const dy = dFdy(vUv).toVar();
     const lineThickness = u.uLineThickness
-      .mul(pow(tabs(dy.x.mul(u.uMaxWidth)), u.uLineDerivativePower))
+      .mul(pow(tabs(dy.x.mul(1232.0)), u.uLineDerivativePower)) // fixed reference width; see the GLSL
       .toVar("lineThickness");
     if (pointerFall) {
       // Strands taper to hairlines near the cursor.

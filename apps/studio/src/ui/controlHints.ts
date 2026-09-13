@@ -156,12 +156,11 @@ const CONTROL_HINTS: Record<string, string> = {
   "line count":
     "How many strands the ribbon is carved into. They run lengthwise, so this counts them ACROSS the width.",
   "line thickness":
-    "Base strand width, before 'line falloff' and 'max width' thicken it where the ribbon folds away.",
+    "Base strand width. With 'line falloff' above 0 the ribbon's foreshortening thickens it where the surface turns away; at 0 this IS the duty cycle — the fraction of each gap that is strand — which is what you want when the wave is framed close.",
   "rung count":
     "A second family of lines carved ACROSS the ribbon, crossing the lengthwise strands into a ladder. Roughly count ÷ π rungs. 0 = off, and the cross-wise path isn't even compiled.",
   "rung thickness": "Rung line width in pixels — screen-space, so it holds at any zoom.",
   "line falloff": "How sharply wireframe lines thicken where the ribbon folds away.",
-  "max width": "Master scale for the fold-driven line thickening (wireframe).",
 
   // --- Noise Bands ---
   // The names are the reverse of what they suggest: the bounds gate on uv, where uv.x wraps the

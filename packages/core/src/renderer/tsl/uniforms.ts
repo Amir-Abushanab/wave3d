@@ -140,7 +140,6 @@ export function makeTslUniforms(drawingBufferSize: Vector2) {
     uLineSharpness: uniform(0),
     uLineGapOpacity: uniform(1),
     uLineLight: uniform(0),
-    uMaxWidth: uniform(1232),
     uClearColor: uniform(new Vector3(1, 1, 1)),
 
     // ---- Helix / radial / rungs ----

@@ -659,7 +659,6 @@ export class WaveRenderer {
       uLineSharpness: { value: 0 },
       uLineGapOpacity: { value: 1 },
       uLineLight: { value: 0 },
-      uMaxWidth: { value: 1232 },
       uClearColor: { value: new THREE.Vector3(1, 1, 1) },
       // Interaction / pointer field. ALWAYS present in JS (read only under POINTER_FX /
       // POINTER_RIPPLES); three uploads them only when the compiled program declares them, so their
@@ -1038,7 +1037,6 @@ export class WaveRenderer {
       if (wave.material.depthWrite !== wantDepthWrite) wave.material.depthWrite = wantDepthWrite;
       u.uRungAmount.value = sc.rungAmount ?? 0;
       u.uRungThickness.value = sc.rungThickness ?? 1;
-      u.uMaxWidth.value = sc.maxWidth ?? 1232;
       // The between-strand colour. Defaults to the page background — a wireframe wave is then a
       // window onto the page — but an explicit `lineGapColor` makes the ribbon its own BODY: dark
       // gaps with bright strands combed over them, which is what an opaque striped surface looks

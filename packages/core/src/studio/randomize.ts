@@ -238,7 +238,6 @@ export function randomizeFinish(c: WaveConfig): void {
   c.lineAmount = Math.round(rand(200, 900));
   c.lineThickness = r2(rand(0.5, 2));
   c.lineDerivativePower = r2(rand(0.4, 1.2));
-  c.maxWidth = Math.round(rand(400, 1600));
   c.theme = rand(0, 1) < 0.2 ? "wireframe" : "solid"; // occasionally flip the material
 }
 

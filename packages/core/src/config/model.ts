@@ -323,7 +323,6 @@ export interface WaveConfig {
   rungAmount?: number;
   /** Rung line width, in pixels (screen-space, so it holds at any zoom). */
   rungThickness?: number;
-  maxWidth?: number;
   // Transform (absolute — no shared base to offset from)
   position: Vec3;
   rotation: Vec3;
@@ -899,7 +898,6 @@ function defaultWave(): WaveConfig {
     lineLight: 0,
     rungAmount: 0, // cross-wise rungs off
     rungThickness: 1,
-    maxWidth: 1232,
     // Hero mesh transform at FULL scale (the ortho camera frames in pixels).
     position: { x: -24.3, y: -56.4, z: -11.1 },
     rotation: { x: -9.14, y: -16.25, z: -161.32 },
@@ -1164,7 +1162,17 @@ export function normalizeWave(s: WaveConfig): void {
   if (!Number.isFinite(s.lineLight)) s.lineLight = 0;
   if (!Number.isFinite(s.rungAmount)) s.rungAmount = 0;
   if (!Number.isFinite(s.rungThickness)) s.rungThickness = 1;
-  if (!Number.isFinite(s.maxWidth)) s.maxWidth = 1232;
+  // maxWidth was a multiplier on the derivative INSIDE the same power as lineThickness, so every
+  // value of it was already reachable through lineThickness — pow(a·b, p) = pow(a, p)·pow(b, p).
+  // Fold a saved one in rather than dropping it, so an old config keeps the strands it was tuned to.
+  const savedMaxWidth = (s as { maxWidth?: unknown }).maxWidth;
+  if (Number.isFinite(savedMaxWidth)) {
+    const w = savedMaxWidth as number;
+    if (w > 0 && w !== 1232) {
+      s.lineThickness = (s.lineThickness ?? 1) * Math.pow(w / 1232, s.lineDerivativePower ?? 0.95);
+    }
+    delete (s as { maxWidth?: unknown }).maxWidth;
+  }
   if (!s.position) s.position = { x: 0, y: 0, z: 0 };
   if (!s.rotation) s.rotation = { x: 0, y: 0, z: 0 };
   if (!s.scale) s.scale = { x: 10, y: 10, z: 7 };

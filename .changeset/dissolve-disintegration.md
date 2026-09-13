@@ -96,6 +96,12 @@ DEPTH: they are thin transparent slivers layered many deep, and two sheets passi
 would otherwise decide who occludes whom by depth precision, which is arbitrary and differs between
 backends; with the write off they composite in wave order, which is stable.
 
+`maxWidth` is retired. It multiplied the uv derivative INSIDE the same power as `lineThickness`, and
+pow(a·b, p) = pow(a, p)·pow(b, p) — so every value of it was already reachable by scaling the
+thickness, and at `lineDerivativePower: 0` (what a close-framed wave wants) it did nothing at all. A
+saved value is folded into `lineThickness` on load rather than dropped, so an old config keeps the
+strands it was tuned to.
+
 `lineGapColor` decides what sits between the strands, which is most of what a wireframe looks like.
 Absent (the default, and what the theme has always drawn) the gaps take the page background: the wave
 is a window onto the page, and being opaque the near fold HIDES the far one, which is what makes a
