@@ -1162,17 +1162,6 @@ export function normalizeWave(s: WaveConfig): void {
   if (!Number.isFinite(s.lineLight)) s.lineLight = 0;
   if (!Number.isFinite(s.rungAmount)) s.rungAmount = 0;
   if (!Number.isFinite(s.rungThickness)) s.rungThickness = 1;
-  // maxWidth was a multiplier on the derivative INSIDE the same power as lineThickness, so every
-  // value of it was already reachable through lineThickness — pow(a·b, p) = pow(a, p)·pow(b, p).
-  // Fold a saved one in rather than dropping it, so an old config keeps the strands it was tuned to.
-  const savedMaxWidth = (s as { maxWidth?: unknown }).maxWidth;
-  if (Number.isFinite(savedMaxWidth)) {
-    const w = savedMaxWidth as number;
-    if (w > 0 && w !== 1232) {
-      s.lineThickness = (s.lineThickness ?? 1) * Math.pow(w / 1232, s.lineDerivativePower ?? 0.95);
-    }
-    delete (s as { maxWidth?: unknown }).maxWidth;
-  }
   if (!s.position) s.position = { x: 0, y: 0, z: 0 };
   if (!s.rotation) s.rotation = { x: 0, y: 0, z: 0 };
   if (!s.scale) s.scale = { x: 10, y: 10, z: 7 };

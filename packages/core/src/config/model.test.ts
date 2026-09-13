@@ -159,7 +159,6 @@ describe("ensureStudioConfig repairs configs that used to break the panel", () =
     expect(w.helixPhase).toBe(0);
     expect(w.rungAmount).toBe(0);
     expect(w.rungThickness).toBe(1);
-    expect((w as { maxWidth?: number }).maxWidth).toBeUndefined(); // retired, folded into thickness
   });
 
   it("leaves authored helix + rung values alone, including a negative roll", () => {
@@ -188,25 +187,6 @@ describe("ensureStudioConfig repairs configs that used to break the panel", () =
     expect(w.radialCone).toBe(0); // flat fan — the shape the mode had before the cone existed
     expect(w.radialSwirl).toBe(0); // straight arms, not spiral ones
     expect(w.path).toBeUndefined(); // no centreline of its own — the straight ribbon
-  });
-
-  it("folds a saved maxWidth into lineThickness rather than dropping the look it was tuned to", () => {
-    // maxWidth multiplied the derivative INSIDE the same power as lineThickness, so the two were
-    // always the same knob: pow(a·b, p) = pow(a, p)·pow(b, p). An old config has to come back with
-    // the strands it had, not with the field silently gone.
-    const w = ensureStudioConfig(
-      hostile({
-        waves: [
-          { theme: "wireframe", lineThickness: 1.89, lineDerivativePower: 0.41, maxWidth: 392 },
-        ],
-      }),
-    ).waves[0];
-    expect((w as { maxWidth?: number }).maxWidth).toBeUndefined();
-    expect(w.lineThickness).toBeCloseTo(1.89 * Math.pow(392 / 1232, 0.41), 4);
-    // The default value was a no-op, so it leaves thickness exactly alone.
-    const same = ensureStudioConfig(hostile({ waves: [{ lineThickness: 1.3, maxWidth: 1232 }] }))
-      .waves[0];
-    expect(same.lineThickness).toBe(1.3);
   });
 
   it("keeps an authored path, and drops one too short to be a centreline", () => {
