@@ -168,6 +168,12 @@ is in PIXELS, so it must come DOWN as `rungAmount` goes up or the strands merge 
 ~300-400 rungs the periods go sub-pixel in a small embed, where a pixel-width stripe stops being
 stable (it falls back to the strands' analytic duty cycle, which is a flat tone, not detail).
 
+**`lineDerivativePower` decides whether a close-framed wave has any ink.** It scales strand thickness
+by the screen-space uv derivative, which is right for a ribbon seen whole (strands thicken where the
+surface turns away, which reads as light on a curve). But the bigger a sheet gets on screen the
+SMALLER its uv derivative, so framed close the strands thin to pale grey exactly where you want them
+black. Set it to 0 and `lineThickness` alone is the duty cycle, crisp at any zoom.
+
 **Wireframe ink (`theme: "wireframe"`).** The strand is a soft ramp by default, so `lineThickness`
 alone goes from pale hairlines to flat solid without passing through dense ink. `lineSharpness`
 (0..1) steepens it, which turns `lineThickness` into a DUTY CYCLE and gives engraved black strands

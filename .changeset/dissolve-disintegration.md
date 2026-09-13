@@ -85,5 +85,13 @@ not. And a `"square"` particle now cuts its OWN shard from its quad — its own 
 quarter-turn, with a squared extent for the heavy tail real rubble has — because a field of identical
 squares reads as grain rather than debris.
 
-New preset **Disintegration**: a combed ribbon pinched to a throat with a band wrapped around it over
-warm paper, crumbling into blocky debris across a straight edge, with scroll wired to finish the job.
+One more thing worth knowing about the wireframe, learned the hard way: `lineDerivativePower` decides
+whether a close-framed wave has any ink at all. It scales strand thickness by the screen-space uv
+derivative — right for a ribbon seen whole, since strands then thicken where the surface turns away —
+but the bigger a sheet gets on screen the smaller that derivative is, so framed close the strands
+thin to pale grey exactly where they should be black. At 0, `lineThickness` alone is the duty cycle
+and the strands stay crisp at any zoom (it also removes a derivative from the cross-backend budget:
+the preset's parity went from 0.86% of pixels over 8 to 0.03%).
+
+New preset **Disintegration**: a broad combed sheet curling around a spiral eye over warm paper,
+crumbling into blocky debris across a straight edge, with scroll wired to finish the job.
