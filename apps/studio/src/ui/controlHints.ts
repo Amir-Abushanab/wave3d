@@ -210,6 +210,16 @@ const CONTROL_HINTS: Record<string, string> = {
   "phase °":
     "Where along the turn the ribbon starts. This is the knob that offsets a second wave onto the other side of the same helix (set it to 180).",
 
+  // --- Path --- the centreline the ribbon is swept along. Both buttons carry the same gesture,
+  // because the panel is not where a path is shaped: the canvas is.
+  "Add a path":
+    "Gives this wave a centreline you can bend. The path starts as the straight line the ribbon already runs along, so nothing moves until you move it — then DRAG THE RIBBON ITSELF and it pushes around like putty, with the push fading out along the length so only the part under the cursor follows. Shift-drag narrows the push. You can also double-click the ribbon on the canvas to start.",
+  "Edit path (or double-click it)":
+    "Shape this wave's centreline on the canvas: drag the RIBBON to push it around (shift-drag for a tighter push), double-click the ribbon to add a control point, double-click a point to remove it, Escape when you're done. A path is what lets a ribbon change direction more than once, cross itself, or be wide here and narrow there — the twists and the helix can only bend a centreline that stays put.",
+
+  "Clear path":
+    "Drops the centreline and puts the ribbon back on the straight one the geometry is born with. The shape you sculpted is gone — undo brings it back.",
+
   // --- Camera ---
   "rig minimap": "Corner minimap showing the wave, camera and lights in 3-D.",
   "min visible W":

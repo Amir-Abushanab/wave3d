@@ -64,6 +64,9 @@ bent as a whole and that feels like bending wire rather than pressing clay. Cont
 precision — drag a handle, double-click one to remove it, double-click the ribbon to insert one — and
 Escape leaves.
 
+While the mode is on, a bar lists the gestures (none of them are discoverable from a canvas) and the
+cursor reports what is under it: grab on the ribbon, pointer on a control point, move on empty space.
+
 Picking goes through a proxy strip rebuilt from the current frames, because the ribbon's vertices are
 only deformed on the GPU: a raycast against the wave's own mesh would hit the straight ribbon the
 geometry was born as rather than the curve on screen. The frames themselves are baked into a small

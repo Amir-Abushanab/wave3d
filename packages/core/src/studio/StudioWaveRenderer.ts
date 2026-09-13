@@ -102,6 +102,9 @@ export class StudioWaveRenderer extends WaveRenderer {
   /** Set by the panel: fired after a wave/wave gizmo drag/selection so the position and
    *  per-wave offset sliders can refresh. */
   onWaveChanged?: () => void;
+  /** Fires when path editing starts (the wave's index) or ends (-1), so the app can put the gestures
+   *  on screen — none of them are discoverable from the canvas alone. */
+  onPathEditChanged?: (waveIndex: number) => void;
 
   // ---------------- 3D editing (draggable gizmo: lights or wave/waves) ----------------
 
@@ -116,6 +119,7 @@ export class StudioWaveRenderer extends WaveRenderer {
   async setPathEditMode(waveIndex: number): Promise<void> {
     if (waveIndex < 0) {
       await this.setEditMode("none");
+      this.onPathEditChanged?.(-1);
       return;
     }
     const wave = this.config.waves[waveIndex];
@@ -130,10 +134,12 @@ export class StudioWaveRenderer extends WaveRenderer {
     if (this.editMode === "path") {
       this.syncPathHelpers();
       this.refresh();
+      this.onPathEditChanged?.(waveIndex);
       return;
     }
     await this.setEditMode("path");
     this.refresh();
+    this.onPathEditChanged?.(waveIndex);
   }
 
   /** Which wave's path is being edited, or -1. */
@@ -146,7 +152,10 @@ export class StudioWaveRenderer extends WaveRenderer {
     const wave = this.config.waves[waveIndex];
     if (!wave?.path) return;
     delete wave.path;
-    if (this.editMode === "path" && this.pathWave === waveIndex) void this.setEditMode("none");
+    if (this.editMode === "path" && this.pathWave === waveIndex) {
+      void this.setEditMode("none");
+      this.onPathEditChanged?.(-1);
+    }
     this.refresh();
     this.onWaveChanged?.();
     if (!this.running) this.renderOnce();
@@ -884,9 +893,40 @@ export class StudioWaveRenderer extends WaveRenderer {
       }
     }
     // Not in path mode (or clicked off the ribbon): enter on whichever wave was hit, leave if none.
-    const idx = this.waves.findIndex((_, i) => !!this.raycastWave(i));
-    void this.setPathEditMode(idx);
+    void this.setPathEditMode(this.pickWave());
   };
+
+  /**
+   * Which wave a click meant. An exact hit on a wave's mesh wins, but that mesh is the UNDEFORMED
+   * ribbon — every twist, displacement, helix and path lives in the vertex shader — so on a deformed
+   * wave the exact test misses everything you can actually see. The fallback is the wave's bounding
+   * sphere, inflated the way the clip fit inflates it, which answers the only question entry really
+   * asks: which ribbon did they mean.
+   */
+  private pickWave(): number {
+    for (let i = 0; i < this.waves.length; i++) if (this.raycastWave(i)) return i;
+    let best = -1;
+    let bestDist = Infinity;
+    for (let i = 0; i < this.waves.length; i++) {
+      const wave = this.waves[i];
+      const bs = wave?.geometry.geometry.boundingSphere;
+      if (!bs) continue;
+      wave.mesh.updateWorldMatrix(true, false);
+      const sc = this.config.waves[i];
+      const inflate = Math.abs(sc?.displaceAmount ?? 0) + Math.abs(sc?.helixRadius ?? 0);
+      const sphere = new THREE.Sphere(bs.center.clone(), bs.radius + inflate).applyMatrix4(
+        wave.mesh.matrixWorld,
+      );
+      const hit = new THREE.Vector3();
+      if (!this.raycaster.ray.intersectSphere(sphere, hit)) continue;
+      const d = hit.distanceToSquared(this.raycaster.ray.origin);
+      if (d < bestDist) {
+        bestDist = d;
+        best = i;
+      }
+    }
+    return best;
+  }
 
   /** Raycast one wave's ribbon. In path mode that means the proxy strip, which follows the curve
    *  you can actually see; otherwise the wave's own (undeformed) mesh, which is enough to answer
@@ -995,8 +1035,17 @@ export class StudioWaveRenderer extends WaveRenderer {
 
   private onPointerMove = (ev: PointerEvent): void => {
     if (this.sculptState) {
+      this.renderer.domElement.style.cursor = "grabbing";
       this.sculptTo(ev);
       return;
+    }
+    // In path mode the ribbon itself is the control, so the cursor has to say which parts are
+    // grabbable — otherwise the whole gesture is invisible until someone happens to try it.
+    if (this.editMode === "path" && !this.dragState && !this.panState) {
+      this.raycaster.setFromCamera(this.pointerNdc(ev), this.camera);
+      const overHandle = this.raycaster.intersectObjects(this.pathHelpers, false).length > 0;
+      const overRibbon = !overHandle && !!this.raycastWave(this.pathWave);
+      this.renderer.domElement.style.cursor = overHandle ? "pointer" : overRibbon ? "grab" : "move";
     }
     if (this.panState) {
       // Ortho pan: unproject the pointer delta into world units (auto-handles zoom/aspect/dpr),
@@ -1028,6 +1077,7 @@ export class StudioWaveRenderer extends WaveRenderer {
   private onPointerUp = (ev: PointerEvent): void => {
     if (this.sculptState) {
       this.sculptState = undefined;
+      this.renderer.domElement.style.cursor = "grab";
       if (this.orbit) this.orbit.enabled = true;
       this.renderer.domElement.releasePointerCapture?.(ev.pointerId);
       return;

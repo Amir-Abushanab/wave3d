@@ -3,6 +3,7 @@ import waveStudioLogoUrl from "../assets/favicon.png?inline";
 import principleStashMarkUrl from "../assets/principle-stash.svg?inline";
 import { injectStyleOnce } from "../util/dom";
 import { flashButtonSuccess, flashButtonError } from "./buttonFeedback";
+import { showPathHints } from "./PathHintBar";
 import { roundTo } from "../util/math";
 import {
   resizeWaves,
@@ -2082,6 +2083,12 @@ export class ControlPanel {
       syncPanel();
       this.hooks.onEdit?.();
     };
+    // Path editing is all direct manipulation, so the gestures have to be on screen while it is on —
+    // and the panel has to rebuild, since its Path buttons read "Add"/"Clear" off the wave's state.
+    this.renderer.onPathEditChanged = (waveIndex: number) => {
+      showPathHints(waveIndex);
+      this.scheduleRebuild();
+    };
 
     const refresh = (): void => {
       this.clearPresetIndicator(); // a manual edit means the config no longer matches a preset
@@ -2687,7 +2694,9 @@ export class ControlPanel {
           this.scheduleRebuild();
         });
       if (wave.path) {
-        pathF.addButton({ title: `Clear path (${wave.path.length} points)` }).on("click", () => {
+        // Stable title: hints are keyed by the rendered button text, so a point count in it would
+        // never match. The count is not worth a row of its own — the handles on the canvas are it.
+        pathF.addButton({ title: "Clear path" }).on("click", () => {
           this.renderer.clearPath(index);
           this.scheduleRebuild();
         });
