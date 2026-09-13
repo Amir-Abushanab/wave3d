@@ -637,6 +637,9 @@ export class WaveRenderer {
       uLineDepthFade: { value: 1 },
       uLineSharpness: { value: 0 },
       uLineGapOpacity: { value: 1 },
+      uLineLight: { value: 0 },
+      uLineSpecular: { value: 0.35 },
+      uLineRound: { value: 0 },
       uMaxWidth: { value: 1232 },
       uClearColor: { value: new THREE.Vector3(1, 1, 1) },
       // Interaction / pointer field. ALWAYS present in JS (read only under POINTER_FX /
@@ -735,6 +738,9 @@ export class WaveRenderer {
     // Clear gaps, wireframe only: 1 is the opaque card the theme has always drawn, and leaving the
     // block uncompiled keeps that byte-identical (it also keeps the discard out of the program).
     if (sc?.theme === "wireframe" && (sc.lineGapOpacity ?? 1) < 1) defines.LINE_CLEAR_GAPS = "";
+    // Lighting, wireframe only and only when asked for: 0 is the flat theme, and leaving the block
+    // uncompiled keeps that byte-identical (it also keeps the light uniforms out of the program).
+    if (sc?.theme === "wireframe" && (sc.lineLight ?? 0) > 0) defines.LINE_LIGHT = "";
     // Dissolve: a `dissolveAmount` binding counts too — driving the front up from an authored 0
     // has to have somewhere to land (as with detailAmount / helix above).
     const bindsDissolve =
@@ -979,6 +985,9 @@ export class WaveRenderer {
       u.uLineDepthFade.value = sc.lineDepthFade ?? 1;
       u.uLineSharpness.value = sc.lineSharpness ?? 0;
       u.uLineGapOpacity.value = sc.lineGapOpacity ?? 1;
+      u.uLineLight.value = sc.lineLight ?? 0;
+      u.uLineSpecular.value = sc.lineSpecular ?? 0.35;
+      u.uLineRound.value = sc.lineRound ?? 0;
       // Clear-gap strands must not write DEPTH. They are thin transparent slivers layered many deep,
       // and any two sheets that pass close to coplanar then decide who occludes whom by depth
       // precision — which is arbitrary, differs between backends, and shows up as strands winking in

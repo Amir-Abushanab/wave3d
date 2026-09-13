@@ -2530,6 +2530,17 @@ export class ControlPanel {
       const bLineGap = finF
         .addBinding(wave, "lineGapOpacity", { min: 0, max: 1, step: 0.01, label: "gap opacity" })
         .on("change", refresh);
+      // Lit / round strands: a stripe is otherwise a mask with no cross-section, so no highlight can
+      // run along it and a dense wireframe reads as hatching however it is lit.
+      const bLineLight = finF
+        .addBinding(wave, "lineLight", { min: 0, max: 1, step: 0.01, label: "strand light" })
+        .on("change", refresh);
+      const bLineRound = finF
+        .addBinding(wave, "lineRound", { min: 0, max: 3, step: 0.01, label: "strand round" })
+        .on("change", refresh);
+      const bLineSpecular = finF
+        .addBinding(wave, "lineSpecular", { min: 0, max: 3, step: 0.01, label: "strand glint" })
+        .on("change", refresh);
       const bRungAmount = finF
         .addBinding(wave, "rungAmount", { min: 0, max: 400, step: 1, label: "rung count" })
         .on("change", refresh);
@@ -2561,6 +2572,9 @@ export class ControlPanel {
         bLineSharpness,
         bLineDepthFade,
         bLineGap,
+        bLineLight,
+        bLineRound,
+        bLineSpecular,
         bRungAmount,
         bRungThickness,
         bMaxWidth,

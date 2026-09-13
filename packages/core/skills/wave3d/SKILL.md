@@ -168,6 +168,13 @@ is in PIXELS, so it must come DOWN as `rungAmount` goes up or the strands merge 
 ~300-400 rungs the periods go sub-pixel in a small embed, where a pixel-width stripe stops being
 stable (it falls back to the strands' analytic duty cycle, which is a flat tone, not detail).
 
+**A wireframe strand is a MASK, not a material — unless you light it.** Its colour comes from its uv
+alone, so it holds one tone wherever the surface turns, which is why a dense wireframe reads as
+hatching however it is posed. `lineLight` (0..1) shades it with the same derivative normal and scene
+`lights` the solid theme uses, and `lineRound` bends the normal ACROSS each stripe so every strand
+gets a lit crest and dark flanks — that is what lets a specular (`lineSpecular`) travel along one
+strand and not its neighbour, and what separates combed thread from print. All three default to off.
+
 **`lineDerivativePower` decides whether a close-framed wave has any ink.** It scales strand thickness
 by the screen-space uv derivative, which is right for a ribbon seen whole (strands thicken where the
 surface turns away, which reads as light on a curve). But the bigger a sheet gets on screen the

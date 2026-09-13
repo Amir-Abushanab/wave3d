@@ -859,6 +859,13 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     base.lineSharpness = 0.96;
     base.lineDepthFade = 0; // full contrast at every depth; the default is tuned for a single ribbon
     base.lineGapOpacity = 1; // opaque: the near lobe hides the far one, which is what reads as solid
+    // Lit, round strands. A stripe is otherwise a MASK — no cross-section, so no highlight can run
+    // along one and the bundle reads as hatching however dense it gets. These two give each strand a
+    // crest and flanks and shade it as the surface turns, which is the difference between a drawing
+    // of a combed surface and a combed surface.
+    base.lineLight = 0.8;
+    base.lineRound = 1.2;
+    base.lineSpecular = 1.5;
     base.rungAmount = 0;
     base.edgeFeather = 0.1;
     base.blendMode = "normal";
@@ -921,6 +928,10 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     c.transparentBackground = false;
     c.grain = 0;
     c.blur = 0;
+    // One key light, up and to the right of the camera: the strand shading needs somewhere for the
+    // glint to come from, and a single source keeps it readable as one direction of light.
+    c.ambient = 0.25;
+    c.lights = [{ position: { x: 600, y: 900, z: 800 }, color: "#ffffff", intensity: 2 }];
     c.cameraDistance = 5001;
     c.cameraPosition = { x: 0, y: 0, z: 5000 };
     c.cameraTarget = { x: -170, y: 10, z: 0 };

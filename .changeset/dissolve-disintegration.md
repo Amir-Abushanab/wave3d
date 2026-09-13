@@ -85,6 +85,15 @@ not. And a `"square"` particle now cuts its OWN shard from its quad — its own 
 quarter-turn, with a squared extent for the heavy tail real rubble has — because a field of identical
 squares reads as grain rather than debris.
 
+**Wireframe strands can be lit.** Until now a strand's colour came from its uv alone, so it held one
+tone wherever the surface turned — which is why a dense wireframe reads as hatching however it is
+posed or coloured. `lineLight` (0..1) shades it with the same derivative normal, scene `lights` and
+view-facing term the solid theme uses. `lineRound` goes further and bends the normal ACROSS each
+stripe, so every strand is a half-round filament with a lit crest and dark flanks: that is what lets
+a specular (`lineSpecular`) run along one strand and not its neighbour, and it is the difference
+between a drawing of a combed surface and a combed surface. All three default to off, and the block
+is only compiled when `lineLight` > 0.
+
 One more thing worth knowing about the wireframe, learned the hard way: `lineDerivativePower` decides
 whether a close-framed wave has any ink at all. It scales strand thickness by the screen-space uv
 derivative — right for a ribbon seen whole, since strands then thicken where the surface turns away —

@@ -312,6 +312,23 @@ export interface WaveConfig {
    *  and the one that reads as a lit solid rather than as a drawing. Pair it with `lineGapOpacity`
    *  1 so the body is opaque and the folds occlude each other. */
   lineGapColor?: string;
+  /** Wireframe only: 0..1, how much the strands are LIT. The line theme is otherwise unlit — a
+   *  strand's colour comes from its uv alone, so it holds the same tone wherever the surface turns,
+   *  which is exactly why a dense wireframe reads as a printed pattern instead of an object. Turn
+   *  this up and the same derivative normal, scene `lights` and view-facing term the solid theme uses
+   *  shade it, so one strand brightens and darkens ALONG its own length as the ribbon curves. That is
+   *  the difference between a drawing of a form and a lit form. Default 0 (flat, as the theme was). */
+  lineLight?: number;
+  /** Tightness of the specular glint under {@link lineLight} — on a combed surface it runs along one
+   *  strand and not its neighbour, which is what reads as filament rather than print. Default 0.35;
+   *  inert unless `lineLight` > 0. */
+  lineSpecular?: number;
+  /** 0..1 — shade each strand as a ROUND filament instead of a flat stripe. A stripe is a mask: it
+   *  has no cross-section, so no highlight can run along it and a dense wireframe reads as hatching
+   *  however hard it is lit. This bends the surface normal across each strand, giving every one a
+   *  lit crest and dark flanks and letting a specular travel down one strand and not its neighbour —
+   *  which is what reads as combed thread. Default 0; needs {@link lineLight} to do anything. */
+  lineRound?: number;
   /** Wireframe RUNGS: a second line family carved at constant uv.y, so these run ACROSS the ribbon
    *  where `lineAmount`'s run along it — the two cross into a ladder. Frequency, like `lineAmount`
    *  (rungs ≈ amount / π). 0 = off, and the cross-wise path isn't compiled. */
@@ -897,6 +914,9 @@ function defaultWave(): WaveConfig {
     lineDepthFade: 1,
     lineSharpness: 0,
     lineGapOpacity: 1,
+    lineLight: 0,
+    lineSpecular: 0.35,
+    lineRound: 0,
     rungAmount: 0, // cross-wise rungs off
     rungThickness: 1,
     maxWidth: 1232,
@@ -1167,6 +1187,9 @@ export function normalizeWave(s: WaveConfig): void {
   if (!Number.isFinite(s.lineGapOpacity)) s.lineGapOpacity = 1;
   // Absent is meaningful (= the page background), so this is repaired only when present and wrong.
   if (s.lineGapColor !== undefined && typeof s.lineGapColor !== "string") delete s.lineGapColor;
+  if (!Number.isFinite(s.lineLight)) s.lineLight = 0;
+  if (!Number.isFinite(s.lineSpecular)) s.lineSpecular = 0.35;
+  if (!Number.isFinite(s.lineRound)) s.lineRound = 0;
   if (!Number.isFinite(s.rungAmount)) s.rungAmount = 0;
   if (!Number.isFinite(s.rungThickness)) s.rungThickness = 1;
   if (!Number.isFinite(s.maxWidth)) s.maxWidth = 1232;

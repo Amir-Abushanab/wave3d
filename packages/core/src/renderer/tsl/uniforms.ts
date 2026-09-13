@@ -136,6 +136,9 @@ export function makeTslUniforms(drawingBufferSize: Vector2) {
     uLineDepthFade: uniform(1),
     uLineSharpness: uniform(0),
     uLineGapOpacity: uniform(1),
+    uLineLight: uniform(0),
+    uLineSpecular: uniform(0.35),
+    uLineRound: uniform(0),
     uMaxWidth: uniform(1232),
     uClearColor: uniform(new Vector3(1, 1, 1)),
 

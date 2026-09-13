@@ -831,6 +831,7 @@ void main(){
 export const lineFragmentShader = /* glsl */ `
 #define MAX_COLORS ${MAX_COLORS}
 #define MAX_MESH_POINTS ${MAX_MESH_POINTS}
+#define MAX_LIGHTS ${MAX_LIGHTS}
 #define PI 3.14159265359
 
 ${simplex2d}
@@ -840,6 +841,23 @@ uniform float uLineAmount;          // default 425
 uniform float uLineThickness;       // default 1
 uniform float uLineDerivativePower; // default 0.95
 uniform float uLineDepthFade;       // 1 = the original hardcoded recede, 0 = flat/graphic
+// Lighting (optional). The line theme is otherwise UNLIT: a strand's colour comes from its uv alone,
+// so it is the same tone wherever the surface turns, which is what makes a dense wireframe read as a
+// printed pattern rather than as an object. This shades it with the same derivative normal, lights
+// and crease the solid theme uses, so a single strand brightens and darkens ALONG its own length as
+// the ribbon curves — which is the whole difference between a drawing and a lit form.
+#ifdef LINE_LIGHT
+uniform float uLineLight;     // 0 = flat (the theme as it was), 1 = fully shaded
+uniform float uLineSpecular;  // extra specular sharpness along the strands
+uniform float uLineRound;     // 0 = flat ribbons, 1 = each strand shaded as a round filament
+uniform float uAmbient;
+uniform int uNumLights;
+uniform vec3 uLightPos[MAX_LIGHTS];
+uniform vec3 uLightColor[MAX_LIGHTS];
+uniform float uLightIntensity[MAX_LIGHTS];
+varying vec3 vWorldPos;
+varying vec3 vViewDir;
+#endif
 #ifdef EDGE_FEATHER
 uniform float uEdgeFeather;         // softness of the ribbon's two ENDS (shared with the solid theme)
 #endif
@@ -880,6 +898,7 @@ void main(){
   // Same 2D palette sample + colour ops as the solid theme.
   vec3 color = applyColorGrade(waveBaseColor(vUv));
 
+
 #ifdef POINTER_FX
   color = hueShift(color, radians(uPointerHue) * vPointerFall);
   color *= 1.0 + uPointerLighten * vPointerFall;
@@ -898,6 +917,52 @@ void main(){
   // strands actually average to. That is also what a compressed region should look like: a solid
   // tone, not noise.
   float lineRate = uLineAmount * fwidth(vUv.x);
+#ifdef LINE_LIGHT
+  {
+    // The same derivative normal the solid theme uses — the mesh is finely subdivided, so it is
+    // smooth enough to shade with. Flipped toward the camera because a ribbon is double-sided.
+    vec3 N = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
+    vec3 Vd = normalize(vViewDir);
+    if (dot(N, Vd) < 0.0) N = -N;
+    // ROUND STRANDS. Until here a strand is a MASK — a stripe painted on a flat sheet, with no
+    // cross-section of its own, which is why a dense wireframe reads as print however it is lit: a
+    // printed line has no side to catch a highlight. Bending the normal ACROSS each stripe turns
+    // every strand into a half-round filament, so the light runs along one and not its neighbour and
+    // the bundle reads as combed thread rather than as hatching.
+    //
+    // The across-vector is the world direction of increasing uv.x, recovered from the screen-space
+    // derivatives by least squares (the chain rule the other way round): it is the axis to tilt
+    // about, and it is what makes the shading follow the strands wherever the surface turns.
+    if (uLineRound > 0.001) {
+      vec2 gu = vec2(dFdx(vUv.x), dFdy(vUv.x));
+      float gg = dot(gu, gu);
+      if (gg > 1.0e-12) {
+        vec3 across = (dFdx(vWorldPos) * gu.x + dFdy(vWorldPos) * gu.y) / gg;
+        across = normalize(across - N * dot(across, N)); // keep it in the surface
+        // Signed position across the strand: 0 at its crest, ±1 at its edges.
+        float sAcross = clamp(sin(vUv.x * uLineAmount) / max(lineThickness, 1.0e-4), -1.0, 1.0);
+        N = normalize(N + across * sAcross * uLineRound);
+        if (dot(N, Vd) < 0.0) N = -N;
+      }
+    }
+    float facing = abs(dot(N, Vd));
+    // Base shading: grazing parts of the surface fall away toward shadow, the facing body keeps its
+    // colour. This alone is what makes a strand shade along its length.
+    vec3 lit = color * mix(0.08, 1.0, facing);
+    for (int i = 0; i < MAX_LIGHTS; i++) {
+      if (i >= uNumLights) break;
+      vec3 L = normalize(uLightPos[i] - vWorldPos);
+      vec3 lc = uLightColor[i] * uLightIntensity[i];
+      lit += color * max(dot(N, L), 0.0) * lc * 0.5;
+      // A tight specular, which on a combed surface is the glint that runs along one strand and not
+      // its neighbour — the thing that reads as filament rather than as print.
+      lit += pow(max(dot(N, normalize(L + Vd)), 0.0), 48.0) * lc * uLineSpecular;
+    }
+    lit *= 0.55 + clamp(uAmbient, 0.0, 1.0);
+    color = mix(color, lit, clamp(uLineLight, 0.0, 1.0));
+  }
+#endif
+
   float a = abs(sin(vUv.x * uLineAmount));
   a = smoothstep(lineThickness, 0.0, a);
   // NOTE there is deliberately no duty-cycle fallback for the LENGTHWISE family, though the rungs

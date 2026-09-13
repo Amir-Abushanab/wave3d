@@ -72,6 +72,8 @@ export interface WaveMaterialFlags extends WaveShapeFlags {
   dissolve: boolean;
   /** Clear gaps (wireframe only): compiled only when lineGapOpacity < 1, as in the GLSL. */
   lineClearGaps: boolean;
+  /** Lit / round strands (wireframe only): compiled only when lineLight > 0, as in the GLSL. */
+  lineLight: boolean;
   /**
    * True when the active backend uses [0,1] clip Z (WebGPU) rather than [-1,1] (WebGL).
    *
@@ -241,6 +243,62 @@ function buildWireframeFragment(
     // Each family's per-pixel rate and the duty cycle it averages to — see the GLSL for why a
     // sub-pixel period has to fall back to a tone rather than be point-sampled.
     const lineRate = u.uLineAmount.mul(fwidth(vUv.x)).toVar("lineRate");
+    if (flags.lineLight) {
+      // The line theme is otherwise UNLIT — a strand's colour comes from its uv alone, so it holds
+      // one tone wherever the surface turns. This shades it with the same derivative normal and
+      // lights the solid theme uses, and ROUNDS each strand so a highlight can run along one and not
+      // its neighbour. See the LINE_LIGHT block in the GLSL for the full reasoning.
+      const vWorldPos = positionWorld;
+      const vViewDir = cameraPosition.sub(vWorldPos).toVar("lineViewDir");
+      const n = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos))).toVar("lineN");
+      const vd = normalize(vViewDir).toVar("lineV");
+      If(dot(n, vd).lessThan(0.0), () => {
+        n.assign(n.negate());
+      });
+      If(u.uLineRound.greaterThan(0.001), () => {
+        // World direction of increasing uv.x, by least squares from the screen derivatives — the
+        // axis to tilt each strand about.
+        const gu = vec2(dFdx(vUv.x), dFdy(vUv.x)).toVar("lineGu");
+        const gg = dot(gu, gu).toVar("lineGg");
+        If(gg.greaterThan(1.0e-12), () => {
+          const across = dFdx(vWorldPos)
+            .mul(gu.x)
+            .add(dFdy(vWorldPos).mul(gu.y))
+            .div(gg)
+            .toVar("lineAcross");
+          across.assign(normalize(across.sub(n.mul(dot(across, n)))));
+          const sAcross = clamp(
+            sin(vUv.x.mul(u.uLineAmount)).div(max(lineThickness, 1.0e-4)),
+            -1,
+            1,
+          );
+          n.assign(normalize(n.add(across.mul(sAcross).mul(u.uLineRound))));
+          If(dot(n, vd).lessThan(0.0), () => {
+            n.assign(n.negate());
+          });
+        });
+      });
+      const facing = tabs(dot(n, vd)).toVar("lineFacing");
+      const lit = color.mul(mix(float(0.08), float(1), facing)).toVar("lineLit");
+      Loop({ start: 0, end: MAX_LIGHTS, type: "int" }, ({ i }) => {
+        If(float(i).greaterThanEqual(float(u.uNumLights)), () => {
+          Break();
+        });
+        const l = normalize(u.uLightPos.el(i).sub(vWorldPos)).toVar();
+        const lc = u.uLightColor.el(i).mul(u.uLightIntensity.el(i)).toVar();
+        lit.addAssign(
+          color
+            .mul(max(dot(n, l), 0.0))
+            .mul(lc)
+            .mul(0.5),
+        );
+        lit.addAssign(
+          lc.mul(pow(max(dot(n, normalize(l.add(vd))), 0.0), 48.0)).mul(u.uLineSpecular),
+        );
+      });
+      lit.mulAssign(clamp(u.uAmbient, 0, 1).add(0.55));
+      color.assign(mix(color, lit, clamp(u.uLineLight, 0, 1)));
+    }
     const a = smoothstep(lineThickness, 0.0, tabs(sin(vUv.x.mul(u.uLineAmount)))).toVar("lineA");
     // No duty-cycle fallback for the LENGTHWISE family — see the GLSL: its threshold is itself
     // derivative-built, so keying one on it makes cross-backend agreement worse.
