@@ -261,7 +261,6 @@ describe("ensureStudioConfig repairs configs that used to break the panel", () =
     expect(w.lineGapOpacity).toBe(1); // opaque gaps — the card the theme has always drawn
     expect(w.lineLight).toBe(0); // unlit: a strand's colour is its uv alone, as the theme always was
     expect(w.lineRound).toBe(0);
-    expect(w.helixTaper).toBe(1); // a plain cylinder — the helix as it wound before the taper
   });
 
   it("leaves a wave's dissolve absent when absent, and clamps it when present", () => {

@@ -109,8 +109,6 @@ a repeating helix:
 - `helixRoll` rolls the ribbon's own cross-section in step (1 = rigid twisted ribbon), swinging its
   two long edges onto opposite sides of the axis, so **one wave becomes a ladder whose edges are
   both strands**. Add `rungAmount` (wireframe theme) for the rungs between them.
-- `helixTaper` scales that radius along the length (1 = the cylinder a plain helix winds, 0 = a cone
-  that starts on the axis and flares) — the vortex a constant-radius helix can't reach.
 - `radialCone` (on the radial fan, not the helix) lifts the fan out of its own plane as it spreads,
   turning the flat plume into a TRUMPET whose combed strands run down the slant into the throat. A
   helix carries the ribbon around an axis but its WIDTH never follows the slant, so this is the only
@@ -121,6 +119,18 @@ a repeating helix:
   read as one vortex.
 - Both are off at 0, and the helix code path isn't compiled unless `helixRadius` or `helixRoll` is
   non-zero — a wave without one renders byte-identically to before.
+
+**Which shape control to reach for.** They overlap less than they look:
+
+| want                                                                  | use       | why not the other                                                                                                                                                      |
+| --------------------------------------------------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| a coil, a spring, a double helix                                      | `helix*`  | it carries the ribbon around an axis WITHOUT banking it, and it is animatable — `helixPhase` / `helixTurns` / `helixRadius` are binding targets, so scroll can spin it |
+| a fan, a plume, a trumpet                                             | `radial*` | it remaps the ribbon's WIDTH to an angle; a path only moves the centreline, so it can never splay a sheet into a sector                                                |
+| anything else: an S-curve, a knot, a ring, a throat, a shape you draw | `path`    | the others bend a centreline that stays put                                                                                                                            |
+
+A path SWEEPS with a transported frame, so it banks into its curves like a
+rollercoaster track; a helix TRANSLATES around an axis, so the ribbon keeps facing the same way. Same
+coil, different object — which is why both stay.
 
 **`path` — the ribbon's centreline, and the one shape control the others cannot substitute for.**
 Everything else deforms a ribbon whose centreline is fixed: the twists rotate it, the helix carries it

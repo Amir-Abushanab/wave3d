@@ -227,11 +227,8 @@ WaveShape waveShape(vec3 position, vec2 uv, float t, vec2 loopOff){
   vec2 rel = vec2(pos.y, pos.z - ${RIBBON_Z_CENTER.toFixed(1)});
   pos.y = rel.x * rollC - rel.y * rollS;
   pos.z = ${RIBBON_Z_CENTER.toFixed(1)} + rel.x * rollS + rel.y * rollC;
-  // Taper: scale the orbit radius along the length, so the helix can open from the axis into a
-  // cone (a vortex / plume) instead of only ever being a constant-radius cylinder. 1 = no taper.
-  float hRad = uHelixRadius * mix(uHelixTaper, 1.0, uv.y);
-  pos.y += hRad * cos(hAng);
-  pos.z += hRad * sin(hAng);
+  pos.y += uHelixRadius * cos(hAng);
+  pos.z += uHelixRadius * sin(hAng);
 #endif
 
   // The X-twist frequency feeding rotB; the TWIST_MOTION variant modulates it with simplex noise
@@ -491,7 +488,6 @@ uniform float uHelixTurns;  // full turns from one end of the ribbon to the othe
 uniform float uHelixRadius; // orbit radius: carries the whole ribbon around the axis
 uniform float uHelixRoll;   // cross-section roll, as a fraction of the turns (1 = rigid ladder)
 uniform float uHelixPhase;  // degrees
-uniform float uHelixTaper;  // radius scale at the START end (1 = a cylinder, 0 = a cone / vortex)
 #endif
 
 // Path (optional): the baked centreline LUT — row 0 position + width, row 1 normal, row 2 binormal.
@@ -1315,7 +1311,7 @@ uniform float uDispFreqX, uDispFreqZ, uDispAmount;
 uniform float uDetailFreq, uDetailAmount;
 uniform float uTwFreqX, uTwFreqY, uTwFreqZ, uTwPowX, uTwPowY, uTwPowZ;
 #ifdef HELIX
-uniform float uHelixTurns, uHelixRadius, uHelixRoll, uHelixPhase, uHelixTaper;
+uniform float uHelixTurns, uHelixRadius, uHelixRoll, uHelixPhase;
 #endif
 #ifdef PATH
 uniform sampler2D uPathTex;

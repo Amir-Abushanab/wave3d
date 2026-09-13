@@ -879,7 +879,6 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     base.twistPower = { x: 4, y: 4, z: 4 };
     base.helixRadius = 0;
     base.helixRoll = 1; // roll without radius: the sheet turns through itself rather than coiling away
-    base.helixTaper = 1;
     base.helixPhase = 0;
     base.speed = 0.08;
     base.position = { x: 0, y: 0, z: 0 };

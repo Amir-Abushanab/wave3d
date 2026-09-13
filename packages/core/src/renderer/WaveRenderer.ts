@@ -657,7 +657,6 @@ export class WaveRenderer {
       uHelixRadius: { value: 0 },
       uHelixRoll: { value: 0 },
       uHelixPhase: { value: 0 },
-      uHelixTaper: { value: 1 },
       // The path LUT (read only under PATH). The texture itself is per wave and swapped in by
       // syncPathTexture; null until a wave actually has a path.
       uPathTex: { value: null as THREE.Texture | null },
@@ -1096,7 +1095,6 @@ export class WaveRenderer {
       u.uHelixTurns.value = sc.helixTurns ?? 0;
       u.uHelixRadius.value = sc.helixRadius ?? 0;
       u.uHelixRoll.value = sc.helixRoll ?? 0;
-      u.uHelixTaper.value = sc.helixTaper ?? 1;
       this.syncPathTexture(wave, sc);
       u.uHelixPhase.value = sc.helixPhase ?? 0;
       u.uRadialAmount.value = sc.radialAmount ?? 0;

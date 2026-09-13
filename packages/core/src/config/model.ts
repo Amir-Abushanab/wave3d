@@ -239,13 +239,6 @@ export interface WaveConfig {
   /** Phase offset in degrees — where along the turn the ribbon starts. The per-wave knob that puts
    *  a second wave on the opposite side of the same helix (180). */
   helixPhase?: number;
-  /** Cone the helix: `helixRadius` is scaled by this at the START of the ribbon and by 1 at the end,
-   *  so the orbit opens out along the length instead of holding one radius. 1 = the cylinder a plain
-   *  helix winds (the default, and byte-identical to having no taper); 0 = a cone that starts on the
-   *  axis and flares — the vortex / funnel / plume a constant-radius helix can't reach. Above 1 it
-   *  closes the other way (a funnel narrowing to a spout); negative values cross the axis. Inert
-   *  unless `helixRadius` is non-zero — it is a scale on that radius, not a displacement of its own. */
-  helixTaper?: number;
   /** Radial fan (optional): sweep the ribbon's length into a plume/peacock spread from the local
    *  origin. The three twists and the helix can't reach it — this maps the ribbon to polar so the
    *  combed fibers ({@link fiberCount}) read as the individual radial strands. Placement is the wave's
@@ -905,7 +898,6 @@ function defaultWave(): WaveConfig {
     helixRadius: 0,
     helixRoll: 0,
     helixPhase: 0,
-    helixTaper: 1,
     // Radial off: amount 0 leaves the RADIAL block uncompiled (see waveDefines).
     radialAmount: 0,
     radialArc: 160,
@@ -1172,7 +1164,6 @@ export function normalizeWave(s: WaveConfig): void {
   if (!Number.isFinite(s.helixTurns)) s.helixTurns = 0;
   if (!Number.isFinite(s.helixRadius)) s.helixRadius = 0;
   if (!Number.isFinite(s.helixRoll)) s.helixRoll = 0;
-  if (!Number.isFinite(s.helixTaper)) s.helixTaper = 1;
   if (!Number.isFinite(s.helixPhase)) s.helixPhase = 0;
   if (!Number.isFinite(s.radialAmount)) s.radialAmount = 0;
   if (!Number.isFinite(s.radialArc)) s.radialArc = 160;

@@ -150,7 +150,6 @@ export function makeTslUniforms(drawingBufferSize: Vector2) {
     uHelixRadius: uniform(0),
     uHelixRoll: uniform(0),
     uHelixPhase: uniform(0),
-    uHelixTaper: uniform(1),
     uRadialAmount: uniform(0),
     uRadialArc: uniform(160),
     uRadialSpread: uniform(1),

@@ -37,12 +37,10 @@ Three supporting knobs, each inert at its default:
   solid without ever passing through dense ink; hardening it gives engraved black strands with the
   page still showing between them. `lineDepthFade` turns off the recede into the background colour,
   which a deep or stacked composition needs — the default is tuned for a single ribbon.
-- `helixTaper` scales the helix radius along the ribbon's length, so the coil can open from the axis
-  into a cone: the vortex a constant-radius helix cannot reach. 1 (the default) is the cylinder it
-  always wound. `radialCone` does the equivalent for the radial fan — it lifts the fan out of its own
-  plane as it spreads, turning the flat plume into a TRUMPET whose combed strands run down the slant
-  into the throat, which is a shape neither the twists nor the helix can reach (a helix carries the
-  ribbon around an axis, but its WIDTH never follows the slant).
+- `radialCone` lifts the radial fan out of its own plane as it spreads, turning the flat plume into a
+  TRUMPET whose combed strands run down the slant into the throat — a shape neither the twists nor
+  the helix can reach, since a helix carries the ribbon around an axis but its WIDTH never follows a
+  slant. `radialSwirl` curls each arm around the throat (see above).
 
 **`WaveConfig.path` — a centreline the ribbon is swept along, dragged in the studio.** Every other
 deform bends a ribbon whose centreline is fixed, so none of them can make one that changes direction
@@ -73,9 +71,16 @@ geometry was born as rather than the curve on screen. The frames themselves are 
 texture the vertex shader samples, so a sculpt costs one 128×3 texture write per frame rather than an
 80k-vertex geometry rebuild.
 
-This REPLACES the `pinch` and `wrapAmount` controls added earlier in this same unreleased batch: a
-path's per-point `width` is the pinch, and a closed path is the wrap, so they were two knobs for what
-the centreline already says.
+This REPLACES three controls added earlier in this same unreleased batch: `pinch` (a path's per-point
+`width`), `wrapAmount` (a closed path) and `helixTaper` (a path whose points spiral outward). All
+three were knobs for shapes the centreline already says.
+
+`helix*` and `radial*` are NOT replaced, and the difference is worth knowing: a path SWEEPS the
+ribbon with a transported frame, so it banks into its curves like a rollercoaster track, where a
+helix TRANSLATES the ribbon around an axis, so it keeps facing the same way — the same coil, a
+different object. The radial fan remaps the ribbon's WIDTH to an angle, which a centreline cannot do
+at all. And the helix is animatable where a path is not: `helixPhase` / `helixTurns` / `helixRadius`
+are binding targets, so scroll can spin a coil.
 
 Rungs (`rungAmount`, the cross-wise stripe family) are now usable as a wave's PRIMARY striping rather
 than just a DNA-ladder accent. `lineSharpness` hardens the merged coverage, after the rungs have been
