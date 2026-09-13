@@ -305,6 +305,13 @@ export interface WaveConfig {
    *  page itself. A stack of clear-gap combs is how a wireframe reads as depth rather than as one
    *  flat sheet. Values between are a veil. */
   lineGapOpacity?: number;
+  /** Wireframe only: what colour the GAPS between strands carry. Absent = the page background, which
+   *  makes the wave a window onto the page: dark strands with paper showing between them. Set it and
+   *  the ribbon becomes its own BODY — a dark gap colour with a bright palette is an opaque striped
+   *  surface, bright combed lines on a dark ground, which is the other half of this theme's range
+   *  and the one that reads as a lit solid rather than as a drawing. Pair it with `lineGapOpacity`
+   *  1 so the body is opaque and the folds occlude each other. */
+  lineGapColor?: string;
   /** Wireframe RUNGS: a second line family carved at constant uv.y, so these run ACROSS the ribbon
    *  where `lineAmount`'s run along it — the two cross into a ladder. Frequency, like `lineAmount`
    *  (rungs ≈ amount / π). 0 = off, and the cross-wise path isn't compiled. */
@@ -1158,6 +1165,8 @@ export function normalizeWave(s: WaveConfig): void {
   if (!Number.isFinite(s.lineDepthFade)) s.lineDepthFade = 1;
   if (!Number.isFinite(s.lineSharpness)) s.lineSharpness = 0;
   if (!Number.isFinite(s.lineGapOpacity)) s.lineGapOpacity = 1;
+  // Absent is meaningful (= the page background), so this is repaired only when present and wrong.
+  if (s.lineGapColor !== undefined && typeof s.lineGapColor !== "string") delete s.lineGapColor;
   if (!Number.isFinite(s.rungAmount)) s.rungAmount = 0;
   if (!Number.isFinite(s.rungThickness)) s.rungThickness = 1;
   if (!Number.isFinite(s.maxWidth)) s.maxWidth = 1232;

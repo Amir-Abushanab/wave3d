@@ -804,33 +804,37 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     return c;
   },
   /**
-   * DISINTEGRATION — the "snap". A broad combed sheet curling around a spiral eye over warm paper,
-   * crumbling into blocky debris across a straight edge down the canvas.
+   * DISINTEGRATION — the "snap". A combed ribbon looping over itself around an open eye, crumbling
+   * into blocky debris across a straight edge down the canvas.
    *
-   * Three things set the look, and the first two are easy to get backwards:
+   * The form is `wrapAmount` and `helixRoll` TOGETHER, which is the combination worth knowing: wrap
+   * bends the ribbon's length into a loop, roll turns its cross-section as it travels, and a wide
+   * sheet doing both at once folds into broad lobes that cross in front of each other around a hole.
+   * Neither alone gets there — wrap alone is a clean band (a napkin ring), roll alone is a coil that
+   * stays on its axis.
    *
-   *   - `lineDerivativePower: 0`. The wireframe scales strand thickness by the screen-space uv
-   *     derivative, which is right for a ribbon seen whole — strands thicken as the surface turns
-   *     away. Framed CLOSE, that same term collapses them: the bigger the sheet gets on screen the
-   *     smaller its uv derivative, so the strands thin to pale grey exactly when you most want ink.
-   *     At 0 the duty cycle is `lineThickness` alone, and the strands stay crisp black at any zoom.
-   *   - The camera is close and the sheet is huge. The form is not a small object in a frame; it is
-   *     one sheet, wider than the canvas, seen near enough that the pinch reads as a spiral EYE
-   *     rather than a waist — `helixTurns` 2.5 on the first wave winds it tight.
-   *   - `pinch` closes the ribbon's WIDTH, and the combed strands converge through it. That is what
-   *     makes the eye: nothing draws it, it is what a pinched sheet of parallel lines does when you
-   *     look down its axis.
+   * Two material choices carry the rest, and both are the opposite of what looks obvious:
    *
-   * The second wave is the same ribbon barely pinched and much larger — the broad sweep entering
-   * from off-frame that the eye sits in. Both share one screen-space dissolve front with `dust: 1`
-   * pinning the debris to it, and scroll runs it to 0.95.
+   *   - `lineDerivativePower: 0`. The wireframe normally scales strand thickness by the screen-space
+   *     uv derivative, which is right for a ribbon seen whole. Framed CLOSE it inverts: the bigger
+   *     the sheet is on screen the smaller its derivative, so the strands thin to pale grey exactly
+   *     where they should carry ink. At 0 the duty cycle is `lineThickness` alone, crisp at any zoom.
+   *   - `lineGapOpacity: 1` — OPAQUE gaps, the theme's default. Clear gaps let the folds layer
+   *     through each other, which sounds richer and reads as a transparent weave; opaque ones let
+   *     the near lobe HIDE the far one, which is what makes this read as a solid object. The black
+   *     masses then come for free: where the surface turns away the strands compress until the page
+   *     between them disappears.
+   *
+   * The second wave is the same ribbon at a third of the wrap and 5x the scale — the broad sweep the
+   * loop sits in. Both share one screen-space dissolve front with `dust: 1` pinning the debris to it,
+   * and scroll runs it to 0.95.
    */
   Disintegration: () => {
     const c = PRESETS["Hero"]();
     const base = c.waves[0];
     base.theme = "wireframe";
-    // INK over almost the whole width, with lilac only on the narrow rims: the sheet is a
-    // black-and-white striped surface that lights to violet just at its near edges.
+    // INK across the width with lilac only on the narrow rims: a black-and-white striped surface
+    // that lights to violet at its near edges, not a violet sheet with dark edges.
     base.usePaletteTexture = false;
     base.palette = [
       { color: "#e6dcfa", pos: 0 },
@@ -849,18 +853,22 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     base.colorContrast = 1;
     base.colorSaturation = 1;
     base.fiberStrength = 0; // the strands ARE the texture here; streaks would only muddy them
-    base.lineAmount = 600;
-    base.lineThickness = 1.3; // with the derivative term off, this IS the duty cycle
-    base.lineDerivativePower = 0; // see above — the one knob that decides whether there is ink at all
+    base.lineAmount = 700;
+    base.lineThickness = 1; // with the derivative term off, this IS the duty cycle
+    base.lineDerivativePower = 0; // see above — the knob that decides whether there is ink at all
     base.lineSharpness = 0.96;
     base.lineDepthFade = 0; // full contrast at every depth; the default is tuned for a single ribbon
-    base.lineGapOpacity = 0; // clear gaps: the folds layer through each other instead of occluding
+    base.lineGapOpacity = 1; // opaque: the near lobe hides the far one, which is what reads as solid
     base.rungAmount = 0;
     base.edgeFeather = 0.1;
     base.blendMode = "normal";
     base.opacity = 1;
-    base.radialAmount = 0; // no fan: a pinch and a roll are the whole shape
-    base.displaceAmount = 6;
+    base.radialAmount = 0;
+    base.pinch = 0;
+    base.pinchWidth = 0.3;
+    base.pinchCenter = 0.5;
+    // A broad swell so the lobes undulate instead of reading as machined tube.
+    base.displaceAmount = 60;
     base.displaceFrequency = { x: 0.003, y: 0.008 };
     base.twistFrequency = { x: 0, y: 0, z: 0 };
     base.twistPower = { x: 4, y: 4, z: 4 };
@@ -868,7 +876,6 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     base.helixRoll = 1; // roll without radius: the sheet turns through itself rather than coiling away
     base.helixTaper = 1;
     base.helixPhase = 0;
-    base.wrapAmount = 0;
     base.speed = 0.08;
     base.position = { x: 0, y: 0, z: 0 };
     base.dissolve = {
@@ -886,30 +893,27 @@ export const PRESETS: Record<string, () => StudioConfig> = {
       bindings: [{ source: "scroll", target: "dissolveAmount", to: 0.95, smoothing: 0.2 }],
     };
 
-    // The eye: pinched hard and wound tight, so the strands spiral into a throat.
-    const eye = structuredClone(base);
-    eye.seed = 0;
-    eye.pinch = 0.6;
-    eye.pinchWidth = 0.3;
-    eye.pinchCenter = 0.5;
-    eye.helixTurns = 2.5;
-    eye.scale = { x: 3, y: 3, z: 3 };
-    eye.rotation = { x: 35, y: 75, z: -15 };
-    eye.particles = snapDust(0);
+    // The loop: a full wrap with one and a half turns of roll, so the sheet folds into lobes that
+    // cross in front of each other around an open eye.
+    const loop = structuredClone(base);
+    loop.seed = 0;
+    loop.wrapAmount = 1;
+    loop.helixTurns = 1.5;
+    loop.scale = { x: 3.4, y: 3.4, z: 3.4 };
+    loop.rotation = { x: 45, y: 25, z: 15 };
+    loop.particles = snapDust(0);
 
-    // The sweep it sits in: the same ribbon barely pinched, half the turn, and much larger — wider
-    // than the canvas, so it reads as a surface passing through frame rather than an object in it.
+    // The sweep it sits in: a third of the wrap so it stays an open curve, at 5x the scale so it is
+    // wider than the canvas and reads as a surface passing through frame rather than an object in it.
     const sweep = structuredClone(base);
     sweep.seed = 3.7;
-    sweep.pinch = 0.2;
-    sweep.pinchWidth = 0.6;
-    sweep.pinchCenter = 0.5;
+    sweep.wrapAmount = 0.35;
     sweep.helixTurns = 0.5;
     sweep.scale = { x: 5, y: 5, z: 5 };
-    sweep.rotation = { x: 10, y: 55, z: -50 };
+    sweep.rotation = { x: 25, y: 45, z: -45 };
     sweep.particles = snapDust(1);
 
-    c.waves = [eye, sweep];
+    c.waves = [loop, sweep];
     c.waveCount = 2;
 
     c.background = "#f7f6f1"; // warm paper
@@ -919,11 +923,11 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     c.blur = 0;
     c.cameraDistance = 5001;
     c.cameraPosition = { x: 0, y: 0, z: 5000 };
-    c.cameraTarget = { x: -200, y: 40, z: 0 };
+    c.cameraTarget = { x: -170, y: 10, z: 0 };
     c.cameraZoom = 0.75;
     // The front is a SCREEN edge, so a narrow phone cropping to a quarter of the authored width
     // would put it somewhere else entirely on the composition. Holding 70% of that width on screen
-    // keeps the eye, the sweep and the debris in the same relationship.
+    // keeps the loop, the sweep and the debris in the same relationship.
     c.cameraMinVisibleWidth = 0.7;
     return c;
   },

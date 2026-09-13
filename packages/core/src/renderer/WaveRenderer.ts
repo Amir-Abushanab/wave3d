@@ -990,7 +990,14 @@ export class WaveRenderer {
       u.uRungAmount.value = sc.rungAmount ?? 0;
       u.uRungThickness.value = sc.rungThickness ?? 1;
       u.uMaxWidth.value = sc.maxWidth ?? 1232;
-      hexToLinearVec3(this.config.background, u.uClearColor.value as THREE.Vector3);
+      // The between-strand colour. Defaults to the page background — a wireframe wave is then a
+      // window onto the page — but an explicit `lineGapColor` makes the ribbon its own BODY: dark
+      // gaps with bright strands combed over them, which is what an opaque striped surface looks
+      // like, rather than bright paper showing between dark lines.
+      hexToLinearVec3(
+        sc.lineGapColor ?? this.config.background,
+        u.uClearColor.value as THREE.Vector3,
+      );
       u.uFiberCount.value = sc.fiberCount;
       u.uFiberStrength.value = sc.fiberStrength;
       u.uTexture.value = sc.texture;
