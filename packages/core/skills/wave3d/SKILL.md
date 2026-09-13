@@ -147,9 +147,12 @@ path: [
 - It is swept by ARC LENGTH with a parallel-transported frame, so the strand comb stays even wherever
   the points are dragged and the ribbon never flips through an inflection.
 
-**In the studio, double-click a ribbon to edit its path.** Handles appear on every control point; drag
-to bend, double-click a point to remove it, double-click the ribbon to insert one, Escape to leave.
-The wave takes a straight path on entry, so nothing moves until you move it.
+**In the studio, double-click a ribbon to shape it.** The primary gesture is dragging the RIBBON
+itself: it moves like putty, with the push falling off smoothly along the length so only the part you
+grabbed follows (hold Shift for a fingertip-tight push instead of a palm). The path densifies itself
+as you sculpt, so there is always something local to move. Control points are still there for
+precision — drag a handle, double-click a point to remove it, double-click the ribbon to insert one —
+and Escape leaves. The wave takes a straight path on entry, so nothing moves until you move it.
 
 **Disintegration (`WaveConfig.dissolve`).** A front sweeps across the wave and eats it away chunk by
 chunk, so the surface CRUMBLES rather than fading. Absent ⇒ intact and byte-identical.

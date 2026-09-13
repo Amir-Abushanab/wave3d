@@ -71,6 +71,13 @@ export class StudioWaveRenderer extends WaveRenderer {
   private pathLine?: THREE.Line;
   private pathWave = 0;
   private selectedPathPoint = 0;
+  /** Invisible pick surface following the CURRENT path — the wave's own mesh cannot be used, because
+   *  its vertices are only deformed on the GPU, so a CPU raycast would hit the straight ribbon the
+   *  geometry was born as rather than the curve on screen. */
+  private pathProxy?: THREE.Mesh;
+  /** An in-flight sculpt: where on the ribbon it started (0..1 along the length), the last drag
+   *  point, and how far along the ribbon the push reaches. */
+  private sculptState?: { s: number; last: THREE.Vector3; radius: number };
   /** Gizmo operation: "translate" moves the handle, "rotate" spins the whole wave. */
   private gizmoMode: "translate" | "rotate" = "translate";
   /** Active free screen-plane drag of a handle (grab anywhere on the marker, camera locked). */
@@ -115,6 +122,10 @@ export class StudioWaveRenderer extends WaveRenderer {
     if (!wave) return;
     if (!wave.path || wave.path.length < 2) wave.path = straightPath();
     this.pathWave = waveIndex;
+    // Enough points to read as malleable the moment you arrive. A three-point path can only be bent
+    // as a whole, which is what makes an editor feel like a wire bender rather than clay; resampling
+    // the same curve changes nothing on screen but gives every part of the ribbon something to move.
+    this.densifyPath(9);
     this.selectedPathPoint = 0;
     if (this.editMode === "path") {
       this.syncPathHelpers();
@@ -877,8 +888,13 @@ export class StudioWaveRenderer extends WaveRenderer {
     void this.setPathEditMode(idx);
   };
 
-  /** Raycast one wave's ribbon (its own mesh, not a helper). */
+  /** Raycast one wave's ribbon. In path mode that means the proxy strip, which follows the curve
+   *  you can actually see; otherwise the wave's own (undeformed) mesh, which is enough to answer
+   *  "which ribbon did I double-click". */
   private raycastWave(i: number): THREE.Intersection | undefined {
+    if (this.editMode === "path" && this.pathWave === i && this.pathProxy) {
+      return this.raycaster.intersectObject(this.pathProxy, false)[0];
+    }
     const mesh = this.waves[i]?.mesh;
     if (!mesh) return undefined;
     return this.raycaster.intersectObject(mesh, false)[0];
@@ -941,6 +957,15 @@ export class StudioWaveRenderer extends WaveRenderer {
           ? this.pathHelpers
           : this.lightHelpers;
     const hit = this.raycaster.intersectObjects(helpers, false)[0];
+    if (!hit && this.editMode === "path") {
+      // Grabbed the RIBBON itself: push it around like putty. This is the primary gesture — control
+      // points are there for precision, but nobody thinks in control points while shaping something.
+      const onRibbon = this.raycastWave(this.pathWave);
+      if (onRibbon?.uv) {
+        this.beginSculpt(onRibbon, ev);
+        return;
+      }
+    }
     if (!hit) {
       // Missed every handle → pan the view (the tool's normal left-drag). OrbitControls' LEFT is
       // unmapped in edit mode, so onPointerMove pans manually without fighting the object drag.
@@ -969,6 +994,10 @@ export class StudioWaveRenderer extends WaveRenderer {
   };
 
   private onPointerMove = (ev: PointerEvent): void => {
+    if (this.sculptState) {
+      this.sculptTo(ev);
+      return;
+    }
     if (this.panState) {
       // Ortho pan: unproject the pointer delta into world units (auto-handles zoom/aspect/dpr),
       // then shift camera + orbit target together so the grabbed point tracks the cursor.
@@ -997,6 +1026,12 @@ export class StudioWaveRenderer extends WaveRenderer {
   };
 
   private onPointerUp = (ev: PointerEvent): void => {
+    if (this.sculptState) {
+      this.sculptState = undefined;
+      if (this.orbit) this.orbit.enabled = true;
+      this.renderer.domElement.releasePointerCapture?.(ev.pointerId);
+      return;
+    }
     if (this.panState) {
       this.panState = undefined;
       this.renderer.domElement.releasePointerCapture?.(ev.pointerId);
@@ -1065,6 +1100,91 @@ export class StudioWaveRenderer extends WaveRenderer {
     this.onWaveChanged?.();
   }
 
+  /**
+   * Start pushing the ribbon around from wherever it was grabbed.
+   *
+   * The path is DENSIFIED first: a three-point path can only be bent as a whole, and a push that
+   * moves the entire ribbon is not sculpting. Resampling to evenly spaced points along the current
+   * curve keeps the shape identical (the curve is unchanged) while giving the falloff something local
+   * to act on — the difference between dragging a wire and pressing a thumb into clay.
+   */
+  private beginSculpt(hit: THREE.Intersection, ev: PointerEvent): void {
+    const wave = this.config.waves[this.pathWave];
+    if (!wave?.path || !hit.uv) return;
+    this.densifyPath(wave.path.length < 12 ? 15 : wave.path.length);
+    const normal = this.camera.getWorldDirection(new THREE.Vector3());
+    this.dragPlane.setFromNormalAndCoplanarPoint(normal, hit.point);
+    this.sculptState = {
+      s: hit.uv.y,
+      last: hit.point.clone(),
+      // How much of the ribbon the push carries with it. Shift narrows it to a fingertip; the
+      // default is a palm.
+      radius: ev.shiftKey ? 0.1 : 0.3,
+    };
+    if (this.orbit) this.orbit.enabled = false;
+    this.renderer.domElement.setPointerCapture?.(ev.pointerId);
+  }
+
+  /** Resample the path to `count` evenly spaced points along the curve it already describes — same
+   *  shape, more to grab. Width and twist ride along so a sculpted throat survives densifying. */
+  private densifyPath(count: number): void {
+    const wave = this.config.waves[this.pathWave];
+    const pts = wave?.path;
+    if (!pts || pts.length >= count) return;
+    const closed = pts.length > 2 && this.pathClosed(pts);
+    const frames = samplePath(pts, count);
+    const next: PathPoint[] = frames.map((f) => ({
+      x: roundTo(f.pos.x, 2),
+      y: roundTo(f.pos.y, 2),
+      z: roundTo(f.pos.z, 2),
+      width: roundTo(f.width, 3),
+      twist: 0,
+    }));
+    // Keep a ring a ring: the sampler's last frame lands next to the first, not exactly on it.
+    if (closed) next[next.length - 1] = { ...next[0] };
+    wave.path = next;
+  }
+
+  /** Move the path under an in-flight sculpt: every point near the grabbed spot follows the cursor,
+   *  falling off smoothly with distance ALONG the ribbon. */
+  private sculptTo(ev: PointerEvent): void {
+    const st = this.sculptState;
+    const wave = this.config.waves[this.pathWave];
+    const mesh = this.waves[this.pathWave]?.mesh;
+    const pts = wave?.path;
+    if (!st || !pts || !mesh) return;
+    this.raycaster.setFromCamera(this.pointerNdc(ev), this.camera);
+    const now = new THREE.Vector3();
+    if (!this.raycaster.ray.intersectPlane(this.dragPlane, now)) return;
+    mesh.updateWorldMatrix(true, false);
+    const inv = new THREE.Matrix4().copy(mesh.matrixWorld).invert();
+    // The delta has to be expressed in the wave's own space, or a rotated or scaled wave would
+    // sculpt sideways — transform both ends and subtract rather than rotating the vector, so the
+    // wave's scale is divided out too.
+    const d = now.clone().applyMatrix4(inv).sub(st.last.clone().applyMatrix4(inv));
+    const closed = pts.length > 2 && this.pathClosed(pts);
+    const n = pts.length;
+    const lastIdx = n - 1;
+    for (let i = 0; i < n; i++) {
+      const si = i / lastIdx;
+      // Distance along the ribbon, wrapping on a ring so a push near the seam carries both sides.
+      let ds = Math.abs(si - st.s);
+      if (closed) ds = Math.min(ds, 1 - ds);
+      const t = Math.min(1, ds / st.radius);
+      const w = 1 - t * t * (3 - 2 * t); // smoothstep falloff: a soft dome, no crease at the edge
+      if (w <= 0) continue;
+      pts[i].x = roundTo(pts[i].x + d.x * w, 2);
+      pts[i].y = roundTo(pts[i].y + d.y * w, 2);
+      pts[i].z = roundTo(pts[i].z + d.z * w, 2);
+    }
+    if (closed) pts[lastIdx] = { ...pts[0], width: pts[lastIdx].width, twist: pts[lastIdx].twist };
+    st.last.copy(now);
+    this.refresh();
+    this.syncPathHelpers();
+    this.onWaveChanged?.();
+    if (!this.running) this.renderOnce();
+  }
+
   /** True when the path's ends coincide — the same test the sampler uses to decide it is a ring. */
   private pathClosed(pts: PathPoint[]): boolean {
     const a = pts[0];
@@ -1076,7 +1196,9 @@ export class StudioWaveRenderer extends WaveRenderer {
   private selectPathHandle(i: number): void {
     this.selectedPathPoint = Math.max(0, Math.min(i, this.pathHelpers.length - 1));
     const sel = this.pathHelpers[this.selectedPathPoint];
-    if (sel && this.transform) this.transform.attach(sel);
+    // Only once it is actually in the overlay: a sculpt rebuilds the handles mid-drag, and attaching
+    // to one that is momentarily parentless makes TransformControls complain every frame.
+    if (sel?.parent && this.transform) this.transform.attach(sel);
     this.pathHelpers.forEach((h, k) => {
       (h.material as THREE.MeshBasicMaterial).color.set(
         k === this.selectedPathPoint ? 0xffc83d : 0x39d0ff,
@@ -1136,16 +1258,72 @@ export class StudioWaveRenderer extends WaveRenderer {
       this.overlay.add(this.pathLine);
     }
     this.pathLine.geometry.setFromPoints(verts);
-    if (this.selectedPathPoint >= this.pathHelpers.length) this.selectPathHandle(0);
+    this.syncPathProxy(frames, mesh);
+    // Re-attach after any rebuild, so the gizmo follows the point it was on.
+    this.selectPathHandle(Math.min(this.selectedPathPoint, this.pathHelpers.length - 1));
+  }
+
+  /** Rebuild the pick surface: a strip two vertices wide per frame, carrying uv.y = position along
+   *  the ribbon — which is what a sculpt drag needs to know to push the right part of the path. It
+   *  belongs to no scene (nothing should draw it); raycasting only needs its world matrix. */
+  private syncPathProxy(frames: ReturnType<typeof samplePath>, mesh: THREE.Object3D): void {
+    const n = frames.length;
+    const pos = new Float32Array(n * 2 * 3);
+    const uv = new Float32Array(n * 2 * 2);
+    const idx: number[] = [];
+    const half = 94; // the folded ribbon's half-width in local units
+    for (let i = 0; i < n; i++) {
+      const f = frames[i];
+      const w = half * f.width;
+      for (let k = 0; k < 2; k++) {
+        const o = (i * 2 + k) * 3;
+        const sign = k === 0 ? -1 : 1;
+        pos[o] = f.pos.x + f.binormal.x * w * sign;
+        pos[o + 1] = f.pos.y + f.binormal.y * w * sign;
+        pos[o + 2] = f.pos.z + f.binormal.z * w * sign;
+        uv[(i * 2 + k) * 2] = k;
+        uv[(i * 2 + k) * 2 + 1] = i / (n - 1);
+      }
+      if (i > 0) {
+        const a = (i - 1) * 2;
+        idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      }
+    }
+    if (!this.pathProxy) {
+      this.pathProxy = new THREE.Mesh(
+        new THREE.BufferGeometry(),
+        new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }),
+      );
+      this.pathProxy.visible = false;
+    }
+    const g = this.pathProxy.geometry;
+    g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    g.computeBoundingSphere();
+    this.pathProxy.matrix.copy(mesh.matrixWorld);
+    this.pathProxy.matrixAutoUpdate = false;
+    this.pathProxy.matrixWorld.copy(mesh.matrixWorld);
   }
 
   private clearPathHelpers(): void {
+    // Detach FIRST: a sculpt rebuilds the handles mid-drag, and disposing the one the gizmo is
+    // holding leaves it pointing at an object that is no longer in the scene — which it reports
+    // every frame thereafter.
+    if (this.transform?.object && this.pathHelpers.includes(this.transform.object as THREE.Mesh)) {
+      this.transform.detach();
+    }
     for (const mesh of this.pathHelpers) {
       this.overlay.remove(mesh);
       mesh.geometry.dispose();
       (mesh.material as THREE.Material).dispose();
     }
     this.pathHelpers = [];
+    if (this.pathProxy) {
+      this.pathProxy.geometry.dispose();
+      (this.pathProxy.material as THREE.Material).dispose();
+      this.pathProxy = undefined;
+    }
     if (this.pathLine) {
       this.overlay.remove(this.pathLine);
       this.pathLine.geometry.dispose();

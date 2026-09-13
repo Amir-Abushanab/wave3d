@@ -56,11 +56,19 @@ frame would flip the ribbon 180° at every inflection. A path whose last point s
 closed ring — that repeat is the whole declaration, rather than a `closed` flag for something the
 points already say. `arcPath(turns)` builds one.
 
-**Double-click a ribbon in the studio to edit its path.** Handles appear on every point: drag to
-bend, double-click a point to remove it, double-click the ribbon to insert one, Escape to leave. The
-wave takes a straight path on entry, so nothing moves until you move it. The frames are baked into a
-small texture the vertex shader samples, so a drag costs one 128×3 texture write per frame rather
-than an 80k-vertex geometry rebuild.
+**Double-click a ribbon in the studio and shape it like putty.** The primary gesture is dragging the
+RIBBON, not a control point: the push falls off smoothly along the length, so only the part under the
+cursor follows and the rest stays where you left it (Shift narrows the push from a palm to a
+fingertip). The path densifies itself on the first sculpt, because a three-point path can only be
+bent as a whole and that feels like bending wire rather than pressing clay. Control points remain for
+precision — drag a handle, double-click one to remove it, double-click the ribbon to insert one — and
+Escape leaves.
+
+Picking goes through a proxy strip rebuilt from the current frames, because the ribbon's vertices are
+only deformed on the GPU: a raycast against the wave's own mesh would hit the straight ribbon the
+geometry was born as rather than the curve on screen. The frames themselves are baked into a small
+texture the vertex shader samples, so a sculpt costs one 128×3 texture write per frame rather than an
+80k-vertex geometry rebuild.
 
 This REPLACES the `pinch` and `wrapAmount` controls added earlier in this same unreleased batch: a
 path's per-point `width` is the pinch, and a closed path is the wrap, so they were two knobs for what
