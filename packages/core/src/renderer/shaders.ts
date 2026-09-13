@@ -216,24 +216,6 @@ WaveShape waveShape(vec3 position, vec2 uv, float t, vec2 loopOff){
 #endif
 #endif
 
-#ifdef PINCH
-  // PINCH — narrow the ribbon's WIDTH toward a waist somewhere along its length, so a flat strip
-  // becomes a bow tie. This is the one thing the twists, the helix and the radial fan all leave
-  // alone: they move the sheet around, but its width is the fixed ~188 units the fold gives it, and
-  // a sheet of constant width can never make a THROAT. Here the combed strands (constant uv.x)
-  // converge as the width closes and fan out again past it, which is what reads as one.
-  //
-  // The profile is hyperbolic near the waist and flattens to full width away from it:
-  // sqrt(m² + (1-m²)·(1 - exp(-(d/w)²))), m = 1 - uPinch. A plain gaussian dip bottoms out
-  // quadratically — a rounded pinch — where this goes to a V with a rounded tip of size m, which is
-  // what makes the flanks read as straight fans converging on a point.
-  {
-    float pd = (uv.y - uPinchCenter) / max(uPinchWidth, 1.0e-3);
-    float pm = 1.0 - clamp(uPinch, 0.0, 1.0);
-    float pw = 1.0 - exp(-pd * pd);
-    pos.z = ${RIBBON_Z_CENTER.toFixed(1)} + (pos.z - ${RIBBON_Z_CENTER.toFixed(1)}) * sqrt(pm * pm + (1.0 - pm * pm) * pw);
-  }
-#endif
 
 #ifdef HELIX
   // Helix — the periodic sweep the three twists (monotone falloffs) can't reach. Runs AFTER the
@@ -272,25 +254,6 @@ WaveShape waveShape(vec3 position, vec2 uv, float t, vec2 loopOff){
   pos = (vec4(pos, 1.0) * rotB).xyz;
   pos = (vec4(pos, 1.0) * rotC).xyz;
 
-#ifdef WRAP
-  // WRAP — bend the ribbon's LENGTH around a circle, so the strip closes into a ring. A helix can
-  // carry a ribbon around an axis while still travelling ALONG it (a coil); nothing here could bend
-  // the length itself, which is what a band wrapped around something has to do.
-  //
-  // The bend is around the ribbon's width axis, so the strip rolls up the way paper does and its
-  // width lies along the ring's axis — a band, not a flat washer. uWrapAmount is turns: 1 closes the
-  // ring exactly, 0.5 is a half-pipe, 2 laps it twice. The radius follows from the length (400 units
-  // over that many turns), so the RING SIZE is the wave's scale, and the displacement rides it as a
-  // radial ripple. Centred on the ring's own centre at a full turn, which is what lets a wrapped wave
-  // sit at the same position transform as the thing it encircles.
-  {
-    float wa = max(uWrapAmount, 1.0e-3);
-    float wR = 400.0 / (6.28318530718 * wa);      // radius that spends the whole length on wa turns
-    float wTh = pos.x * 6.28318530718 * wa / 400.0;
-    float wRad = wR - pos.y;                      // displacement pushes the band off the ring radially
-    pos = vec3(wRad * sin(wTh), wR - wRad * cos(wTh) - wa * 63.66197724, pos.z);
-  }
-#endif
 
 #ifdef RADIAL
   // Radial fan: remap the ribbon to polar around the LOCAL origin so its LENGTH fans into a plume.
@@ -313,6 +276,26 @@ WaveShape waveShape(vec3 position, vec2 uv, float t, vec2 loopOff){
                 // TRUMPET whose combed strands run down the slant into the throat. 0 is the flat fan.
                 + vec3(0.0, 0.0, pos.y + uv.y * 400.0 * uRadialCone);
     pos = mix(pos, fanned, clamp(uRadialAmount, 0.0, 1.0));
+  }
+#endif
+
+#ifdef PATH
+  // PATH — sweep the ribbon along an authored centreline. Everything above deformed a ribbon whose
+  // centreline was the x-axis; this puts that deformed cross-section onto a curve instead.
+  //
+  // The vertex's own along-length coordinate picks the frame, so the twists (which move x) still
+  // slide the surface along the path rather than being discarded. Position, frame and width come
+  // from a small LUT the CPU baked (see wavePath.ts) — the frame is parallel-transported, which
+  // cannot be done per vertex — and the two frame vectors are re-normalized because a linear
+  // interpolation between unit vectors is not one.
+  {
+    float ps = clamp((pos.x + 200.0) / 400.0, 0.0, 1.0);
+    // texture2D, not texture2DLod: three rewrites GLSL1 to GLSL3 on WebGL2 by replacing the
+    // plain texture2D token, and the Lod spelling survives that rewrite as an undefined function.
+    vec4 pP = texture2D(uPathTex, vec2(ps, 0.1666667));
+    vec3 pN = normalize(texture2D(uPathTex, vec2(ps, 0.5)).xyz);
+    vec3 pB = normalize(texture2D(uPathTex, vec2(ps, 0.8333333)).xyz);
+    pos = pP.xyz + pN * pos.y + pB * ((pos.z - ${RIBBON_Z_CENTER.toFixed(1)}) * pP.w);
   }
 #endif
 
@@ -511,14 +494,9 @@ uniform float uHelixPhase;  // degrees
 uniform float uHelixTaper;  // radius scale at the START end (1 = a cylinder, 0 = a cone / vortex)
 #endif
 
-// Pinch / wrap (optional), each behind its own gate like HELIX / RADIAL above.
-#ifdef PINCH
-uniform float uPinch;        // 0 = full width, 1 = the waist closes to a point
-uniform float uPinchWidth;   // how far along the length the narrowing reaches, in uv
-uniform float uPinchCenter;  // where the waist sits along the length, in uv
-#endif
-#ifdef WRAP
-uniform float uWrapAmount;   // turns the length is bent through: 1 = a closed ring
+// Path (optional): the baked centreline LUT — row 0 position + width, row 1 normal, row 2 binormal.
+#ifdef PATH
+uniform sampler2D uPathTex;
 #endif
 
 // Radial fan (optional). Behind RADIAL so a wave without one compiles the exact same program (same
@@ -1339,11 +1317,8 @@ uniform float uTwFreqX, uTwFreqY, uTwFreqZ, uTwPowX, uTwPowY, uTwPowZ;
 #ifdef HELIX
 uniform float uHelixTurns, uHelixRadius, uHelixRoll, uHelixPhase, uHelixTaper;
 #endif
-#ifdef PINCH
-uniform float uPinch, uPinchWidth, uPinchCenter;
-#endif
-#ifdef WRAP
-uniform float uWrapAmount;
+#ifdef PATH
+uniform sampler2D uPathTex;
 #endif
 #ifdef RADIAL
 uniform float uRadialAmount, uRadialArc, uRadialSpread, uRadialRadius, uRadialCenter, uRadialCone, uRadialSwirl;

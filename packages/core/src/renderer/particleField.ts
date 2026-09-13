@@ -86,10 +86,7 @@ const SHAPE_UNIFORMS = [
   "uHelixRadius",
   "uHelixRoll",
   "uHelixTaper",
-  "uPinch",
-  "uPinchWidth",
-  "uPinchCenter",
-  "uWrapAmount",
+  "uPathTex",
   "uHelixPhase",
   "uRadialAmount",
   "uRadialArc",
@@ -292,10 +289,7 @@ export class ParticleField {
         uHelixRadius: { value: 0 },
         uHelixRoll: { value: 0 },
         uHelixTaper: { value: 1 },
-        uPinch: { value: 0 },
-        uPinchWidth: { value: 0.2 },
-        uPinchCenter: { value: 0.5 },
-        uWrapAmount: { value: 0 },
+        uPathTex: { value: null as THREE.Texture | null },
         uHelixPhase: { value: 0 },
         uRadialAmount: { value: 0 },
         uRadialArc: { value: 0 },
@@ -481,7 +475,11 @@ export class ParticleField {
     if (!from || !to) return;
     const dst = to.value;
     if (typeof from.value === "number" || Array.isArray(from.value)) to.value = from.value;
-    else if (dst && typeof (dst as { copy?: unknown }).copy === "function") {
+    // Textures (the path LUT) are shared BY REFERENCE, like the ripple arrays above: the wave owns
+    // the texture and rewrites it in place, so the dust rides the same centreline with no copy.
+    else if (from.value === null || (from.value as THREE.Texture | null)?.isTexture) {
+      to.value = from.value;
+    } else if (dst && typeof (dst as { copy?: unknown }).copy === "function") {
       (dst as THREE.Vector3).copy(from.value as THREE.Vector3);
     }
   }

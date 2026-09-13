@@ -44,16 +44,27 @@ Three supporting knobs, each inert at its default:
   into the throat, which is a shape neither the twists nor the helix can reach (a helix carries the
   ribbon around an axis, but its WIDTH never follows the slant).
 
-Two new shape controls, `pinch` and `wrapAmount`, each doing something the existing deforms
-structurally could not — the twists, the helix and the radial fan all move a sheet of FIXED width
-around. `pinch` (0..1, with `pinchWidth` / `pinchCenter`) closes the ribbon's WIDTH to a waist, so a
-strip becomes a bow tie and its combed strands converge through a throat and fan out the other side;
-the throat is not drawn, it is what a pinched sheet of parallel lines does. `wrapAmount` bends the
-ribbon's LENGTH into a circle, in turns, so it closes into a ring — a helix carries a ribbon around
-an axis while it still travels along it, where this bends the length itself, which is what a band
-wrapped around something has to do. The bend is about the width axis, so the ring's radius comes from
-the length (its size is the wave's `scale`) and a full wrap centres itself on its own centre: ring one
-wave around another's waist by giving it the same rotation with 90 added to Y, and the same position.
+**`WaveConfig.path` — a centreline the ribbon is swept along, dragged in the studio.** Every other
+deform bends a ribbon whose centreline is fixed, so none of them can make one that changes direction
+more than once, crosses itself, or is wide here and narrow there. A path can, because it IS the
+centreline: control points in the wave's local space, each with an optional `width` and `twist`.
+Absent ⇒ the straight ribbon, byte-identical.
+
+Points are swept by ARC LENGTH with a parallel-transported frame. Both matter: sampling by curve
+parameter would bunch the strand comb wherever the author happened to crowd points, and a Frenet
+frame would flip the ribbon 180° at every inflection. A path whose last point sits on its first is a
+closed ring — that repeat is the whole declaration, rather than a `closed` flag for something the
+points already say. `arcPath(turns)` builds one.
+
+**Double-click a ribbon in the studio to edit its path.** Handles appear on every point: drag to
+bend, double-click a point to remove it, double-click the ribbon to insert one, Escape to leave. The
+wave takes a straight path on entry, so nothing moves until you move it. The frames are baked into a
+small texture the vertex shader samples, so a drag costs one 128×3 texture write per frame rather
+than an 80k-vertex geometry rebuild.
+
+This REPLACES the `pinch` and `wrapAmount` controls added earlier in this same unreleased batch: a
+path's per-point `width` is the pinch, and a closed path is the wrap, so they were two knobs for what
+the centreline already says.
 
 Rungs (`rungAmount`, the cross-wise stripe family) are now usable as a wave's PRIMARY striping rather
 than just a DNA-ladder accent. `lineSharpness` hardens the merged coverage, after the rungs have been

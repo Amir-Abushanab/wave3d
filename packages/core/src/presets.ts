@@ -4,6 +4,7 @@
  * "Stripe *" display names) on top; see apps/studio/src/presets.ts.
  */
 import { createDefaultConfig, makeStops, makeWaveSpread } from "./config/model";
+import { arcPath } from "./renderer/wavePath";
 import type {
   NoiseBand,
   ParticlesConfig,
@@ -871,9 +872,6 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     base.blendMode = "normal";
     base.opacity = 1;
     base.radialAmount = 0;
-    base.pinch = 0;
-    base.pinchWidth = 0.3;
-    base.pinchCenter = 0.5;
     // A broad swell so the lobes undulate instead of reading as machined tube.
     base.displaceAmount = 60;
     base.displaceFrequency = { x: 0.003, y: 0.008 };
@@ -900,21 +898,27 @@ export const PRESETS: Record<string, () => StudioConfig> = {
       bindings: [{ source: "scroll", target: "dissolveAmount", to: 0.95, smoothing: 0.2 }],
     };
 
-    // The loop: a full wrap with one and a half turns of roll, so the sheet folds into lobes that
-    // cross in front of each other around an open eye.
+    // The loop: a closed circular PATH with one and a half turns of roll, so the sheet folds into
+    // lobes that cross in front of each other around an open eye. The path is what makes the ribbon
+    // come back on itself at all — and every point of it is draggable in the studio.
     const loop = structuredClone(base);
     loop.seed = 0;
-    loop.wrapAmount = 1;
+    loop.path = arcPath(1);
     loop.helixTurns = 1.5;
     loop.scale = { x: 3.4, y: 3.4, z: 3.4 };
     loop.rotation = { x: 45, y: 25, z: 15 };
     loop.particles = snapDust(0);
 
-    // The sweep it sits in: a third of the wrap so it stays an open curve, at 5x the scale so it is
-    // wider than the canvas and reads as a surface passing through frame rather than an object in it.
+    // The sweep it sits in: a third of a turn, so it stays an open curve, at 5x the scale — wider
+    // than the canvas, so it reads as a surface passing through frame rather than an object in it.
+    // Its middle points are pinched to 0.55 width, which is the taper a separate `pinch` knob used to
+    // do and is now just two numbers on the path.
     const sweep = structuredClone(base);
     sweep.seed = 3.7;
-    sweep.wrapAmount = 0.35;
+    sweep.path = arcPath(0.35).map((p, i, all) => ({
+      ...p,
+      width: i === 0 || i === all.length - 1 ? 1 : 0.55,
+    }));
     sweep.helixTurns = 0.5;
     sweep.scale = { x: 5, y: 5, z: 5 };
     sweep.rotation = { x: 25, y: 45, z: -45 };

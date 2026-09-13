@@ -122,21 +122,34 @@ a repeating helix:
 - Both are off at 0, and the helix code path isn't compiled unless `helixRadius` or `helixRoll` is
   non-zero — a wave without one renders byte-identically to before.
 
-**Pinch and wrap (`pinch` / `wrapAmount`).** Two shape controls that do what the twists, the helix and
-the radial fan structurally cannot, because all three move a sheet of FIXED width around:
+**`path` — the ribbon's centreline, and the one shape control the others cannot substitute for.**
+Everything else deforms a ribbon whose centreline is fixed: the twists rotate it, the helix carries it
+around an axis, the radial fan splays it. So none of them can make a ribbon that changes direction
+more than once, crosses itself, or is wide here and narrow there. A path can, because it IS the
+centreline.
 
-- `pinch` (0..1) closes the ribbon's WIDTH to a waist, so the strip becomes a bow tie and the combed
-  strands converge through a THROAT and fan out the other side. `pinchWidth` (uv, default 0.2) is how
-  far along the length the taper reaches — small keeps wide fans either side of a tight waist — and
-  `pinchCenter` moves the waist along the length.
-- `wrapAmount` bends the ribbon's LENGTH into a circle, in turns: 1 closes it into a ring. A helix
-  carries a ribbon around an axis while it still travels ALONG it (a coil); this bends the length
-  itself, which is what a band wrapped AROUND something has to do. The bend is about the width axis,
-  so the ring's axis is the wave's local Z and its radius comes from the length — meaning the ring's
-  SIZE is the wave's `scale`, and a full wrap centres itself on its own centre.
+```ts
+path: [
+  { x: -200, y: 0, z: 0 },
+  { x: 0, y: 120, z: 40, width: 0.3, twist: 45 }, // a throat, and a quarter turn of the section
+  { x: 200, y: 0, z: 0 },
+];
+```
 
-They compose: to ring one wave around another's pinched waist, give the ring the SAME rotation with
-90 added to Y (that quarter turn aims its axis down the other's length) and the same `position`.
+- Points are in the wave's LOCAL space — the un-pathed ribbon runs x −200 → +200 — so a straight
+  three-point path reproduces it exactly. Absent ⇒ that straight ribbon, byte-identical.
+- `width` per point is what a separate "pinch" knob would be, and `twist` (degrees) rotates the
+  cross-section. Both interpolate smoothly between points.
+- A path whose LAST point sits on its FIRST is a closed ring. That is the whole declaration — there
+  is no `closed` flag, because the points already say it.
+- `arcPath(turns)` builds one: `arcPath(1)` is a closed ring whose radius comes from the ribbon's own
+  length, `arcPath(0.35)` an open curve.
+- It is swept by ARC LENGTH with a parallel-transported frame, so the strand comb stays even wherever
+  the points are dragged and the ribbon never flips through an inflection.
+
+**In the studio, double-click a ribbon to edit its path.** Handles appear on every control point; drag
+to bend, double-click a point to remove it, double-click the ribbon to insert one, Escape to leave.
+The wave takes a straight path on entry, so nothing moves until you move it.
 
 **Disintegration (`WaveConfig.dissolve`).** A front sweeps across the wave and eats it away chunk by
 chunk, so the surface CRUMBLES rather than fading. Absent ⇒ intact and byte-identical.

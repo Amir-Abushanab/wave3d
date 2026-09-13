@@ -92,6 +92,9 @@ export function makeTslUniforms(drawingBufferSize: Vector2) {
     uMeshPointCount: uniform(0, "int"),
     uMeshSoftness: uniform(0.62),
     uPalette: texture(makeFallbackPalette()),
+    // The baked path LUT (read only when the path flag is set). Starts on a 1x1 fallback so the node
+    // always has a texture bound; WaveRenderer swaps in the wave's own, exactly as it does uPalette.
+    uPathTex: texture(makeFallbackPalette()),
     uUsePalette: uniform(1),
     uPaletteRaw: uniform(1),
     uPaletteScale: uniform(new Vector2(1, 1)),

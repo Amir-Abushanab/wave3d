@@ -54,6 +54,19 @@ export const CAMERA_FITS: readonly CameraFit[] = ["cover", "contain", "width", "
  *  a named built-in map (see PALETTE_MAPS). Any string is allowed for forward-compat. */
 export type PaletteSource = "hero" | "stops" | (string & {});
 
+/**
+ * One control point of a {@link WaveConfig.path}: where the ribbon's centre passes, how wide it is
+ * there, and how far its cross-section has rotated. `width` 1 is the ribbon's natural width; `twist`
+ * is in degrees. Both are optional and default to 1 / 0.
+ */
+export interface PathPoint {
+  x: number;
+  y: number;
+  z: number;
+  width?: number;
+  twist?: number;
+}
+
 /** A positionable light. `position` lives in the same 3D space as the wave. */
 export interface LightConfig {
   position: Vec3;
@@ -256,28 +269,26 @@ export interface WaveConfig {
    *  curves around the throat. 0 = straight (the default, byte-identical); 150 wraps most of a
    *  half-turn. Negative spirals the other way. Inert unless `radialAmount` > 0. */
   radialSwirl?: number;
-  /** PINCH (0..1): narrow the ribbon's WIDTH toward a waist along its length, turning a flat strip
-   *  into a bow tie. Nothing else here can do it — the twists, the helix and the radial fan all move
-   *  a sheet of FIXED width around, so none of them can make a throat. Combed strands (and the
-   *  wireframe's lengthwise lines) converge as the width closes and fan out past it, which is what
-   *  makes the waist read. 0 = off (the default, byte-identical); 1 closes it to a point. */
-  pinch?: number;
-  /** How far along the length the narrowing reaches, in uv (default 0.2). Small = an abrupt throat
-   *  with wide fans either side; large = a long taper. Inert unless `pinch` > 0. */
-  pinchWidth?: number;
-  /** Where the waist sits along the length, 0..1 in uv (default 0.5, the middle). */
-  pinchCenter?: number;
-  /** WRAP: bend the ribbon's LENGTH around a circle, in turns — 1 closes it into a ring, 0.5 is a
-   *  half-pipe, 2 laps twice. The helix can carry a ribbon around an axis while it still travels
-   *  ALONG it (a coil); this bends the length itself, which is what a band wrapped AROUND something
-   *  has to do — a ring encircling another wave's pinched waist, say.
+  /**
+   * PATH — the ribbon's centreline, as control points it is swept along. Absent ⇒ the straight
+   * centreline the folded geometry is born with (byte-identical: the shader block is not compiled).
    *
-   *  The bend is about the ribbon's width axis, so the strip rolls up the way paper does and its
-   *  width lies along the ring's axis (a band, not a flat washer). The radius follows from the
-   *  length, so the ring's SIZE is the wave's `scale`, and at a full turn it is centred on its own
-   *  centre — which is what lets a wrapped wave sit at the same `position` as what it encircles.
-   *  Compose it with `helixRoll` for a band that twists as it goes round. 0 = off (the default). */
-  wrapAmount?: number;
+   * This is the shape control the others cannot substitute for. The twists rotate a ribbon whose
+   * centreline is fixed, the helix carries that fixed centreline around an axis, the radial fan
+   * splays it — so none of them can make a ribbon that changes direction more than once, crosses
+   * itself, or is wide here and narrow there. A path can, because it IS the centreline.
+   *
+   * Points are in the wave's LOCAL space, the same units the geometry uses: the un-pathed ribbon
+   * runs from x −200 to +200 along its length, so `straightPath()` reproduces it. They are swept by
+   * ARC LENGTH with a parallel-transported frame, which is what keeps the strand comb even however
+   * the points are dragged and stops the ribbon snapping through inflections.
+   *
+   * Per point, `width` scales the ribbon's width there (0.1 is a throat, 2 a flare — this is what a
+   * separate "pinch" knob would otherwise be) and `twist` rotates its cross-section in degrees.
+   * Both interpolate smoothly between points.
+   */
+  path?: PathPoint[];
+
   // Material ("solid" surface vs "wireframe" line shader)
   theme?: "solid" | "wireframe";
   lineAmount?: number;
@@ -903,10 +914,6 @@ function defaultWave(): WaveConfig {
     radialCenter: 0,
     radialCone: 0,
     radialSwirl: 0,
-    pinch: 0,
-    pinchWidth: 0.2,
-    pinchCenter: 0.5,
-    wrapAmount: 0,
     theme: "solid",
     lineAmount: 425, // wireframe-theme line params (defaults)
     lineThickness: 1,
@@ -1174,10 +1181,6 @@ export function normalizeWave(s: WaveConfig): void {
   if (!Number.isFinite(s.radialCenter)) s.radialCenter = 0;
   if (!Number.isFinite(s.radialCone)) s.radialCone = 0;
   if (!Number.isFinite(s.radialSwirl)) s.radialSwirl = 0;
-  if (!Number.isFinite(s.pinch)) s.pinch = 0;
-  if (!Number.isFinite(s.pinchWidth)) s.pinchWidth = 0.2;
-  if (!Number.isFinite(s.pinchCenter)) s.pinchCenter = 0.5;
-  if (!Number.isFinite(s.wrapAmount)) s.wrapAmount = 0;
   if (typeof s.theme !== "string") s.theme = "solid";
   if (!Number.isFinite(s.lineAmount)) s.lineAmount = 425;
   if (!Number.isFinite(s.lineThickness)) s.lineThickness = 1;
@@ -1203,6 +1206,7 @@ export function normalizeWave(s: WaveConfig): void {
   if (s.interaction) normalizeWaveInteraction(s); // present-only; absence stays inert
   if (s.particles) normalizeParticles(s); // present-only; absence = no field for this wave
   if (s.dissolve) normalizeDissolve(s); // present-only; absence = the ribbon is intact
+  if (s.path) normalizePath(s); // present-only; absence = the straight centreline
 }
 
 /** Backfill scene-level defaults (background/camera/post/lights/quality/mirror). */
@@ -1412,6 +1416,30 @@ export function normalizeParticles(wave: WaveConfig): void {
   // validate the scheme: the renderer only ever hands it to an <img>, which sandboxes SVG scripts.
   if (p.spriteUrl !== undefined && typeof p.spriteUrl !== "string") delete p.spriteUrl;
   if (p.pointerShove !== undefined) p.pointerShove = clampNumber(p.pointerShove, 0, 4, 1);
+}
+
+/** Clamp a present {@link WaveConfig.path}: drop anything that is not a finite point, and drop the
+ *  whole path if fewer than two survive (one point is not a centreline). Present-only, like the
+ *  particle and dissolve blocks — absence means "the straight ribbon". */
+export function normalizePath(wave: WaveConfig): void {
+  const p = wave.path;
+  if (!p) return;
+  if (!Array.isArray(p)) {
+    delete wave.path;
+    return;
+  }
+  const pts = p
+    .filter((q): q is PathPoint => !!q && typeof q === "object")
+    .map((q) => ({
+      x: num(q.x, 0),
+      y: num(q.y, 0),
+      z: num(q.z, 0),
+      width: q.width === undefined ? undefined : clampNumber(q.width, 0, 8, 1),
+      twist: q.twist === undefined ? undefined : num(q.twist, 0),
+    }))
+    .filter((q) => Number.isFinite(q.x) && Number.isFinite(q.y) && Number.isFinite(q.z));
+  if (pts.length < 2) delete wave.path;
+  else wave.path = pts;
 }
 
 /** Clamp a present {@link DissolveConfig} (present-only, like {@link normalizeParticles}: a wave

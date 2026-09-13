@@ -18,6 +18,7 @@ import {
   halftoneCmykFragmentShader,
 } from "./shaders";
 import { WaveGeometry } from "./WaveGeometry";
+import { bakePathTexture, writePathTexture } from "./wavePath";
 import { ParticleField, type ParticleFrame } from "./particleField";
 // Gates only — the interactivity RUNTIME (controller, applier tables, tilt sensor) is reached
 // through a dynamic import in loadInteraction(), so a scene that never interacts never fetches it.
@@ -293,6 +294,10 @@ type Wave = {
   /** This wave's own particle / dust field — created when its `particles.count` first goes >0,
    *  disposed at 0 / absent (the WavePalette lifecycle pattern). Undefined = no dust for this wave. */
   particleField?: WaveParticleField;
+  /** The baked centreline LUT for this wave's `path` (absent when it has none). */
+  pathTexture?: THREE.DataTexture;
+  /** Signature of the points the LUT was baked from, so a drag only rewrites it when it changed. */
+  pathSig?: string;
 };
 
 // Parse scratch: refresh() converts ~25 hex colours per wave per call (i.e. per slider input),
@@ -653,13 +658,9 @@ export class WaveRenderer {
       uHelixRoll: { value: 0 },
       uHelixPhase: { value: 0 },
       uHelixTaper: { value: 1 },
-      // Pinch (the ribbon's width waist) + wrap (bending its length into a ring), each read only
-      // under its own define. Always present JS-side; three uploads them only when the compiled
-      // program declares them (precedent: uDetailAmount).
-      uPinch: { value: 0 },
-      uPinchWidth: { value: 0.2 },
-      uPinchCenter: { value: 0.5 },
-      uWrapAmount: { value: 0 },
+      // The path LUT (read only under PATH). The texture itself is per wave and swapped in by
+      // syncPathTexture; null until a wave actually has a path.
+      uPathTex: { value: null as THREE.Texture | null },
       // Radial fan (vertex, under RADIAL). Always present JS-side; three uploads them only when the
       // compiled program declares them, so a non-radial wave is untouched (precedent: uDetailAmount).
       uRadialAmount: { value: 0 },
@@ -701,6 +702,33 @@ export class WaveRenderer {
     };
   }
 
+  /** Reconcile a wave's baked path LUT with its config. The texture is rewritten in place when the
+   *  points change — which is what makes dragging a control point cheap, since the alternative is
+   *  rebuilding 80k vertices per frame — and disposed when a wave loses its path. */
+  private syncPathTexture(wave: Wave, sc: WaveConfig): void {
+    const pts = sc.path;
+    if (!pts || pts.length < 2) {
+      if (wave.pathTexture) {
+        wave.pathTexture.dispose();
+        wave.pathTexture = undefined;
+        wave.pathSig = undefined;
+      }
+      // Left as-is rather than nulled: on the TSL backend the node must always have a texture bound,
+      // and with no PATH in the variant nothing samples it either way.
+      return;
+    }
+    const sig = JSON.stringify(pts);
+    if (!wave.pathTexture) {
+      wave.pathTexture = bakePathTexture(pts);
+      wave.pathSig = sig;
+    } else if (sig !== wave.pathSig) {
+      writePathTexture(wave.pathTexture.image.data as Float32Array, pts);
+      wave.pathTexture.needsUpdate = true;
+      wave.pathSig = sig;
+    }
+    wave.material.uniforms.uPathTex.value = wave.pathTexture;
+  }
+
   /** Vertex-shader #defines for a wave: TWIST_MOTION (per-wave animated twist wobble) and
    *  LOOP_MOTION (scene-level seamless loop). Both select #ifdef-gated code paths; an empty
    *  object compiles the default (linear-time) program. */
@@ -723,9 +751,8 @@ export class WaveRenderer {
     if ((sc?.helixRadius ?? 0) !== 0 || (sc?.helixRoll ?? 0) !== 0 || bindsHelix) {
       defines.HELIX = "";
     }
-    // Pinch / wrap: 0 is the identity for each, so each alone decides whether its block compiles.
-    if ((sc?.pinch ?? 0) !== 0) defines.PINCH = "";
-    if ((sc?.wrapAmount ?? 0) !== 0) defines.WRAP = "";
+    // Path: a wave with no centreline of its own compiles the program it always did.
+    if (sc?.path && sc.path.length >= 2) defines.PATH = "";
     // Radial fan: amount 0 is the identity mix, so it alone decides whether the block is compiled.
     // Not binding-driveable in v1 (not in WAVE_TARGET_NAMES), so no bindsRadial term is needed.
     if ((sc?.radialAmount ?? 0) !== 0) defines.RADIAL = "";
@@ -1070,10 +1097,7 @@ export class WaveRenderer {
       u.uHelixRadius.value = sc.helixRadius ?? 0;
       u.uHelixRoll.value = sc.helixRoll ?? 0;
       u.uHelixTaper.value = sc.helixTaper ?? 1;
-      u.uPinch.value = sc.pinch ?? 0;
-      u.uPinchWidth.value = sc.pinchWidth ?? 0.2;
-      u.uPinchCenter.value = sc.pinchCenter ?? 0.5;
-      u.uWrapAmount.value = sc.wrapAmount ?? 0;
+      this.syncPathTexture(wave, sc);
       u.uHelixPhase.value = sc.helixPhase ?? 0;
       u.uRadialAmount.value = sc.radialAmount ?? 0;
       u.uRadialArc.value = sc.radialArc ?? 160;
@@ -2008,8 +2032,7 @@ export class WaveRenderer {
       "HELIX",
       "TWIST_MOTION",
       "RADIAL",
-      "PINCH",
-      "WRAP",
+      "PATH",
       "POINTER_FX",
       "POINTER_RIPPLES",
       "DISSOLVE",
@@ -2506,6 +2529,7 @@ export class WaveRenderer {
       s.geometry.dispose();
       s.palette.dispose();
       s.particleField?.dispose();
+      s.pathTexture?.dispose();
     }
     this.bloomPass?.dispose();
     this.ditherPass?.dispose();
