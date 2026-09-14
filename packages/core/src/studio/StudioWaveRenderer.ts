@@ -894,6 +894,7 @@ export class StudioWaveRenderer extends WaveRenderer {
       }
     }
     // Not in path mode (or clicked off the ribbon): enter on whichever wave was hit, leave if none.
+    // Double-clicking empty space is the way OUT, alongside Escape.
     void this.setPathEditMode(this.pickWave());
   };
 
@@ -909,6 +910,12 @@ export class StudioWaveRenderer extends WaveRenderer {
     let best = -1;
     let bestDist = Infinity;
     for (let i = 0; i < this.waves.length; i++) {
+      // The wave being EDITED is excluded from the sphere fallback. Its sphere covers most of the
+      // viewport on a big ribbon, so while path mode was on it swallowed every double-click and
+      // there was no way back out: clicking empty space re-picked the same wave instead of leaving.
+      // In path mode that wave already has an exact test that tracks what you can see — the proxy,
+      // tried above — so the generous fallback buys it nothing and costs the gesture.
+      if (this.editMode === "path" && i === this.pathWave) continue;
       const wave = this.waves[i];
       const bs = wave?.geometry.geometry.boundingSphere;
       if (!bs) continue;
