@@ -564,3 +564,32 @@ body {
     max-height: 42dvh;
   }
 }
+
+/* The folder for the wave selected in the viewport — double-click a ribbon, or pick one with the
+   gizmo, and its config is revealed here. The ring PERSISTS (it marks which wave is selected, and
+   that outlasts the jump) while the wash fades, so the move is legible without leaving a permanent
+   glare on one folder. */
+#panel .tp-fldv.is-focused {
+  border-radius: 6px;
+  box-shadow: 0 0 0 2px rgba(150, 120, 235, 0.85);
+}
+
+#panel .tp-fldv.is-focused > .tp-fldv_t {
+  animation: wv-focus-flash 1.1s ease-out;
+}
+
+@keyframes wv-focus-flash {
+  from {
+    background: rgba(150, 120, 235, 0.34);
+  }
+
+  to {
+    background: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #panel .tp-fldv.is-focused > .tp-fldv_t {
+    animation: none;
+  }
+}

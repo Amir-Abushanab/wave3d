@@ -100,8 +100,9 @@ export class StudioWaveRenderer extends WaveRenderer {
   /** Set by the panel: fired after orbit moves the camera so sliders can refresh. */
   onCameraChanged?: () => void;
   /** Set by the panel: fired after a wave/wave gizmo drag/selection so the position and
-   *  per-wave offset sliders can refresh. */
-  onWaveChanged?: () => void;
+   *  per-wave offset sliders can refresh. Carries the selected wave's index — the panel uses it to
+   *  reveal that wave's folder, the same way {@link onLightsChanged} drives the lights folder. */
+  onWaveChanged?: (selected: number) => void;
   /** Fires when path editing starts (the wave's index) or ends (-1), so the app can put the gestures
    *  on screen — none of them are discoverable from the canvas alone. */
   onPathEditChanged?: (waveIndex: number) => void;
@@ -157,7 +158,7 @@ export class StudioWaveRenderer extends WaveRenderer {
       this.onPathEditChanged?.(-1);
     }
     this.refresh();
-    this.onWaveChanged?.();
+    this.onWaveChanged?.(this.selectedWave);
     if (!this.running) this.renderOnce();
   }
 
@@ -981,7 +982,7 @@ export class StudioWaveRenderer extends WaveRenderer {
     this.refresh();
     this.syncPathHelpers();
     this.selectPathHandle(this.selectedPathPoint);
-    this.onWaveChanged?.();
+    this.onWaveChanged?.(this.selectedWave);
     if (!this.running) this.renderOnce();
   }
 
@@ -1107,7 +1108,7 @@ export class StudioWaveRenderer extends WaveRenderer {
     const h = this.waveHelpers[i];
     if (h && this.transform) this.transform.attach(h);
     else this.transform?.detach();
-    this.onWaveChanged?.();
+    this.onWaveChanged?.(this.selectedWave);
     if (!this.running) this.renderOnce();
   }
 
@@ -1147,7 +1148,7 @@ export class StudioWaveRenderer extends WaveRenderer {
     }
     this.refresh(); // rebakes this wave's LUT (a small texture write, not a geometry rebuild)
     this.syncPathHelpers();
-    this.onWaveChanged?.();
+    this.onWaveChanged?.(this.selectedWave);
   }
 
   /**
@@ -1234,7 +1235,7 @@ export class StudioWaveRenderer extends WaveRenderer {
     st.last.copy(now);
     this.refresh();
     this.syncPathHelpers();
-    this.onWaveChanged?.();
+    this.onWaveChanged?.(this.selectedWave);
     if (!this.running) this.renderOnce();
   }
 
@@ -1417,7 +1418,7 @@ export class StudioWaveRenderer extends WaveRenderer {
       wave.position.z = roundTo(h.position.z, 2);
     }
     this.pushWaveTransforms();
-    this.onWaveChanged?.();
+    this.onWaveChanged?.(this.selectedWave);
   }
 
   /** Reconcile the helper spheres with config.lights (count, position, colour). */

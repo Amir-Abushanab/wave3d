@@ -404,6 +404,13 @@ export class ControlPanel {
    *  panel rebuild (e.g. on wave-count change) doesn't reset them. */
   private foldState: Record<string, boolean> = {};
   private folders: Array<{ title: string; api: FolderApi }> = [];
+  /** Each wave's folder, by index, so selecting a wave in the viewport can reveal its config.
+   *  Rebuilt with the pane — a rebuild replaces every element, so stale nodes must not linger. */
+  private waveFolders = new Map<number, { self: FolderApi; parent: FolderApi }>();
+  /** The wave the viewport has selected, kept across rebuilds: a rebuild throws the folders away,
+   *  and the highlight has to survive it or selecting a wave that triggers one (path mode does)
+   *  would flash and vanish. */
+  private focusedWave: number | null = null;
   /** Guards the camera two-way sync: refresh() re-emits 'change' for updated bindings, and
    *  without the guard orbiting writes camera state -> refresh re-fires the slider's change ->
    *  the camera moves again -> a feedback loop that makes the view jump. */
@@ -1877,6 +1884,57 @@ export class ControlPanel {
    *  running inside, so the rebuild is deferred to the next macrotask — which also puts it outside
    *  the originating caller's try/catch (a JSON "Apply", say). That's why the error boundary lives
    *  in buildSafely below rather than at the ~10 call sites. */
+  /**
+   * Reveal a wave's config: expand its folder, scroll it into view and flash it. `null` clears.
+   *
+   * Called when a wave is selected in the viewport — double-clicking a ribbon, or picking one with
+   * the transform gizmo — so the panel follows the canvas instead of leaving the author to hunt for
+   * "Wave 3" in a rail of identical folders.
+   */
+  focusWave(index: number | null): void {
+    this.focusedWave = index;
+    this.paintWaveFocus();
+  }
+
+  /**
+   * Apply the current focus to the live folders.
+   *
+   * Split from {@link focusWave} because a rebuild destroys every folder: the panel re-applies the
+   * focus afterwards rather than the caller having to know a rebuild was pending.
+   */
+  private paintWaveFocus(): void {
+    for (const { self } of this.waveFolders.values()) {
+      self.element.classList.remove("is-focused");
+    }
+    if (this.focusedWave === null) return;
+    const entry = this.waveFolders.get(this.focusedWave);
+    if (!entry) return; // rebuild in flight; rebuildPanel() paints again once the folders exist
+    // Outside in: a wave's own toggle does nothing while the Waves folder above it is collapsed.
+    entry.parent.expanded = true;
+    entry.self.expanded = true;
+    entry.self.element.classList.add("is-focused");
+    // Restarting the flash needs the animation removed and reflowed, or re-selecting the same wave
+    // is silent — the class is already there, so the browser has nothing to re-trigger.
+    const title = entry.self.element.querySelector<HTMLElement>(":scope > .tp-fldv_t");
+    if (title) {
+      title.style.animation = "none";
+      void title.offsetWidth;
+      title.style.animation = "";
+    }
+    // Scroll the PANEL, explicitly. scrollIntoView picks its own scroll container by walking
+    // ancestors, which here can land on the page instead of the rail — the folder got its highlight
+    // but the pane never moved. Measuring against the container and driving its scrollTop is
+    // unambiguous about which thing scrolls and where it stops.
+    const box = entry.self.element.getBoundingClientRect();
+    const frame = this.container.getBoundingClientRect();
+    const delta = box.top - frame.top - Math.max(0, (frame.height - box.height) / 2);
+    const smooth = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+    this.container.scrollTo({
+      top: Math.max(0, this.container.scrollTop + delta),
+      behavior: smooth ? "smooth" : "auto",
+    });
+  }
+
   private scheduleRebuild(): void {
     setTimeout(() => this.rebuildPanel(), 0);
   }
@@ -1891,10 +1949,17 @@ export class ControlPanel {
     const scrollTop = this.container.scrollTop;
     this.teardownPanel();
     this.buildSafely();
-    this.container.scrollTop = scrollTop;
+    // A pending wave focus OWNS the scroll position: restoring the old offset and then scrolling to
+    // the folder makes the two fight over the same frame, and the restore wins whenever the focus
+    // scroll animates. Selecting a wave is a deliberate "show me this", so it takes precedence over
+    // putting the rail back where it was.
+    const focusing = this.focusedWave !== null && this.waveFolders.has(this.focusedWave);
+    if (!focusing) this.container.scrollTop = scrollTop;
     requestAnimationFrame(() => {
-      this.container.scrollTop = scrollTop;
+      if (focusing) this.paintWaveFocus();
+      else this.container.scrollTop = scrollTop;
     });
+    if (focusing) this.paintWaveFocus();
   }
 
   /**
@@ -1949,6 +2014,7 @@ export class ControlPanel {
       /* half-built, already disposed, or never constructed */
     }
     this.folders = [];
+    this.waveFolders.clear();
     this.container.replaceChildren();
   }
 
@@ -2079,14 +2145,18 @@ export class ControlPanel {
     this.renderer.onCameraChanged = syncCameraPanel;
     // A wave gizmo drag mutates the dragged wave's position/rotation — refresh the panel so
     // that wave's Transform sliders track the drag live.
-    this.renderer.onWaveChanged = () => {
+    this.renderer.onWaveChanged = (selected: number) => {
       syncPanel();
+      this.focusWave(selected);
       this.hooks.onEdit?.();
     };
     // Path editing is all direct manipulation, so the gestures have to be on screen while it is on —
     // and the panel has to rebuild, since its Path buttons read "Add"/"Clear" off the wave's state.
     this.renderer.onPathEditChanged = (waveIndex: number) => {
       showPathHints(waveIndex);
+      // Set the focus BEFORE the rebuild: the folders are about to be replaced, and rebuildPanel
+      // re-paints the focus once the new ones exist.
+      this.focusWave(waveIndex < 0 ? null : waveIndex);
       this.scheduleRebuild();
     };
 
@@ -2161,6 +2231,7 @@ export class ControlPanel {
     // (The whole document is StudioConfig = scene + waves: WaveConfig[].)
     const buildWaveFolder = (parent: Folder, wave: WaveConfig, index: number): void => {
       const sf = parent.addFolder({ title: `Wave ${index + 1}`, expanded: true });
+      this.waveFolders.set(index, { self: sf, parent });
       // Per-section 🎲 that mutates only this wave's section, then rebuilds so the sliders
       // (some of which bind to replaced Vec objects) reflect the new values.
       const sectionRandom = (folder: Folder, fn: (s: WaveConfig) => void): void => {
