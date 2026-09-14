@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { arcPath, samplePath, straightPath, PATH_SAMPLES } from "./wavePath";
 
+const clamp = (v: number): number => Math.max(-1, Math.min(1, v));
+
 /** Distance between consecutive samples — the thing that has to stay even, since it IS the strand
  *  spacing the comb inherits. */
 function steps(points: ReturnType<typeof samplePath>): number[] {
@@ -87,6 +89,34 @@ describe("the swept path", () => {
     const half = f.slice(0, Math.floor(PATH_SAMPLES / 2));
     for (let i = 1; i < half.length; i++)
       expect(half[i].width).toBeLessThanOrEqual(half[i - 1].width + 1e-6);
+  });
+
+  it("reports the twist it used, so a resampled path does not silently untwist", () => {
+    // The studio densifies a path before sculpting it, by re-sampling and writing the frames back
+    // as control points. A frame cannot be stored in a PathPoint — only x/y/z/width/twist can — so
+    // if the sampler does not hand the roll back, densifying resets the ribbon to unrolled. That is
+    // not subtle: on a 360-degree twist it flipped the surface a full half-turn.
+    const src = Array.from({ length: 9 }, (_, i) => {
+      const u = i / 8;
+      return { x: -200 + 400 * u, y: Math.sin(u * Math.PI) * 60, z: 0, width: 1, twist: u * 360 };
+    });
+    // Exactly what densifyPath does: resample to more points, carrying width and twist across.
+    const densified = samplePath(src, 15).map((f) => ({
+      x: f.pos.x,
+      y: f.pos.y,
+      z: f.pos.z,
+      width: f.width,
+      twist: f.twist,
+    }));
+    expect(densified.at(-1)?.twist).toBeCloseTo(360, 0);
+
+    const before = samplePath(src, 64);
+    const after = samplePath(densified, 64);
+    for (let i = 0; i < 64; i++) {
+      // Same surface orientation the whole way — a few degrees of resampling error, not a flip.
+      const deg = (Math.acos(clamp(before[i].normal.dot(after[i].normal))) * 180) / Math.PI;
+      expect(deg).toBeLessThan(12);
+    }
   });
 
   it("keeps an arc's length at the ribbon's own, whatever the turns", () => {

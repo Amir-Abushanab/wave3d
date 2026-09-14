@@ -72,6 +72,14 @@ export interface PathSample {
   /** Across the ribbon's width. */
   binormal: THREE.Vector3;
   width: number;
+  /**
+   * The roll at this sample, in DEGREES — the same units {@link PathPoint.twist} is authored in.
+   *
+   * It is already baked into `normal`/`binormal`, so the renderer never reads it. It is here for
+   * RESAMPLING: a frame cannot be stored back into a PathPoint, so anything rebuilding a path from
+   * these samples has to carry the twist across explicitly or the ribbon silently untwists.
+   */
+  twist: number;
 }
 
 /**
@@ -115,7 +123,8 @@ export function samplePath(points: PathPoint[], samples = PATH_SAMPLES): PathSam
     // shear the cross-section.
     normal.sub(tmpC.copy(tangent).multiplyScalar(normal.dot(tangent))).normalize();
 
-    const twist = THREE.MathUtils.degToRad(scalarAt(points, t, "twist", 0));
+    const twistDeg = scalarAt(points, t, "twist", 0);
+    const twist = THREE.MathUtils.degToRad(twistDeg);
     const n = normal.clone();
     if (twist !== 0) n.applyAxisAngle(tangent, twist);
     const b = n.clone().cross(tangent).normalize();
@@ -125,6 +134,7 @@ export function samplePath(points: PathPoint[], samples = PATH_SAMPLES): PathSam
       normal: n,
       binormal: b,
       width: Math.max(0, scalarAt(points, t, "width", 1)),
+      twist: twistDeg,
     });
   }
   return out;

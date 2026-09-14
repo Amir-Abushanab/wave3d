@@ -1188,7 +1188,10 @@ export class StudioWaveRenderer extends WaveRenderer {
       y: roundTo(f.pos.y, 2),
       z: roundTo(f.pos.z, 2),
       width: roundTo(f.width, 3),
-      twist: 0,
+      // Carried, not zeroed. The roll is baked into the sampled FRAME, but a PathPoint can only
+      // store x/y/z/width/twist — so dropping it here resampled the path back to unrolled and the
+      // ribbon flipped (measured: 179.5 degrees of frame divergence on a 360-degree twist).
+      twist: roundTo(f.twist, 2),
     }));
     // Keep a ring a ring: the sampler's last frame lands next to the first, not exactly on it.
     if (closed) next[next.length - 1] = { ...next[0] };
