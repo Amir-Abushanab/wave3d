@@ -84,6 +84,12 @@ const DISSOLVE_AXIS_INDEX: Record<DissolveAxis, number> = {
 };
 
 const BASE_SEGMENTS = 220; // base segment count along the ribbon; denser = smoother (scaled down per wave — see get segments)
+/** The longest frame the clock will believe, in seconds. Anything past it is a STALL — frames
+ *  suspended with no `visibilitychange` to say so (an embedding webview that parks rAF, a debugger
+ *  pause, the machine asleep) — and replaying a stall is a fast-forward, not motion. A ceiling, not
+ *  a jitter clamp: recordings run on this same wall-clock loop, so a merely slow frame (a 4K export
+ *  at 10fps) must still advance by its real length or a `loopSeconds` export stops closing. */
+const MAX_FRAME_SECONDS = 1;
 
 /** Reference frame (world units) the orthographic camera fills at cameraZoom 1. The wave is
  *  framed by mapping this FRAME_W × FRAME_H rectangle (centred on cameraTarget) onto the canvas,
@@ -416,7 +422,12 @@ export class WaveRenderer {
   private started = false;
 
   private visible = true;
-  private pageVisible = true;
+  /** Read from the document, NOT assumed: the shell builds the renderer whenever the engine chunk
+   *  lands, which can be after the reader has left the tab. Assumed visible, that renderer marked
+   *  itself running with no frame to run on, and the `visibilitychange` that brought the reader back
+   *  found nothing to restart — so the delta baseline was never reset and the first frame was handed
+   *  the whole absence at once (see MAX_FRAME_SECONDS for the same stall without the event). */
+  private pageVisible = document.visibilityState === "visible";
   private reducedMotion = false;
   /** Intro ramp: eases animation time 0→1 over ~1s on load (when config.introRamp). */
   private introTimeRamp = 0;
@@ -1899,7 +1910,7 @@ export class WaveRenderer {
   private loop = (): void => {
     if (!this.running) return;
     this.timer.update();
-    const dt = this.timer.getDelta();
+    const dt = Math.min(this.timer.getDelta(), MAX_FRAME_SECONDS);
     this.time += dt;
     this.interaction?.update(dt); // advance smoothed input by the SAME delta (no time-model change)
     if (this.introTimeRamp < 1) this.introTimeRamp = Math.min(1, this.introTimeRamp + 0.016); // ~1s to full at 60fps
