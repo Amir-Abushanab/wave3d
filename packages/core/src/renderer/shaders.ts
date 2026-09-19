@@ -1,5 +1,6 @@
 import { MAX_COLORS, MAX_LIGHTS, MAX_MESH_POINTS, MAX_NOISE_BANDS } from "../config/model";
 import { RIBBON_Z_CENTER } from "./WaveGeometry";
+import { PATH_ROWS, PATH_SAMPLES } from "./wavePath";
 
 /**
  * The wave shaders. Vertex: a flat plane is Y-displaced by simplex noise, then
@@ -278,21 +279,47 @@ WaveShape waveShape(vec3 position, vec2 uv, float t, vec2 loopOff){
 
 #ifdef PATH
   // PATH — sweep the ribbon along an authored centreline. Everything above deformed a ribbon whose
-  // centreline was the x-axis; this puts that deformed cross-section onto a curve instead.
+  // centreline was the x-axis on the plane z = RIBBON_Z_CENTER; this carries that deformed
+  // cross-section onto a curve instead. It is the LAST stage, so it bends whatever the ribbon has
+  // already become — twists, helix, radial fan and all.
   //
-  // The vertex's own along-length coordinate picks the frame, so the twists (which move x) still
-  // slide the surface along the path rather than being discarded. Position, frame and width come
-  // from a small LUT the CPU baked (see wavePath.ts) — the frame is parallel-transported, which
-  // cannot be done per vertex — and the two frame vectors are re-normalized because a linear
-  // interpolation between unit vectors is not one.
+  // A STRAIGHT path along the ribbon's own centreline is exactly the identity, which is what lets
+  // the studio give a wave a path the moment it is double-clicked without the wave moving. Four
+  // details hold that up, and each of them once broke it: the frame is right-handed (binormal +Z on
+  // a straight path — a mirrored one flips the handedness of every twist); the LUT is read at
+  // texel CENTRES and interpolated in-shader (reading it at s stretched the ribbon ~0.8%
+  // about its middle); an open path is
+  // EXTRAPOLATED past its ends along the end tangent rather than clamped (twists push vertices past
+  // ±200, and clamping collapsed them onto the last frame); and a closed one wraps.
+  //
+  // Position, frame and width come from a small LUT the CPU baked (see wavePath.ts) — the frame is
+  // parallel-transported, which cannot be done per vertex — and the two frame vectors are
+  // re-normalized because a linear interpolation between unit vectors is not one.
   {
-    float ps = clamp((pos.x + 200.0) / 400.0, 0.0, 1.0);
+    float pathSRaw = (pos.x + 200.0) / 400.0;
+    // Closure is in the binormal row's alpha; it decides how s is addressed, so read it first.
     // texture2D, not texture2DLod: three rewrites GLSL1 to GLSL3 on WebGL2 by replacing the
     // plain texture2D token, and the Lod spelling survives that rewrite as an undefined function.
-    vec4 pP = texture2D(uPathTex, vec2(ps, 0.1666667));
-    vec3 pN = normalize(texture2D(uPathTex, vec2(ps, 0.5)).xyz);
-    vec3 pB = normalize(texture2D(uPathTex, vec2(ps, 0.8333333)).xyz);
-    pos = pP.xyz + pN * pos.y + pB * ((pos.z - ${RIBBON_Z_CENTER.toFixed(1)}) * pP.w);
+    bool pathClosed = texture2D(uPathTex, vec2(${(0.5 / PATH_SAMPLES).toFixed(8)}, ${(2.5 / PATH_ROWS).toFixed(7)})).w > 0.5;
+    float pathS = pathClosed ? fract(pathSRaw) : clamp(pathSRaw, 0.0, 1.0);
+    // Interpolate between the two neighbouring samples HERE, at full precision, reading each at its
+    // texel centre from a NEAREST texture. Hardware filtering of float32 is neither guaranteed (it
+    // needs an extension) nor exact (its weights may be quantized) — see bakePathTexture.
+    float pathI = pathS * ${(PATH_SAMPLES - 1).toFixed(1)};
+    float pathI0 = floor(pathI);
+    float pathF = pathI - pathI0;
+    float pathU0 = (pathI0 + 0.5) / ${PATH_SAMPLES.toFixed(1)};
+    float pathU1 = (min(pathI0 + 1.0, ${(PATH_SAMPLES - 1).toFixed(1)}) + 0.5) / ${PATH_SAMPLES.toFixed(1)};
+    vec4 pP = mix(texture2D(uPathTex, vec2(pathU0, ${(0.5 / PATH_ROWS).toFixed(7)})),
+                  texture2D(uPathTex, vec2(pathU1, ${(0.5 / PATH_ROWS).toFixed(7)})), pathF);
+    vec4 pNL = mix(texture2D(uPathTex, vec2(pathU0, ${(1.5 / PATH_ROWS).toFixed(7)})),
+                   texture2D(uPathTex, vec2(pathU1, ${(1.5 / PATH_ROWS).toFixed(7)})), pathF); // .w = arc length
+    vec3 pN = normalize(pNL.xyz);
+    vec3 pB = normalize(mix(texture2D(uPathTex, vec2(pathU0, ${(2.5 / PATH_ROWS).toFixed(7)})),
+                            texture2D(uPathTex, vec2(pathU1, ${(2.5 / PATH_ROWS).toFixed(7)})), pathF).xyz);
+    float pathPast = pathClosed ? 0.0 : (pathSRaw - pathS) * pNL.w;
+    pos = pP.xyz + cross(pN, pB) * pathPast + pN * pos.y
+        + pB * ((pos.z - ${RIBBON_Z_CENTER.toFixed(1)}) * pP.w);
   }
 #endif
 

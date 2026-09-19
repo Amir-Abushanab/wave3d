@@ -27,8 +27,13 @@ import {
   cross,
   dot,
   normalize,
+  fract,
+  select,
+  floor,
+  min,
 } from "three/tsl";
 import { RIBBON_Z_CENTER } from "../WaveGeometry";
+import { PATH_ROWS, PATH_SAMPLES } from "../wavePath";
 import { simplexNoise } from "./noise";
 import type { FloatNode, Vec2Node, Vec3Node } from "./types";
 import type { WaveTslUniforms } from "./uniforms";
@@ -231,32 +236,58 @@ export function waveShape(
   ];
   const twisted = applyTwist(applyTwist(applyTwist(pos, twists[0]), twists[1]), twists[2]).toVar();
 
-  // PATH — sweep the deformed cross-section onto an authored centreline. See the GLSL for why the
-  // frame comes from a CPU-baked LUT (parallel transport is an integration, not a closed form) and
-  // why the two frame vectors are re-normalized after the texture's linear interpolation.
-  if (flags.path) {
-    const ps = clamp(twisted.x.add(200.0).div(400.0), 0, 1).toVar("pathS");
-    const pP = u.uPathTex.sample(vec2(ps, 0.1666667)).level(float(0)).toVar("pathP");
-    const pN = normalize(u.uPathTex.sample(vec2(ps, 0.5)).level(float(0)).xyz).toVar("pathN");
-    const pB = normalize(u.uPathTex.sample(vec2(ps, 0.8333333)).level(float(0)).xyz).toVar("pathB");
-    twisted.assign(
-      pP.xyz.add(pN.mul(twisted.y)).add(pB.mul(twisted.z.sub(RIBBON_Z_CENTER).mul(pP.w))),
-    );
-  }
+  const fanned = flags.radial
+    ? applyRadial(
+        twisted,
+        uv,
+        u.uRadialAmount,
+        u.uRadialArc,
+        u.uRadialSpread,
+        u.uRadialRadius,
+        u.uRadialCenter,
+        u.uRadialCone,
+        u.uRadialSwirl,
+      )
+    : twisted;
+  // The path goes LAST, after the radial fan, exactly as in the GLSL. It used to run before the fan
+  // here, so a wave with both was a different shape on each backend — and no preset combined them,
+  // so parity never saw it.
+  return { pos: flags.path ? applyPath(fanned, u.uPathTex) : fanned, twists };
+}
 
-  if (!flags.radial) return { pos: twisted, twists };
-  return {
-    pos: applyRadial(
-      twisted,
-      uv,
-      u.uRadialAmount,
-      u.uRadialArc,
-      u.uRadialSpread,
-      u.uRadialRadius,
-      u.uRadialCenter,
-      u.uRadialCone,
-      u.uRadialSwirl,
-    ),
-    twists,
-  };
+/**
+ * Sweep the deformed ribbon onto its authored centreline. The TSL twin of the GLSL `PATH` block —
+ * see that for the four details that make a straight path exactly the identity.
+ */
+/** V coordinate of a LUT row's texel centre. */
+const pathRow = (r: number): number => (r + 0.5) / PATH_ROWS;
+
+export function applyPath(pos: Vec3Node, tex: WaveTslUniforms["uPathTex"]): Vec3Node {
+  const at = (x: FloatNode, r: number) => tex.sample(vec2(x, pathRow(r))).level(float(0));
+  const sRaw = pos.x.add(200.0).div(400.0).toVar();
+  // Closure is in the binormal row's alpha; it decides how s is addressed, so read it first.
+  const closed = at(float(0.5 / PATH_SAMPLES), 2)
+    .w.greaterThan(0.5)
+    .toVar();
+  const s = select(closed, fract(sRaw), clamp(sRaw, 0, 1)).toVar();
+  // Interpolate between neighbouring samples here, at full precision, from a NEAREST texture — see
+  // bakePathTexture for why hardware filtering of float32 is neither guaranteed nor exact.
+  const i = s.mul(PATH_SAMPLES - 1).toVar();
+  const i0 = floor(i).toVar();
+  const f = i.sub(i0).toVar();
+  const u0 = i0.add(0.5).div(PATH_SAMPLES).toVar();
+  const u1 = min(i0.add(1), PATH_SAMPLES - 1)
+    .add(0.5)
+    .div(PATH_SAMPLES)
+    .toVar();
+  const lerpRow = (r: number) => mix(at(u0, r), at(u1, r), f);
+  const pP = lerpRow(0).toVar();
+  const pNL = lerpRow(1).toVar(); // .w = the path's arc length
+  const pN = normalize(pNL.xyz).toVar();
+  const pB = normalize(lerpRow(2).xyz).toVar();
+  const past = select(closed, float(0), sRaw.sub(s).mul(pNL.w));
+  return pP.xyz
+    .add(cross(pN, pB).mul(past))
+    .add(pN.mul(pos.y))
+    .add(pB.mul(pos.z.sub(RIBBON_Z_CENTER).mul(pP.w)));
 }

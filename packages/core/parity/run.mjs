@@ -46,7 +46,18 @@ const ALLOW = {
 };
 
 const args = process.argv.slice(2);
-const MODE = args.includes("--capture") ? "capture" : args.includes("--self") ? "self" : "compare";
+const MODE = args.includes("--capture")
+  ? "capture"
+  : args.includes("--self")
+    ? "self"
+    : args.includes("--path-identity")
+      ? "path-identity"
+      : "compare";
+// A straight path is the identity: adding one to a wave must not move a pixel, on either backend.
+// Same backend on both sides, so this is held far tighter than the cross-backend thresholds. The
+// exact mapping measures mae ≤ 0.001 across every config; relying on hardware filtering of the LUT
+// measured 0.05–0.09, and each mapping bug the check was built to catch measured 1–51.
+const IDENTITY = { mae: 0.01, interiorOver8: 0.002, interiorOver24: 0.001 };
 const ONLY = args.find((a) => a.startsWith("--only="))?.slice(7);
 // Synthetic pointer configs get a pinned cursor so the interaction path is actually exercised.
 const FIXED_POINTER = { x: 0.18, y: -0.12, radius: 0.6, vx: 0.4, vy: 0.15 };
@@ -126,6 +137,39 @@ async function main() {
         await writeFile(resolve(REFS, file), dataUrlToBuffer(png));
         rows.push({ name, status: "captured" });
         console.log(`  captured  ${name}`);
+        continue;
+      }
+
+      if (MODE === "path-identity") {
+        for (const be of ["webgl", "webgpu"]) {
+          const plain = await page.evaluate(renderWith, [name, { noPost: NO_POST }, be]);
+          const pathed = await page.evaluate(renderWith, [
+            name,
+            { noPost: NO_POST, pathIdentity: true },
+            be,
+          ]);
+          const d = await page.evaluate(([a, b]) => window.waveParity.diff(a, b), [plain, pathed]);
+          const ok =
+            d.mae <= IDENTITY.mae &&
+            d.interiorOver8 <= IDENTITY.interiorOver8 &&
+            d.interiorOver24 <= IDENTITY.interiorOver24;
+          rows.push({
+            name: `${name} [${be}]`,
+            status: ok ? "pass" : "FAIL",
+            ...d,
+            diffPng: undefined,
+          });
+          console.log(
+            `  ${ok ? "pass  " : "FAIL  "}  ${`${name} [${be}]`.padEnd(42)} mae=${d.mae.toFixed(3)} ` +
+              `interior>8=${d.interiorOver8.toFixed(3)}% >24=${d.interiorOver24.toFixed(3)}% max=${d.maxDelta}`,
+          );
+          if (!ok) {
+            const f = `${slug(name)}-${be}-identity`;
+            await writeFile(resolve(OUT, `${f}.plain.png`), dataUrlToBuffer(plain));
+            await writeFile(resolve(OUT, `${f}.pathed.png`), dataUrlToBuffer(pathed));
+            await writeFile(resolve(OUT, `${f}.diff.png`), dataUrlToBuffer(d.diffPng));
+          }
+        }
         continue;
       }
 

@@ -18,6 +18,9 @@ const Y_AXIS = new THREE.Vector3(0, 1, 0);
  */
 export const RIBBON_Z_CENTER = (SHIFT - NATIVE / 2 + (SHIFT - FOLD_X)) / 2;
 
+/** Half the folded ribbon's width about {@link RIBBON_Z_CENTER} — the [-100, 84] extent above. */
+export const RIBBON_HALF_WIDTH = (SHIFT - FOLD_X - (SHIFT - NATIVE / 2)) / 2;
+
 /**
  * Base wave geometry — `folded()`: a flat PlaneGeometry folded into a hairpin
  * (sideways-U) cross-section, then stood up so the fold runs along the wave's length.

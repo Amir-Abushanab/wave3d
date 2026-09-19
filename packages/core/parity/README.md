@@ -6,6 +6,7 @@ backends and compared, so a shader that ports incorrectly fails loudly instead o
 ```sh
 pnpm --filter @wave3d/core parity          # render all 39 configs on both backends, compare
 pnpm --filter @wave3d/core parity --self   # render WebGL twice — checks the harness itself
+pnpm --filter @wave3d/core parity --path-identity  # a straight path must not move a pixel
 pnpm --filter @wave3d/core parity:serve    # open the harness by hand for debugging
 ```
 
@@ -13,6 +14,11 @@ Both renders happen in one page load, so GPU, driver, browser and config are ide
 backend is the only variable. Nothing binary is versioned — both renderers build from this source
 tree, so baselines are reproducible on demand (`--capture` writes PNGs into `refs/` when you do
 need to compare across machines).
+
+`--path-identity` renders every config with and without a straight `path` on each backend. That is
+what the studio does the moment a ribbon is double-clicked, and it must change nothing — whatever
+else shapes the wave. It is held to float noise (`mae` ≤ 0.01; measured ≤ 0.001), since both sides
+share a backend.
 
 ## Why perceptual, not digests
 

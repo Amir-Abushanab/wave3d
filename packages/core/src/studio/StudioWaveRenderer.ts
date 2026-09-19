@@ -9,7 +9,8 @@ import type { TransformControls } from "three/addons/controls/TransformControls.
 import { WaveRenderer, hexToLinearVec3 } from "../renderer/WaveRenderer";
 import { createLight, DEFAULT_LIGHT_POSITION, MAX_LIGHTS } from "../config/model";
 import type { LightConfig, PathPoint } from "../config/model";
-import { samplePath, straightPath } from "../renderer/wavePath";
+import { isClosedPath, samplePath, straightPath } from "../renderer/wavePath";
+import { RIBBON_HALF_WIDTH } from "../renderer/WaveGeometry";
 import { roundTo } from "../util/math";
 
 // The minimap's fixed 3/4 vantage direction.
@@ -879,7 +880,7 @@ export class StudioWaveRenderer extends WaveRenderer {
       if (onPoint && pts) {
         // Remove — but never below two points, which is the least a centreline can be.
         const i = this.pathHelpers.indexOf(onPoint.object as THREE.Mesh);
-        const closed = pts.length > 2 && this.pathClosed(pts);
+        const closed = isClosedPath(pts);
         if (i >= 0 && pts.length - (closed ? 1 : 0) > 2) {
           pts.splice(i, 1);
           if (closed && i === 0) pts[pts.length - 1] = { ...pts[0] };
@@ -1149,7 +1150,7 @@ export class StudioWaveRenderer extends WaveRenderer {
     // A closed path is closed by its last point sitting on its first (see wavePath.curveOf), so
     // dragging either end has to carry the other with it or the ring silently springs open.
     const last = pts.length - 1;
-    if (pts.length > 2 && this.pathClosed(pts)) {
+    if (isClosedPath(pts)) {
       if (this.selectedPathPoint === 0) Object.assign(pts[last], { x: p.x, y: p.y, z: p.z });
       else if (this.selectedPathPoint === last) Object.assign(pts[0], { x: p.x, y: p.y, z: p.z });
     }
@@ -1189,7 +1190,7 @@ export class StudioWaveRenderer extends WaveRenderer {
     const wave = this.config.waves[this.pathWave];
     const pts = wave?.path;
     if (!pts || pts.length >= count) return;
-    const closed = pts.length > 2 && this.pathClosed(pts);
+    const closed = isClosedPath(pts);
     const frames = samplePath(pts, count);
     const next: PathPoint[] = frames.map((f) => ({
       x: roundTo(f.pos.x, 2),
@@ -1223,7 +1224,7 @@ export class StudioWaveRenderer extends WaveRenderer {
     // sculpt sideways — transform both ends and subtract rather than rotating the vector, so the
     // wave's scale is divided out too.
     const d = now.clone().applyMatrix4(inv).sub(st.last.clone().applyMatrix4(inv));
-    const closed = pts.length > 2 && this.pathClosed(pts);
+    const closed = isClosedPath(pts);
     const n = pts.length;
     const lastIdx = n - 1;
     for (let i = 0; i < n; i++) {
@@ -1247,11 +1248,6 @@ export class StudioWaveRenderer extends WaveRenderer {
   }
 
   /** True when the path's ends coincide — the same test the sampler uses to decide it is a ring. */
-  private pathClosed(pts: PathPoint[]): boolean {
-    const a = pts[0];
-    const b = pts[pts.length - 1];
-    return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) < 0.5;
-  }
 
   /** Select a path point (attach the gizmo to its handle and highlight it). */
   private selectPathHandle(i: number): void {
@@ -1281,7 +1277,7 @@ export class StudioWaveRenderer extends WaveRenderer {
     mesh.updateWorldMatrix(true, false);
     // A closed path's duplicate end point sits exactly under its first, so it gets no handle of its
     // own — there would be two markers on one spot, and dragging the hidden one would open the ring.
-    const closed = pts.length > 2 && this.pathClosed(pts);
+    const closed = isClosedPath(pts);
     const handleCount = closed ? pts.length - 1 : pts.length;
     if (this.pathHelpers.length !== handleCount) {
       this.clearPathHelpers();
@@ -1332,7 +1328,7 @@ export class StudioWaveRenderer extends WaveRenderer {
     const pos = new Float32Array(n * 2 * 3);
     const uv = new Float32Array(n * 2 * 2);
     const idx: number[] = [];
-    const half = 94; // the folded ribbon's half-width in local units
+    const half = RIBBON_HALF_WIDTH;
     for (let i = 0; i < n; i++) {
       const f = frames[i];
       const w = half * f.width;

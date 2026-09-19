@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { arcPath, samplePath, straightPath, PATH_SAMPLES } from "./wavePath";
+import * as THREE from "three";
+import {
+  arcPath,
+  bakePathTexture,
+  isClosedPath,
+  samplePath,
+  straightPath,
+  PATH_SAMPLES,
+} from "./wavePath";
+import { RIBBON_Z_CENTER } from "./WaveGeometry";
 
 const clamp = (v: number): number => Math.max(-1, Math.min(1, v));
+
+/** The alpha channel of one LUT texel — where the bake keeps the arc length and the closure flag. */
+const at = (tex: THREE.DataTexture, row: number, i: number): number =>
+  (tex.image.data as Float32Array)[(row * PATH_SAMPLES + i) * 4 + 3];
 
 /** Distance between consecutive samples — the thing that has to stay even, since it IS the strand
  *  spacing the comb inherits. */
@@ -19,13 +32,64 @@ describe("the swept path", () => {
     expect(f[0].pos.x).toBeCloseTo(-200, 4);
     expect(f[f.length - 1].pos.x).toBeCloseTo(200, 4);
     for (const s of f) {
+      // On the ribbon's OWN centreline, which runs along z = RIBBON_Z_CENTER — not z = 0.
       expect(s.pos.y).toBeCloseTo(0, 4);
-      expect(s.pos.z).toBeCloseTo(0, 4);
-      // +Y surface normal and +Z width: the same frame the un-pathed geometry has.
+      expect(s.pos.z).toBeCloseTo(RIBBON_Z_CENTER, 4);
+      // +Y surface normal and +Z width: the frame the un-pathed geometry has, SIGN INCLUDED. This
+      // once asserted |binormal.z| = 1, and the abs hid a frame that was −Z: a straight path
+      // mirrored every ribbon across its width, flipping the handedness of its twists.
       expect(s.normal.y).toBeCloseTo(1, 4);
-      expect(Math.abs(s.binormal.z)).toBeCloseTo(1, 4);
+      expect(s.binormal.z).toBeCloseTo(1, 4);
       expect(s.width).toBe(1);
     }
+  });
+
+  it("frames are right-handed everywhere, so a path never mirrors the ribbon", () => {
+    // tangent × normal = binormal on every sample of a curve that turns in all three axes.
+    const f = samplePath([
+      { x: -200, y: 0, z: RIBBON_Z_CENTER },
+      { x: -60, y: 90, z: 40 },
+      { x: 60, y: -40, z: -70 },
+      { x: 200, y: 20, z: RIBBON_Z_CENTER, twist: 120 },
+    ]);
+    for (let i = 1; i < f.length - 1; i++) {
+      const t = f[i + 1].pos
+        .clone()
+        .sub(f[i - 1].pos)
+        .normalize();
+      expect(t.clone().cross(f[i].normal).dot(f[i].binormal)).toBeGreaterThan(0.99);
+    }
+  });
+
+  it("bakes what the shader needs to continue past the ends: arc length and closure", () => {
+    const open = bakePathTexture(straightPath());
+    // Normal row alpha = arc length, the rate the shader extrapolates at past an open path's ends.
+    expect(at(open, 1, 0)).toBeCloseTo(400, 2);
+    expect(at(open, 2, 0)).toBe(0);
+    const ring = bakePathTexture(arcPath(1));
+    expect(at(ring, 2, 0)).toBe(1);
+    expect(at(ring, 2, PATH_SAMPLES - 1)).toBe(1); // on every texel, so any read finds it
+  });
+
+  it("bakes a NEAREST texture — the shader interpolates, because float32 filtering is optional", () => {
+    // Linear filtering of float32 needs OES_texture_float_linear / float32-filterable; without it
+    // the texture is incomplete and reads as zero, collapsing every path onto the origin.
+    const tex = bakePathTexture(straightPath());
+    expect(tex.minFilter).toBe(THREE.NearestFilter);
+    expect(tex.magFilter).toBe(THREE.NearestFilter);
+  });
+
+  it("declares a ring by repeating the first point, and nothing else", () => {
+    expect(isClosedPath(arcPath(1))).toBe(true);
+    expect(isClosedPath(arcPath(0.75))).toBe(false);
+    expect(isClosedPath(straightPath())).toBe(false);
+    // Two points cannot enclose anything, even when they coincide.
+    expect(
+      isClosedPath([
+        { x: 0, y: 0, z: 0 },
+        { x: 0, y: 0, z: 0 },
+      ]),
+    ).toBe(false);
   });
 
   it("samples by ARC LENGTH, so bunched control points don't bunch the strands", () => {

@@ -54,6 +54,11 @@ frame would flip the ribbon 180° at every inflection. A path whose last point s
 closed ring — that repeat is the whole declaration, rather than a `closed` flag for something the
 points already say. `arcPath(turns)` builds one.
 
+A straight path is exactly the identity for ANY wave — twists, helix and radial fan included — which
+is what lets the studio give a ribbon a path on double-click without it moving. Points are where the
+centreline goes in the wave's local space, and the ribbon's own centreline runs along z = −8, so
+`straightPath()` sits there. `parity --path-identity` holds this to float noise on both backends.
+
 **Double-click a ribbon in the studio and shape it like putty.** The primary gesture is dragging the
 RIBBON, not a control point: the push falls off smoothly along the length, so only the part under the
 cursor follows and the rest stays where you left it (Shift narrows the push from a palm to a

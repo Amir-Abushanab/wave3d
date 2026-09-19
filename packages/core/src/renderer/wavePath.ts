@@ -16,13 +16,25 @@
  */
 import * as THREE from "three";
 import type { PathPoint } from "../config/model";
+import { RIBBON_Z_CENTER } from "./WaveGeometry";
 
 /** Samples baked into the lookup table. 128 is well past the point where a ribbon 400 units long
  *  shows faceting, and the texture is still only 1.5 KB. */
 export const PATH_SAMPLES = 128;
 
-/** Rows in the LUT: position (+width), frame normal, frame binormal. */
+/** Rows in the LUT: position (+width), frame normal (+the path's arc length), frame binormal
+ *  (+1 when the path is closed). The two extra channels are what the shader needs to carry the
+ *  ribbon past an open path's ends and to wrap a closed one. */
 export const PATH_ROWS = 3;
+
+/** A path whose last point sits on its first is a closed ring — that repeat is the whole
+ *  declaration. One rule, shared by the sampler, the LUT and the studio. */
+export function isClosedPath(points: PathPoint[]): boolean {
+  if (points.length <= 2) return false;
+  const a = points[0];
+  const b = points[points.length - 1];
+  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) < 0.5;
+}
 
 const tmpA = new THREE.Vector3();
 const tmpB = new THREE.Vector3();
@@ -36,7 +48,7 @@ function curveOf(points: PathPoint[]): THREE.CatmullRomCurve3 {
   // Catmull-Rom closes it smoothly once the duplicate is dropped. Leaving it open instead would put
   // a visible kink exactly where the two ends meet, and asking for a `closed` boolean would be a
   // knob for something the points already say.
-  const closed = vs.length > 2 && vs[0].distanceTo(vs[vs.length - 1]) < 0.5;
+  const closed = isClosedPath(points);
   if (closed) vs.pop();
   // A two-point path is a straight line; Catmull-Rom needs three to have a tangent at the ends, so
   // duplicate into a midpoint rather than special-casing the whole sampler.
@@ -127,7 +139,10 @@ export function samplePath(points: PathPoint[], samples = PATH_SAMPLES): PathSam
     const twist = THREE.MathUtils.degToRad(twistDeg);
     const n = normal.clone();
     if (twist !== 0) n.applyAxisAngle(tangent, twist);
-    const b = n.clone().cross(tangent).normalize();
+    // T × N, not N × T. On a straight path that is +Z — the direction the ribbon's width already
+    // runs — which is what makes a straight path the identity. N × T is −Z: it mirrored the ribbon
+    // across its width, which flips the handedness of every twist on it.
+    const b = tangent.clone().cross(n).normalize();
 
     out.push({
       pos: pts[i].clone(),
@@ -142,17 +157,22 @@ export function samplePath(points: PathPoint[], samples = PATH_SAMPLES): PathSam
 
 /**
  * Bake the frames into an RGBA float texture the vertex shader can read: three rows of
- * {@link PATH_SAMPLES} texels — position (+width in alpha), normal, binormal.
+ * {@link PATH_SAMPLES} texels — position (+width in alpha), normal (+arc length), binormal
+ * (+closed flag).
  *
- * Linear filtering across the row is what makes 128 samples enough; the shader re-normalizes the two
- * frame vectors after the interpolation, since a lerp between unit vectors is not one.
+ * NEAREST, and the shader interpolates between neighbouring samples itself. Hardware filtering of a
+ * float32 texture is not portable: WebGL2 needs OES_texture_float_linear and WebGPU the optional
+ * float32-filterable feature, and without them a linearly filtered float32 texture is incomplete and
+ * reads as zero — every path would collapse onto the origin. Where filtering IS available its
+ * weights may be quantized (commonly to 8 bits), which alone keeps a straight path from being an
+ * exact identity. A manual mix is full float precision on every device.
  */
 export function bakePathTexture(points: PathPoint[], samples = PATH_SAMPLES): THREE.DataTexture {
   const data = new Float32Array(samples * PATH_ROWS * 4);
   writePathTexture(data, points, samples);
   const tex = new THREE.DataTexture(data, samples, PATH_ROWS, THREE.RGBAFormat, THREE.FloatType);
-  tex.minFilter = THREE.LinearFilter;
-  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.magFilter = THREE.NearestFilter;
   tex.wrapS = THREE.ClampToEdgeWrapping;
   tex.wrapT = THREE.ClampToEdgeWrapping;
   tex.generateMipmaps = false;
@@ -168,6 +188,11 @@ export function writePathTexture(
   samples = PATH_SAMPLES,
 ): void {
   const frames = samplePath(points, samples);
+  // Arc length of the sampled curve: what one unit of the ribbon's normalized length spans, which
+  // the shader needs to extrapolate past an open path's ends at the same rate it runs along it.
+  let length = 0;
+  for (let i = 1; i < samples; i++) length += frames[i].pos.distanceTo(frames[i - 1].pos);
+  const closed = isClosedPath(points) ? 1 : 0;
   for (let i = 0; i < samples; i++) {
     const f = frames[i];
     let o = i * 4;
@@ -179,17 +204,18 @@ export function writePathTexture(
     data[o] = f.normal.x;
     data[o + 1] = f.normal.y;
     data[o + 2] = f.normal.z;
-    data[o + 3] = 0;
+    data[o + 3] = length;
     o = (samples * 2 + i) * 4;
     data[o] = f.binormal.x;
     data[o + 1] = f.binormal.y;
     data[o + 2] = f.binormal.z;
-    data[o + 3] = 0;
+    data[o + 3] = closed; // every texel, so the shader can read it from any one
   }
 }
 
 /**
- * Points along a circular arc in the wave's local XY plane, `turns` of a full circle — 1 closes the
+ * Points along a circular arc in the ribbon's own plane (z = RIBBON_Z_CENTER), `turns` of a full
+ * circle, so a very shallow arc is the straight ribbon barely bent — 1 closes the
  * ring (the first point is repeated, which is how a path says it is closed). The radius follows from
  * the ribbon's own 400-unit length, so the sweep neither stretches nor bunches whatever the turns.
  */
@@ -199,18 +225,25 @@ export function arcPath(turns: number, count = 9): PathPoint[] {
   const out: PathPoint[] = [];
   for (let i = 0; i < count; i++) {
     const a = -span / 2 + (span * i) / (count - 1);
-    out.push({ x: Math.sin(a) * r, y: r - Math.cos(a) * r, z: 0 });
+    out.push({ x: Math.sin(a) * r, y: r - Math.cos(a) * r, z: RIBBON_Z_CENTER });
   }
   if (Math.abs(Math.abs(turns) - 1) < 1e-6) out[out.length - 1] = { ...out[0] };
   return out;
 }
 
-/** The default path for a wave that is taking one for the first time: the straight centreline it
- *  already has, as three points, so entering path mode changes nothing until a point is dragged. */
+/**
+ * The default path for a wave that is taking one for the first time: the straight centreline it
+ * already has, as three points, so entering path mode changes nothing until a point is dragged.
+ *
+ * Path points are where the centreline GOES, in the wave's local space — and the folded ribbon's
+ * own centreline runs along z = RIBBON_Z_CENTER, not z = 0. A straight path at z = 0 sat the ribbon
+ * that far off its own plane.
+ */
 export function straightPath(): PathPoint[] {
+  const z = RIBBON_Z_CENTER;
   return [
-    { x: -200, y: 0, z: 0, width: 1, twist: 0 },
-    { x: 0, y: 0, z: 0, width: 1, twist: 0 },
-    { x: 200, y: 0, z: 0, width: 1, twist: 0 },
+    { x: -200, y: 0, z, width: 1, twist: 0 },
+    { x: 0, y: 0, z, width: 1, twist: 0 },
+    { x: 200, y: 0, z, width: 1, twist: 0 },
   ];
 }

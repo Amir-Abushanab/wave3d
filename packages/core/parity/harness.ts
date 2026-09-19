@@ -13,6 +13,7 @@ import { WaveRendererGPU } from "../src/renderer/WaveRendererGPU";
 import { PRESETS } from "../src/presets";
 import { ensureStudioConfig, type StudioConfig } from "../src/config/model";
 import { wavePointerFxActive } from "../src/renderer/interactionGates";
+import { arcPath, straightPath } from "../src/renderer/wavePath";
 
 const galleryModules = import.meta.glob<{ default: { title?: string; config: unknown } }>(
   "../../../gallery/waves/*.json",
@@ -92,6 +93,18 @@ const withParticles =
 
 function syntheticConfigs(): Record<string, () => StudioConfig> {
   return {
+    // A radial fan swept along a curved path. No preset combines the two, and the backends once ran
+    // them in opposite orders (the GLSL fanned then swept; the TSL swept then fanned), so a wave with
+    // both was a different shape on each — and nothing here could see it.
+    "synthetic:radial-path": () => {
+      const c = PRESETS["Latte Ring"]();
+      for (const w of c.waves) w.path = arcPath(0.3);
+      // Bloom off: this case tests the SHAPE pipeline. The two backends' bloom passes differ on
+      // their own (WebGPU ~1 level darker over a large bright area), and left on here that would
+      // fail the case whatever the stage order was, which is the one thing it exists to check.
+      c.bloomStrength = 0;
+      return c;
+    },
     "synthetic:pointer-hover": withPointer(0),
     "synthetic:pointer-ripples": withPointer(2),
     // The emitter alone: no motion, no jitter, no twinkle. Anything wrong here is spawn or size.
@@ -181,6 +194,13 @@ export interface RenderOpts {
    * (`{ grain: 0 }` leaves blur running, and vice versa).
    */
   overrides?: Record<string, number | string | boolean>;
+  /**
+   * Give every wave that has no path a STRAIGHT one — exactly what the studio does the moment a
+   * ribbon is double-clicked into path editing. The contract is that this changes nothing on
+   * screen, whatever else shapes the wave, so `--path-identity` renders each config with and
+   * without it on the same backend and requires them to match.
+   */
+  pathIdentity?: boolean;
 }
 
 /**
@@ -195,6 +215,7 @@ async function render(name: string, opts: RenderOpts = {}): Promise<string> {
   const height = opts.height ?? 320;
 
   const config = make();
+  if (opts.pathIdentity) for (const w of config.waves) w.path ??= straightPath();
   // Determinism: never animate, and pin the noise phase. captureImage(time) then fixes uTime and
   // forces introTimeRamp to 1, so the frame is a pure function of the config.
   config.paused = true;

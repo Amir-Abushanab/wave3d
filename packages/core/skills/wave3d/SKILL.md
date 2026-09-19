@@ -140,14 +140,15 @@ centreline.
 
 ```ts
 path: [
-  { x: -200, y: 0, z: 0 },
-  { x: 0, y: 120, z: 40, width: 0.3, twist: 45 }, // a throat, and a quarter turn of the section
-  { x: 200, y: 0, z: 0 },
+  { x: -200, y: 0, z: -8 },
+  { x: 0, y: 120, z: 32, width: 0.3, twist: 45 }, // a throat, and a quarter turn of the section
+  { x: 200, y: 0, z: -8 },
 ];
 ```
 
-- Points are in the wave's LOCAL space — the un-pathed ribbon runs x −200 → +200 — so a straight
-  three-point path reproduces it exactly. Absent ⇒ that straight ribbon, byte-identical.
+- Points are where the centreline goes, in the wave's LOCAL space. The un-pathed ribbon runs
+  x −200 → +200 along the plane z = −8 (the folded geometry's centre), so a straight path there —
+  `straightPath()` — reproduces any wave exactly, twists and all. Absent ⇒ that straight ribbon.
 - `width` per point is what a separate "pinch" knob would be, and `twist` (degrees) rotates the
   cross-section. Both interpolate smoothly between points.
 - A path whose LAST point sits on its FIRST is a closed ring. That is the whole declaration — there
