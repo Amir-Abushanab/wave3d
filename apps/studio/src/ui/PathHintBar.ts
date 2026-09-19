@@ -1,92 +1,100 @@
 /**
- * The gesture bar shown while a wave's path is being shaped.
+ * The gesture cheatsheet shown while a wave's path is being shaped.
  *
  * Path editing is almost entirely direct manipulation — drag the ribbon, double-click to add or
  * remove a point, Shift for a tighter push — and none of that is visible on a canvas. A toast would
  * be wrong: these are not a notification but the controls themselves, needed for as long as the mode
  * is on, so this stays up until the mode ends.
  *
- * The way OUT is a real button, not just the `esc` legend it used to be. Everything else here is a
- * mouse gesture, so telling a person reaching for the mouse to find a key is the one instruction the
- * bar cannot give — and the bar is the only place that says the mode can be left at all.
+ * It docks over the CONTROL PANEL's column, not the stage. The export frame grows to fill whatever
+ * the window gives it — at 1800×800 it reaches within 15px of the bottom, far enough that even the
+ * history cluster ends up floating over it — so the panel's column is the only band that is never
+ * the viewport, at any size. The panel gets matching bottom padding while the card is up, so it
+ * covers nothing there either: scroll and the last control clears it.
+ *
+ * Rows are an icon plus a sentence, the same shape as the camera-controls cheatsheet, because these
+ * are the same kind of thing: which button, and what it does.
  */
+import { GESTURE_ICONS } from "./gestureIcons";
 
-/** A gesture the mode responds to. `keys` is the gesture itself, `what` is what it does. */
 interface Hint {
-  keys: string;
-  what: string;
+  icon: string;
+  text: string;
 }
 
 const HINTS: Hint[] = [
-  { keys: "drag the ribbon", what: "shape it" },
-  { keys: "shift-drag", what: "tighter push" },
-  { keys: "double-click the ribbon", what: "add a point" },
-  { keys: "double-click a point", what: "remove it" },
-  // Both of these are double-clicks off the wave being shaped, and neither is guessable: one
-  // switches which wave you are shaping, the other leaves the mode.
-  { keys: "double-click another wave", what: "shape that one" },
-  { keys: "double-click empty space", what: "done" },
+  { icon: GESTURE_ICONS.left, text: "Drag the ribbon to shape it" },
+  { icon: GESTURE_ICONS.left, text: "Shift-drag for a tighter push" },
+  { icon: GESTURE_ICONS.doubleLeft, text: "Double-click the ribbon to add a point" },
+  { icon: GESTURE_ICONS.doubleLeft, text: "Double-click a point to remove it" },
+  // Neither of these is guessable, and one of them is the way out.
+  { icon: GESTURE_ICONS.doubleLeft, text: "Double-click another wave to shape that one" },
+  { icon: GESTURE_ICONS.doubleLeft, text: "Double-click empty space to finish" },
 ];
 
-/**
- * Bottom offset, clear of the two things that already live down there: the toast lane (docked at
- * bottom 20) and the history cluster's DEFAULT dock (bottom `--edge`, 44 tall). The cluster can be
- * dragged anywhere, but the bar stays put — following it would make the bar jump around as the
- * cluster moves, and it is the default position that has to be left alone.
- */
-const BOTTOM = "calc(var(--edge) + 44px + 40px)";
+let card: HTMLElement | undefined;
+/** The panel's own bottom padding, to put back when the card goes. */
+let padWas: string | undefined;
 
-let bar: HTMLElement | undefined;
-
-function chip(h: Hint): HTMLElement {
-  const item = document.createElement("span");
-  item.style.cssText = "display:inline-flex;align-items:center;gap:5px;opacity:0.86;";
-  const k = document.createElement("kbd");
-  k.textContent = h.keys;
-  k.style.cssText =
-    "font:inherit;padding:2px 6px;border-radius:5px;background:rgba(255,255,255,0.1);" +
-    "border:1px solid rgba(255,255,255,0.14);";
-  const w = document.createElement("span");
-  w.textContent = h.what;
-  item.append(k, w);
-  return item;
+function panelEl(): HTMLElement | null {
+  return document.querySelector<HTMLElement>("#panel");
 }
 
-/** Show the bar for the wave being edited, or hide it when `waveIndex` is -1. */
-export function showPathHints(waveIndex: number, onDone?: () => void): void {
+/** Reserve room under the panel's content so the card hides none of it. */
+function reserve(): void {
+  const panel = panelEl();
+  if (!panel || !card) return;
+  padWas ??= panel.style.paddingBottom;
+  panel.style.paddingBottom = `${Math.round(card.getBoundingClientRect().height) + 20}px`;
+}
+
+function row(h: Hint): HTMLElement {
+  const line = document.createElement("div");
+  line.style.cssText = "display:flex;align-items:center;gap:9px;";
+  const ic = document.createElement("span");
+  ic.style.cssText = "flex:0 0 16px;display:inline-flex;color:#cfd3e2;opacity:0.9;";
+  ic.innerHTML = h.icon;
+  const t = document.createElement("span");
+  t.textContent = h.text;
+  t.style.cssText = "opacity:0.88;";
+  line.append(ic, t);
+  return line;
+}
+
+/** Show the cheatsheet for the wave being shaped, or hide it when `waveIndex` is -1. */
+export function showPathHints(waveIndex: number, onDone?: () => void, waveName?: string): void {
   if (waveIndex < 0) {
     hidePathHints();
     return;
   }
-  if (!bar) {
-    bar = document.createElement("div");
-    bar.setAttribute("role", "status");
-    bar.style.cssText =
-      `position:fixed;left:50%;bottom:${BOTTOM};transform:translateX(-50%) translateY(8px);z-index:29;` +
-      "display:flex;align-items:center;gap:14px;padding:8px 10px 8px 14px;border-radius:10px;" +
-      "font:12px/1.2 ui-sans-serif,system-ui,-apple-system,sans-serif;color:#eceef4;" +
-      "background:rgba(20,20,28,0.92);border:1px solid rgba(255,255,255,0.14);" +
+  if (!card) {
+    card = document.createElement("div");
+    card.setAttribute("role", "status");
+    card.style.cssText =
+      "position:fixed;left:var(--edge);bottom:var(--edge);width:var(--panel-width);z-index:29;" +
+      "box-sizing:border-box;display:flex;flex-direction:column;gap:7px;padding:11px 13px;" +
+      "border-radius:10px;font:12px/1.35 ui-sans-serif,system-ui,-apple-system,sans-serif;" +
+      "color:#eceef4;background:rgba(20,20,28,0.95);border:1px solid rgba(255,255,255,0.14);" +
       "box-shadow:0 10px 34px rgba(0,0,0,0.5);backdrop-filter:blur(10px);" +
       "-webkit-backdrop-filter:blur(10px);opacity:0;transition:opacity 0.2s ease,transform 0.2s ease;" +
-      // The bar itself must not eat canvas drags; only its button takes pointer events.
-      "pointer-events:none;max-width:min(94vw,1010px);flex-wrap:wrap;justify-content:center;";
-    document.body.appendChild(bar);
+      "transform:translateY(8px);pointer-events:none;";
+    document.body.appendChild(card);
   }
-  bar.textContent = "";
+  card.textContent = "";
 
-  const title = document.createElement("span");
-  title.textContent = `Shaping wave ${waveIndex + 1}`;
-  title.style.cssText = "font-weight:600;letter-spacing:0.01em;";
-  bar.appendChild(title);
-  for (const h of HINTS) bar.appendChild(chip(h));
+  const title = document.createElement("div");
+  title.textContent = `Shaping ${waveName ?? `wave ${waveIndex + 1}`}`;
+  title.style.cssText = "font-weight:600;letter-spacing:0.01em;margin-block-end:1px;";
+  card.appendChild(title);
+  for (const h of HINTS) card.appendChild(row(h));
 
   const done = document.createElement("button");
   done.type = "button";
   done.title = "Leave path editing (Esc, or double-click empty space)";
   done.style.cssText =
     "pointer-events:auto;cursor:pointer;font:inherit;font-weight:600;color:#0f1016;" +
-    "display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:7px;" +
-    "background:#d8d5f0;border:1px solid rgba(255,255,255,0.2);";
+    "margin-block-start:4px;display:inline-flex;align-items:center;justify-content:center;gap:6px;" +
+    "padding:6px 11px;border-radius:7px;background:#d8d5f0;border:1px solid rgba(255,255,255,0.2);";
   const label = document.createElement("span");
   label.textContent = "Done";
   const esc = document.createElement("kbd");
@@ -96,24 +104,28 @@ export function showPathHints(waveIndex: number, onDone?: () => void): void {
     "background:rgba(15,16,22,0.14);";
   done.append(label, esc);
   done.addEventListener("click", () => onDone?.());
-  bar.appendChild(done);
+  card.appendChild(done);
 
-  // Two frames so the transition actually runs on first show (the element was just inserted).
+  // Two frames so the transition actually runs on first show (the element was just inserted), and
+  // so the height it reserves is the laid-out one.
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      if (bar) {
-        bar.style.opacity = "1";
-        bar.style.transform = "translateX(-50%) translateY(0)";
-      }
+      if (!card) return;
+      card.style.opacity = "1";
+      card.style.transform = "translateY(0)";
+      reserve();
     });
   });
 }
 
 export function hidePathHints(): void {
-  if (!bar) return;
-  const el = bar;
-  bar = undefined;
+  if (!card) return;
+  const el = card;
+  card = undefined;
+  const panel = panelEl();
+  if (panel) panel.style.paddingBottom = padWas ?? "";
+  padWas = undefined;
   el.style.opacity = "0";
-  el.style.transform = "translateX(-50%) translateY(8px)";
+  el.style.transform = "translateY(8px)";
   setTimeout(() => el.remove(), 220);
 }

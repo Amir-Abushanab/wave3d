@@ -57,6 +57,7 @@ const UI_STATE_RECEIVERS = new Set([
   "uiParticles",
   "uiDissolve",
   "gapProxy", // the between-strand colour, which is absent on the wave until it is set
+  "nameProxy", // the wave's name, likewise absent until it is given one
   "uiHover",
   "uiPress",
   "scrollPrev",

@@ -167,6 +167,8 @@ export function createDefaultMeshPoints(): MeshGradientPoint[] {
  * (normalizeWaveColour, randomize*) map 1:1.
  */
 export interface WaveConfig {
+  /** What to call this wave in the studio, if "Wave 3" is not enough. Absent ⇒ that numbering. */
+  name?: string;
   // Colour & gradient
   palette: ColorStop[];
   gradientType: GradientType;
@@ -1172,6 +1174,12 @@ export function normalizeWave(s: WaveConfig): void {
   if (s.interaction) normalizeWaveInteraction(s); // present-only; absence stays inert
   if (s.particles) normalizeParticles(s); // present-only; absence = no field for this wave
   if (s.dissolve) normalizeDissolve(s); // present-only; absence = the ribbon is intact
+  // Present-only, like `path`: an empty or blank name is no name, not an empty title.
+  if (typeof s.name === "string") {
+    const named = s.name.trim().slice(0, 60);
+    if (named) s.name = named;
+    else delete s.name;
+  } else if (s.name !== undefined) delete s.name;
   if (s.path) normalizePath(s); // present-only; absence = the straight centreline
 }
 

@@ -2154,7 +2154,11 @@ export class ControlPanel {
     // and the panel has to rebuild, since its Path buttons read "Add"/"Clear" off the wave's state.
     this.renderer.onPathEditChanged = (waveIndex: number) => {
       // The bar's Done button leaves the mode, which is the only exit that is visible on screen.
-      showPathHints(waveIndex, () => void this.renderer.setPathEditMode(-1));
+      showPathHints(
+        waveIndex,
+        () => void this.renderer.setPathEditMode(-1),
+        this.config.waves[waveIndex]?.name,
+      );
       // Set the focus BEFORE the rebuild: the folders are about to be replaced, and rebuildPanel
       // re-paints the focus once the new ones exist.
       this.focusWave(waveIndex < 0 ? null : waveIndex);
@@ -2231,8 +2235,29 @@ export class ControlPanel {
     // transform and blend — no duplicated "global" controls. Adding a wave clones the last.
     // (The whole document is StudioConfig = scene + waves: WaveConfig[].)
     const buildWaveFolder = (parent: Folder, wave: WaveConfig, index: number): void => {
-      const sf = parent.addFolder({ title: `Wave ${index + 1}`, expanded: true });
+      const fallbackTitle = `Wave ${index + 1}`;
+      const sf = parent.addFolder({ title: wave.name ?? fallbackTitle, expanded: true });
       this.waveFolders.set(index, { self: sf, parent });
+      // Rename. Bound through a proxy because `name` is optional and Tweakpane cannot bind
+      // undefined; clearing the field puts it back to undefined so the wave falls back to its
+      // number rather than carrying an empty string. A stack of "Wave 1..5" tells you nothing
+      // about which is the collar and which is the sheet.
+      const nameProxy = { name: wave.name ?? "" };
+      const nameRow = sf.addBinding(nameProxy, "name", { label: "name" });
+      // Tweakpane ignores a `placeholder` option here, so set it on the input: an empty field would
+      // otherwise give no clue that the wave still has a name ("Wave 1") to fall back to.
+      nameRow.element.querySelector("input")?.setAttribute("placeholder", fallbackTitle);
+      nameRow.on("change", () => {
+        const next = nameProxy.name.trim();
+        wave.name = next || undefined;
+        sf.title = wave.name ?? fallbackTitle;
+        // Keep the hint bar honest while it is up — it names the wave being shaped.
+        if (this.renderer.pathEditWave() === index) {
+          showPathHints(index, () => void this.renderer.setPathEditMode(-1), wave.name);
+        }
+        this.clearPresetIndicator();
+        this.hooks.onEdit?.();
+      });
       // Per-section 🎲 that mutates only this wave's section, then rebuilds so the sliders
       // (some of which bind to replaced Vec objects) reflect the new values.
       const sectionRandom = (folder: Folder, fn: (s: WaveConfig) => void): void => {
