@@ -2153,7 +2153,8 @@ export class ControlPanel {
     // Path editing is all direct manipulation, so the gestures have to be on screen while it is on —
     // and the panel has to rebuild, since its Path buttons read "Add"/"Clear" off the wave's state.
     this.renderer.onPathEditChanged = (waveIndex: number) => {
-      showPathHints(waveIndex);
+      // The bar's Done button leaves the mode, which is the only exit that is visible on screen.
+      showPathHints(waveIndex, () => void this.renderer.setPathEditMode(-1));
       // Set the focus BEFORE the rebuild: the folders are about to be replaced, and rebuildPanel
       // re-paints the focus once the new ones exist.
       this.focusWave(waveIndex < 0 ? null : waveIndex);
