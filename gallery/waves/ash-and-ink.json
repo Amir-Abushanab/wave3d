@@ -4,14 +4,13 @@
   "config": {
     "background": "#f7f6f1",
     "transparentBackground": false,
-    "waveCount": 2,
     "cameraPosition": {
       "x": 0,
       "y": 0,
       "z": 5000
     },
     "cameraTarget": {
-      "x": -170,
+      "x": -40,
       "y": 10,
       "z": 0
     },
@@ -31,6 +30,7 @@
         "intensity": 2
       }
     ],
+    "waveCount": 1,
     "waves": [
       {
         "palette": [
@@ -192,183 +192,6 @@
           "blend": "normal",
           "edgeBias": 0,
           "drift": 320,
-          "rise": 30,
-          "wander": 60,
-          "twinkle": 0,
-          "life": 6,
-          "speed": 1
-        }
-      },
-      {
-        "palette": [
-          {
-            "color": "#e6dcfa",
-            "pos": 0
-          },
-          {
-            "color": "#9b79ec",
-            "pos": 0.035
-          },
-          {
-            "color": "#2a1a44",
-            "pos": 0.08
-          },
-          {
-            "color": "#050409",
-            "pos": 0.16
-          },
-          {
-            "color": "#050409",
-            "pos": 0.84
-          },
-          {
-            "color": "#2a1a44",
-            "pos": 0.92
-          },
-          {
-            "color": "#9b79ec",
-            "pos": 0.965
-          },
-          {
-            "color": "#e6dcfa",
-            "pos": 1
-          }
-        ],
-        "gradientShift": 0,
-        "usePaletteTexture": false,
-        "hueShift": 0,
-        "colorSaturation": 1,
-        "fiberStrength": 0,
-        "creaseLight": 1.98,
-        "creaseSharpness": 0.806,
-        "creaseSoftness": 0.834,
-        "displaceFrequency": {
-          "x": 0.003,
-          "y": 0.008
-        },
-        "displaceAmount": 60,
-        "twistFrequency": {
-          "x": 0,
-          "y": 0,
-          "z": 0
-        },
-        "twistPower": {
-          "x": 4,
-          "y": 4,
-          "z": 4
-        },
-        "helixTurns": 0.5,
-        "helixRoll": 1,
-        "theme": "wireframe",
-        "lineAmount": 700,
-        "lineDerivativePower": 0,
-        "lineDepthFade": 0,
-        "lineSharpness": 0.96,
-        "lineLight": 0.8,
-        "position": {
-          "x": 0,
-          "y": 0,
-          "z": 0
-        },
-        "rotation": {
-          "x": 25,
-          "y": 45,
-          "z": -45
-        },
-        "scale": {
-          "x": 5,
-          "y": 5,
-          "z": 5
-        },
-        "blendMode": "normal",
-        "speed": 0.08,
-        "seed": 3.7,
-        "dissolve": {
-          "amount": 0.26,
-          "axis": "screenX",
-          "reverse": true,
-          "band": 0.22,
-          "scale": 38,
-          "blocky": 0.8,
-          "dust": 1
-        },
-        "interaction": {
-          "bindings": [
-            {
-              "source": "scroll",
-              "target": "dissolveAmount",
-              "to": 0.95,
-              "smoothing": 0.2
-            }
-          ]
-        },
-        "path": [
-          {
-            "x": -162.066391601951,
-            "y": 99.31441250467044,
-            "z": -8,
-            "width": 1
-          },
-          {
-            "x": -133.5669225146678,
-            "y": 58.42337036098726,
-            "z": -8,
-            "width": 0.55
-          },
-          {
-            "x": -95.03797638053008,
-            "y": 26.803481435720585,
-            "z": -8,
-            "width": 0.55
-          },
-          {
-            "x": -49.3726735441307,
-            "y": 6.829068234992491,
-            "z": -8,
-            "width": 0.55
-          },
-          {
-            "x": 0,
-            "y": 0,
-            "z": -8,
-            "width": 0.55
-          },
-          {
-            "x": 49.3726735441307,
-            "y": 6.829068234992491,
-            "z": -8,
-            "width": 0.55
-          },
-          {
-            "x": 95.03797638053008,
-            "y": 26.803481435720585,
-            "z": -8,
-            "width": 0.55
-          },
-          {
-            "x": 133.5669225146678,
-            "y": 58.42337036098726,
-            "z": -8,
-            "width": 0.55
-          },
-          {
-            "x": 162.066391601951,
-            "y": 99.31441250467044,
-            "z": -8,
-            "width": 1
-          }
-        ],
-        "particles": {
-          "count": 3500,
-          "size": 8.3,
-          "seed": 18,
-          "sizeJitter": 1,
-          "color": "#9b79ec",
-          "color2": "#c9b4f6",
-          "shape": "square",
-          "blend": "normal",
-          "edgeBias": 0,
-          "drift": 520,
           "rise": 30,
           "wander": 60,
           "twinkle": 0,

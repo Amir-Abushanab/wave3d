@@ -883,47 +883,32 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     base.position = { x: 0, y: 0, z: 0 };
     base.dissolve = {
       amount: 0.26,
-      axis: "screenX", // on the CANVAS, so both waves crumble against one edge however each is posed
-      reverse: true, // eat in from the RIGHT, leaving the standing sweep on the left
+      axis: "screenX", // on the CANVAS, so the front is an edge of the frame however the sheet is posed
+      reverse: true, // eat in from the RIGHT, leaving the standing fold on the left
       band: 0.22,
       scale: 38,
       blocky: 0.8,
       dust: 1, // each mote is the chunk of surface that just left
     };
-    // Scroll takes the front the rest of the way. `from` is omitted, so at scroll 0 both waves sit at
-    // their authored 0.26 and the still frame is what a reader sees before they move.
+    // Scroll takes the front the rest of the way. `from` is omitted, so at scroll 0 the sheet sits at
+    // its authored 0.26 and the still frame is what a reader sees before they move.
     base.interaction = {
       bindings: [{ source: "scroll", target: "dissolveAmount", to: 0.95, smoothing: 0.2 }],
     };
 
-    // The loop: a closed circular PATH with one and a half turns of roll, so the sheet folds into
-    // lobes that cross in front of each other around an open eye. The path is what makes the ribbon
-    // come back on itself at all — and every point of it is draggable in the studio.
+    // ONE sheet: a closed circular PATH with one and a half turns of roll, so it folds into lobes
+    // that cross in front of each other around an open eye. The path is what makes the ribbon come
+    // back on itself at all — and every point of it is draggable in the studio.
     const loop = structuredClone(base);
     loop.seed = 0;
     loop.path = arcPath(1);
     loop.helixTurns = 1.5;
     loop.scale = { x: 3.4, y: 3.4, z: 3.4 };
     loop.rotation = { x: 45, y: 25, z: 15 };
-    loop.particles = snapDust(0);
+    loop.particles = snapDust(0); // the INK debris: dark motes, not the violet ones
 
-    // The sweep it sits in: a third of a turn, so it stays an open curve, at 5x the scale — wider
-    // than the canvas, so it reads as a surface passing through frame rather than an object in it.
-    // Its middle points are pinched to 0.55 width, which is the taper a separate `pinch` knob used to
-    // do and is now just two numbers on the path.
-    const sweep = structuredClone(base);
-    sweep.seed = 3.7;
-    sweep.path = arcPath(0.35).map((p, i, all) => ({
-      ...p,
-      width: i === 0 || i === all.length - 1 ? 1 : 0.55,
-    }));
-    sweep.helixTurns = 0.5;
-    sweep.scale = { x: 5, y: 5, z: 5 };
-    sweep.rotation = { x: 25, y: 45, z: -45 };
-    sweep.particles = snapDust(1);
-
-    c.waves = [loop, sweep];
-    c.waveCount = 2;
+    c.waves = [loop];
+    c.waveCount = 1;
 
     c.background = "#f7f6f1"; // warm paper
     c.backgroundMode = "color";
@@ -936,11 +921,13 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     c.lights = [{ position: { x: 600, y: 900, z: 800 }, color: "#ffffff", intensity: 2 }];
     c.cameraDistance = 5001;
     c.cameraPosition = { x: 0, y: 0, z: 5000 };
-    c.cameraTarget = { x: -170, y: 10, z: 0 };
+    // Centred on the fold itself. The old -170 balanced a second, much wider sheet that sat behind
+    // this one; with that gone the same target pushed the composition off to the right.
+    c.cameraTarget = { x: -40, y: 10, z: 0 };
     c.cameraZoom = 0.75;
     // The front is a SCREEN edge, so a narrow phone cropping to a quarter of the authored width
     // would put it somewhere else entirely on the composition. Holding 70% of that width on screen
-    // keeps the loop, the sweep and the debris in the same relationship.
+    // keeps the fold and its debris in the same relationship.
     c.cameraMinVisibleWidth = 0.7;
     return c;
   },
