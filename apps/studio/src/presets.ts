@@ -27,4 +27,5 @@ export const PRESETS: Record<string, () => StudioConfig> = {
   Kaleidoscope: CORE["Kaleidoscope"],
   Corkscrew: CORE["Corkscrew"],
   Disintegration: CORE["Disintegration"],
+  "Liquid Glass": CORE["Liquid Glass"],
 };
