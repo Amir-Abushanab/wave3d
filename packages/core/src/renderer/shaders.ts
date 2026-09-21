@@ -865,6 +865,7 @@ uniform float uGlassFilmNm;
 uniform float uGlassIor;
 uniform sampler2D uLayers;       // glass layers covering this pixel, 1/8 each
 uniform float uGlassLayerGain;
+uniform float uGlassFusion;      // droplet merge: bend along the MERGED silhouette, not each normal
 uniform float uGlassRipple;      // liquid: how hard the travelling waves tilt the normal
 uniform float uGlassRippleScale; // waves per world unit
 uniform float uGlassFlow;        // rad/s
@@ -927,14 +928,48 @@ vec3 backdropAt(vec2 uv){
   return mix(uClearColor, s.rgb, s.a);
 }
 
+// Droplet fusion. Two sheets passing close should behave like one blob of something viscous rather
+// than two objects overlapping — and the trick that sells it is not the shape but the DIRECTION of
+// the bend: in the neck between them the surface normal has to rotate smoothly from one rim to the
+// other, or the refraction tears between two centres.
+//
+// The 2D original merges signed-distance fields with a smooth minimum and takes the direction from
+// the gradient of the merged field. There is no SDF here, but the layer-coverage buffer is the same
+// thing in screen space once it is smeared: blur it and two nearby silhouettes bridge, exactly as a
+// smooth minimum bridges two distance fields. Its gradient is then the merged normal, for free.
+float coverageField(vec2 uv){
+  vec2 r = 9.0 / uResolution;
+  float f = texture2D(uLayers, uv).r * 4.0;
+  f += texture2D(uLayers, uv + vec2(r.x, 0.0)).r * 2.0;
+  f += texture2D(uLayers, uv - vec2(r.x, 0.0)).r * 2.0;
+  f += texture2D(uLayers, uv + vec2(0.0, r.y)).r * 2.0;
+  f += texture2D(uLayers, uv - vec2(0.0, r.y)).r * 2.0;
+  f += texture2D(uLayers, uv + r).r;
+  f += texture2D(uLayers, uv - r).r;
+  f += texture2D(uLayers, uv + vec2(r.x, -r.y)).r;
+  f += texture2D(uLayers, uv + vec2(-r.x, r.y)).r;
+  return f / 16.0;
+}
+
+// Frosting is SCATTER, not blur. Blurring one lookup smears whatever that single ray happened to
+// hit, which reads as a dirty window; spreading real samples over a cone is what loses the image
+// behind while keeping the light. Eleven samples on a golden-angle spiral, spread by sqrt(i/N) so
+// they cover the disc evenly, rotated per PIXEL (hashed from the coordinate, not from time — a
+// time-varying rotation boils) so the pattern does not tile.
+#define FROST_SAMPLES 11
+float frostRotation(vec2 p){
+  return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
+}
 vec3 frostSample(vec2 uv, float radiusPx){
+  float rot = frostRotation(gl_FragCoord.xy);
   vec2 r = radiusPx / uResolution;
-  vec3 c = backdropAt(uv) * 0.36;
-  c += backdropAt(uv + vec2(r.x, 0.0)) * 0.16;
-  c += backdropAt(uv - vec2(r.x, 0.0)) * 0.16;
-  c += backdropAt(uv + vec2(0.0, r.y)) * 0.16;
-  c += backdropAt(uv - vec2(0.0, r.y)) * 0.16;
-  return c;
+  vec3 acc = vec3(0.0);
+  for (int i = 0; i < FROST_SAMPLES; i++) {
+    float t = (float(i) + 0.5) / float(FROST_SAMPLES);
+    float a = rot + float(i) * 2.399963; // golden angle
+    acc += backdropAt(uv + vec2(cos(a), sin(a)) * r * sqrt(t));
+  }
+  return acc / float(FROST_SAMPLES);
 }
 
 void main(){
@@ -958,8 +993,18 @@ void main(){
   // The ripple is fed into the OFFSET as well as the normal. Tilting a normal where the surface
   // faces the camera barely changes N·V, so on a broad flat ribbon the ripple was nearly invisible
   // and only showed on the twisting flanks; displacing there costs nothing and reads everywhere.
-  vec2 offPx = -(N.xy + (N.xy - flatN.xy) * 2.0) * mix(rim, 1.0, uGlassRipple * 0.25)
-             * uGlassStrength;
+  vec2 dir = -(N.xy + (N.xy - flatN.xy) * 2.0);
+  if (uGlassFusion > 0.001) {
+    // Gradient of the smeared coverage, by finite difference. Pointing INTO the merged shape is the
+    // same convention the geometric normal uses, so the two blend without flipping the bend.
+    vec2 g = 9.0 / uResolution;
+    vec2 grad = vec2(
+      coverageField(sUv + vec2(g.x, 0.0)) - coverageField(sUv - vec2(g.x, 0.0)),
+      coverageField(sUv + vec2(0.0, g.y)) - coverageField(sUv - vec2(0.0, g.y))
+    );
+    if (dot(grad, grad) > 1.0e-8) dir = mix(dir, normalize(grad), clamp(uGlassFusion, 0.0, 1.0));
+  }
+  vec2 offPx = dir * mix(rim, 1.0, uGlassRipple * 0.25) * uGlassStrength;
   vec2 off = offPx / max(uResolution, vec2(1.0));
 
   // Dispersion: the same bend at three slightly different scales, one per channel.
@@ -968,7 +1013,9 @@ void main(){
   vec2 uvB = sUv + off;
   vec3 col = vec3(backdropAt(uvR).r, backdropAt(uvG).g, backdropAt(uvB).b);
   if (uGlassFrost > 0.001) {
-    float radius = uGlassFrost * 14.0;
+    // Radius grows with the SQUARE of frost, the way a scattering lobe does: gentle at the low end
+    // where you want a hint of ground glass, and genuinely opaque by the top.
+    float radius = uGlassFrost * uGlassFrost * 46.0;
     vec3 f = vec3(
       frostSample(uvR, radius).r,
       frostSample(uvG, radius).g,

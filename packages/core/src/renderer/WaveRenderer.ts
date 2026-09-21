@@ -683,6 +683,7 @@ export class WaveRenderer {
       uGlassIor: { value: 1.45 },
       uLayers: { value: null as THREE.Texture | null },
       uGlassLayerGain: { value: 0.6 },
+      uGlassFusion: { value: 0 },
       uOpacity: { value: 1 },
       uSquared: { value: 1 }, // "squared" deep-colour mode: square the colour in-shader (see applyBlendMode)
       // Seed from the CURRENT drawing buffer, not (1,1): resize() is the only other writer, so a wave
@@ -1140,6 +1141,7 @@ export class WaveRenderer {
         u.uGlassFilmNm.value = sc.glassFilmNm ?? 380;
         u.uGlassIor.value = sc.glassIor ?? 1.45;
         u.uGlassLayerGain.value = sc.glassLayerGain ?? 0.6;
+        u.uGlassFusion.value = sc.glassFusion ?? 0;
       }
       // Lights + ambient are scene-level (shared by every wave).
       const lights = this.config.lights ?? [];
@@ -2033,11 +2035,19 @@ export class WaveRenderer {
    *  The texture MUST be unbound while we render into it: binding a target as a texture while it is
    *  the render target is a framebuffer feedback loop, and the frame is undefined. */
   private renderBackdrop(): void {
+    // Everything from the FIRST glass wave onward is excluded from the backdrop, not just the glass
+    // itself. Waves are drawn in array order, so anything after a glass wave is in front of it, and
+    // leaving those in meant the sheet refracted things that sit on top of it.
     const glass: THREE.Mesh[] = [];
+    let firstGlass = -1;
     for (let i = 0; i < this.waves.length; i++) {
       const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
-      if (sc?.theme === "glass") glass.push(this.waves[i].mesh);
+      if (sc?.theme === "glass") {
+        glass.push(this.waves[i].mesh);
+        if (firstGlass < 0) firstGlass = i;
+      }
     }
+    const excluded = firstGlass < 0 ? glass : this.waves.slice(firstGlass).map((w) => w.mesh);
     if (glass.length === 0) {
       if (this.backdropTarget)
         for (const w of this.waves) w.material.uniforms.uBackdrop.value = null;
@@ -2053,12 +2063,12 @@ export class WaveRenderer {
       this.backdropTarget.setSize(size.x, size.y);
     }
     for (const w of this.waves) w.material.uniforms.uBackdrop.value = null; // break the loop
-    for (const m of glass) m.visible = false;
+    for (const m of excluded) m.visible = false;
     const prevTarget = this.renderer.getRenderTarget();
     this.renderer.setRenderTarget(this.backdropTarget);
     this.renderer.render(this.scene, this.camera);
     this.renderer.setRenderTarget(prevTarget);
-    for (const m of glass) m.visible = true;
+    for (const m of excluded) m.visible = true;
     for (const w of this.waves) w.material.uniforms.uBackdrop.value = this.backdropTarget.texture;
 
     // Layer count: draw the glass meshes ADDITIVELY with depth off, so every layer over a pixel

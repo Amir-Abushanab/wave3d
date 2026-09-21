@@ -326,6 +326,11 @@ export interface WaveConfig {
    *  behind is otherwise invisible and a doubled-back ribbon looks exactly as thin as a single
    *  sheet — this is the cue that reads as volume. 0 ignores overlap entirely. */
   glassLayerGain?: number;
+  /** Glass only: DROPLET FUSION. Takes the refraction's direction from the gradient of the merged
+   *  silhouette rather than from each surface's own normal, so two sheets passing close read as one
+   *  blob of something viscous — in the neck between them the bend rotates smoothly from one rim to
+   *  the other instead of tearing between two centres. 0 is off and each sheet keeps its own. */
+  glassFusion?: number;
   /** Glass only: LIQUID — how hard four travelling waves tilt the surface normal. Everything
    *  downstream (dispersion, rim, specular) reads the rippled normal, so the shimmer stays coherent
    *  instead of sitting on top as a separate layer. 0 is still glass, just not moving. */
@@ -1228,6 +1233,7 @@ export function normalizeWave(s: WaveConfig): void {
     if (!Number.isFinite(s.glassFilmNm)) s.glassFilmNm = 380;
     if (!Number.isFinite(s.glassIor)) s.glassIor = 1.45;
     if (!Number.isFinite(s.glassLayerGain)) s.glassLayerGain = 0.6;
+    if (!Number.isFinite(s.glassFusion)) s.glassFusion = 0;
   }
   if (!Number.isFinite(s.lineAmount)) s.lineAmount = 425;
   if (!Number.isFinite(s.lineThickness)) s.lineThickness = 1;
