@@ -386,6 +386,11 @@ export class WaveRenderer {
   private backgroundTexture?: THREE.Texture;
   /** The frame behind the glass waves — allocated only once a wave asks for the glass theme. */
   private backdropTarget?: THREE.WebGLRenderTarget;
+  /** How many glass layers cover each pixel. A sheet that folds over itself is thicker there, and
+   *  thickness is the cue that reads as VOLUME rather than as a tinted film — but glass draws
+   *  opaque, so the nearest layer wins and the fold behind it is invisible without counting. */
+  private layerTarget?: THREE.WebGLRenderTarget;
+  private layerMaterial?: THREE.MeshBasicMaterial;
   private backgroundSig = "";
   private backgroundImage?: HTMLImageElement;
   private backgroundImageUrl = "";
@@ -676,6 +681,8 @@ export class WaveRenderer {
       uGlassIrid: { value: 0 },
       uGlassFilmNm: { value: 380 },
       uGlassIor: { value: 1.45 },
+      uLayers: { value: null as THREE.Texture | null },
+      uGlassLayerGain: { value: 0.6 },
       uOpacity: { value: 1 },
       uSquared: { value: 1 }, // "squared" deep-colour mode: square the colour in-shader (see applyBlendMode)
       // Seed from the CURRENT drawing buffer, not (1,1): resize() is the only other writer, so a wave
@@ -1132,6 +1139,7 @@ export class WaveRenderer {
         u.uGlassIrid.value = sc.glassIrid ?? 0;
         u.uGlassFilmNm.value = sc.glassFilmNm ?? 380;
         u.uGlassIor.value = sc.glassIor ?? 1.45;
+        u.uGlassLayerGain.value = sc.glassLayerGain ?? 0.6;
       }
       // Lights + ambient are scene-level (shared by every wave).
       const lights = this.config.lights ?? [];
@@ -2052,6 +2060,46 @@ export class WaveRenderer {
     this.renderer.setRenderTarget(prevTarget);
     for (const m of glass) m.visible = true;
     for (const w of this.waves) w.material.uniforms.uBackdrop.value = this.backdropTarget.texture;
+
+    // Layer count: draw the glass meshes ADDITIVELY with depth off, so every layer over a pixel
+    // contributes. 1/8 per layer, so the channel saturates at eight folds — well past anything a
+    // ribbon does to itself.
+    if (!this.layerTarget) {
+      this.layerTarget = new THREE.WebGLRenderTarget(size.x, size.y, {
+        depthBuffer: false,
+        stencilBuffer: false,
+      });
+      this.layerMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        blending: THREE.AdditiveBlending,
+        depthTest: false,
+        depthWrite: false,
+        opacity: 0.125,
+        transparent: true,
+      });
+    } else if (this.layerTarget.width !== size.x || this.layerTarget.height !== size.y) {
+      this.layerTarget.setSize(size.x, size.y);
+    }
+    for (const w of this.waves) w.material.uniforms.uLayers.value = null; // break the loop
+    const hidden: THREE.Mesh[] = [];
+    for (const w of this.waves) {
+      if (!glass.includes(w.mesh) && w.mesh.visible) {
+        w.mesh.visible = false;
+        hidden.push(w.mesh);
+      }
+    }
+    this.scene.overrideMaterial = this.layerMaterial ?? null;
+    const prevBg = this.scene.background;
+    this.scene.background = null; // count layers, not the page
+    this.renderer.setRenderTarget(this.layerTarget);
+    this.renderer.setClearColor(0x000000, 0);
+    this.renderer.clear(true, false, false);
+    this.renderer.render(this.scene, this.camera);
+    this.renderer.setRenderTarget(prevTarget);
+    this.scene.overrideMaterial = null;
+    this.scene.background = prevBg;
+    for (const m of hidden) m.visible = true;
+    for (const w of this.waves) w.material.uniforms.uLayers.value = this.layerTarget.texture;
   }
 
   /** Resize the post chain's render targets. */
@@ -2065,6 +2113,10 @@ export class WaveRenderer {
     this.composer.dispose();
     this.backdropTarget?.dispose();
     this.backdropTarget = undefined;
+    this.layerTarget?.dispose();
+    this.layerTarget = undefined;
+    this.layerMaterial?.dispose();
+    this.layerMaterial = undefined;
   }
 
   /** Render exactly one frame at the current time. */

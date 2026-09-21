@@ -322,6 +322,10 @@ export interface WaveConfig {
   glassFilmNm?: number;
   /** Glass only: index of refraction, used by the fresnel and the film. */
   glassIor?: number;
+  /** Glass only: how much a fold over itself thickens the sheet. Glass draws opaque, so the layer
+   *  behind is otherwise invisible and a doubled-back ribbon looks exactly as thin as a single
+   *  sheet — this is the cue that reads as volume. 0 ignores overlap entirely. */
+  glassLayerGain?: number;
   /** Glass only: LIQUID — how hard four travelling waves tilt the surface normal. Everything
    *  downstream (dispersion, rim, specular) reads the rippled normal, so the shimmer stays coherent
    *  instead of sitting on top as a separate layer. 0 is still glass, just not moving. */
@@ -1223,6 +1227,7 @@ export function normalizeWave(s: WaveConfig): void {
     if (!Number.isFinite(s.glassIrid)) s.glassIrid = 0;
     if (!Number.isFinite(s.glassFilmNm)) s.glassFilmNm = 380;
     if (!Number.isFinite(s.glassIor)) s.glassIor = 1.45;
+    if (!Number.isFinite(s.glassLayerGain)) s.glassLayerGain = 0.6;
   }
   if (!Number.isFinite(s.lineAmount)) s.lineAmount = 425;
   if (!Number.isFinite(s.lineThickness)) s.lineThickness = 1;

@@ -863,6 +863,8 @@ uniform float uGlassRim;
 uniform float uGlassIrid;
 uniform float uGlassFilmNm;
 uniform float uGlassIor;
+uniform sampler2D uLayers;       // glass layers covering this pixel, 1/8 each
+uniform float uGlassLayerGain;
 uniform float uGlassRipple;      // liquid: how hard the travelling waves tilt the normal
 uniform float uGlassRippleScale; // waves per world unit
 uniform float uGlassFlow;        // rad/s
@@ -983,7 +985,10 @@ void main(){
   // colour is absorbed OUT of.
   float ndv = clamp(abs(dot(N, V)), 0.02, 1.0);
   vec3 lit = applyColorGrade(waveBaseColor(vUv));
-  float chord = 2.0 * uGlassPath * pow(ndv, 0.40);
+  // Thickness. The analytic term is the chord through one sheet; the layer count adds the folds
+  // stacked behind this fragment, which opaque drawing would otherwise throw away.
+  float layers = max(texture2D(uLayers, sUv).r * 8.0, 1.0);
+  float chord = 2.0 * uGlassPath * pow(ndv, 0.40) * (1.0 + uGlassLayerGain * (layers - 1.0));
   float trans = 1.0 - exp(-uGlassDensity * chord);
   // True per-channel Beer-Lambert. The palette is read as what the sheet LETS THROUGH, so its dark
   // channels absorb and its bright ones pass: pink glass over cream paper stays pink instead of
