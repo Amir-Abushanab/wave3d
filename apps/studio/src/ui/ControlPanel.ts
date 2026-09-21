@@ -439,7 +439,21 @@ export class ControlPanel {
   ) {
     if (hooks.defaultPreset) this.selectedPreset = hooks.defaultPreset;
     this.buildSafely();
+    window.addEventListener("keydown", this.onKeyDown);
   }
+
+  /** Delete / Backspace removes the SELECTED wave — the one a double-click focused, which is the
+   *  same wave the panel has scrolled to and ringed. Ignored while typing: Backspace in a text
+   *  field is how you erase a character, and a rename box is exactly where you use it. */
+  private onKeyDown = (e: KeyboardEvent): void => {
+    if (e.key !== "Delete" && e.key !== "Backspace") return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const t = e.target instanceof HTMLElement ? e.target : null;
+    if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+    if (this.focusedWave === null || this.config.waves.length <= 1) return;
+    e.preventDefault();
+    this.deleteWave(this.focusedWave);
+  };
 
   setConfig(config: StudioConfig, presetName = "—"): void {
     this.config = config;
@@ -558,7 +572,21 @@ export class ControlPanel {
   }
 
   dispose(): void {
+    window.removeEventListener("keydown", this.onKeyDown);
     this.teardownPanel();
+  }
+
+  /** Remove one wave. Editing modes point at a wave by INDEX, so anything pointing past the hole
+   *  has to be let go of before the array shifts under it — leaving editing entirely is the honest
+   *  version of that, and cheaper than trying to re-point a gizmo mid-delete. */
+  deleteWave(index: number): void {
+    const waves = this.config.waves;
+    if (waves.length <= 1 || index < 0 || index >= waves.length) return;
+    void this.renderer.leaveEditing();
+    waves.splice(index, 1);
+    this.config.waveCount = waves.length;
+    this.focusedWave = null;
+    this.rebuildWaves();
   }
 
   private rebuildWaves = (): void => {
@@ -2993,6 +3021,14 @@ export class ControlPanel {
         (sf.element.querySelector(":scope > .tp-fldv_c") as HTMLElement | null) ?? sf.element;
       for (const f of [gradF, finF, dispF, twF, hxF, pathF, raF, trF, bandsF, diF, paF, waveIx])
         waveContent.appendChild(f.element);
+      // Delete, last in the folder and only when there is something to fall back to — the model
+      // keeps at least one wave, so the button would be a no-op on a single-wave config.
+      if (cfg.waves.length > 1) {
+        const del = sf.addButton({ title: "delete this wave" });
+        del.element.classList.add("wv-wave-delete");
+        del.on("click", () => this.deleteWave(index));
+        waveContent.appendChild(del.element);
+      }
     };
 
     const wavesF = mkFolder("Waves", true);
