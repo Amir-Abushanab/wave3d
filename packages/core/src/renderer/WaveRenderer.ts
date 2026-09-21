@@ -391,6 +391,9 @@ export class WaveRenderer {
    *  opaque, so the nearest layer wins and the fold behind it is invisible without counting. */
   private layerTarget?: THREE.WebGLRenderTarget;
   private layerMaterial?: THREE.MeshBasicMaterial;
+  /** The glass surface normal in screen space — needed because a normal derived with dFdx is
+   *  constant across each 2x2 quad, so nothing downstream can differentiate it again. */
+  private normalTarget?: THREE.WebGLRenderTarget;
   private backgroundSig = "";
   private backgroundImage?: HTMLImageElement;
   private backgroundImageUrl = "";
@@ -684,6 +687,9 @@ export class WaveRenderer {
       uLayers: { value: null as THREE.Texture | null },
       uGlassLayerGain: { value: 0.6 },
       uGlassFusion: { value: 0 },
+      uGlassCaustic: { value: 0 },
+      uGlassNormals: { value: null as THREE.Texture | null },
+      uNormalPass: { value: 0 },
       uOpacity: { value: 1 },
       uSquared: { value: 1 }, // "squared" deep-colour mode: square the colour in-shader (see applyBlendMode)
       // Seed from the CURRENT drawing buffer, not (1,1): resize() is the only other writer, so a wave
@@ -1142,6 +1148,7 @@ export class WaveRenderer {
         u.uGlassIor.value = sc.glassIor ?? 1.45;
         u.uGlassLayerGain.value = sc.glassLayerGain ?? 0.6;
         u.uGlassFusion.value = sc.glassFusion ?? 0;
+        u.uGlassCaustic.value = sc.glassCaustic ?? 0;
       }
       // Lights + ambient are scene-level (shared by every wave).
       const lights = this.config.lights ?? [];
@@ -2110,6 +2117,39 @@ export class WaveRenderer {
     this.scene.background = prevBg;
     for (const m of hidden) m.visible = true;
     for (const w of this.waves) w.material.uniforms.uLayers.value = this.layerTarget.texture;
+
+    // Normals, drawn by the glass program itself under uNormalPass so the buffer and the shaded
+    // frame cannot disagree about where the surface is.
+    const wantsCaustic = this.config.waves.some(
+      (sc) => sc?.theme === "glass" && (sc.glassCaustic ?? 0) > 0.001,
+    );
+    if (!wantsCaustic) {
+      for (const w of this.waves) w.material.uniforms.uGlassNormals.value = null;
+      return;
+    }
+    if (!this.normalTarget) {
+      this.normalTarget = new THREE.WebGLRenderTarget(size.x, size.y, { stencilBuffer: false });
+    } else if (this.normalTarget.width !== size.x || this.normalTarget.height !== size.y) {
+      this.normalTarget.setSize(size.x, size.y);
+    }
+    for (const w of this.waves) {
+      w.material.uniforms.uGlassNormals.value = null;
+      w.material.uniforms.uNormalPass.value = 1;
+    }
+    for (const m of hidden) m.visible = false;
+    const bg2 = this.scene.background;
+    this.scene.background = null;
+    this.renderer.setRenderTarget(this.normalTarget);
+    this.renderer.setClearColor(0x000000, 0);
+    this.renderer.clear(true, true, false);
+    this.renderer.render(this.scene, this.camera);
+    this.renderer.setRenderTarget(prevTarget);
+    this.scene.background = bg2;
+    for (const m of hidden) m.visible = true;
+    for (const w of this.waves) {
+      w.material.uniforms.uNormalPass.value = 0;
+      w.material.uniforms.uGlassNormals.value = this.normalTarget.texture;
+    }
   }
 
   /** Resize the post chain's render targets. */
@@ -2127,6 +2167,8 @@ export class WaveRenderer {
     this.layerTarget = undefined;
     this.layerMaterial?.dispose();
     this.layerMaterial = undefined;
+    this.normalTarget?.dispose();
+    this.normalTarget = undefined;
   }
 
   /** Render exactly one frame at the current time. */

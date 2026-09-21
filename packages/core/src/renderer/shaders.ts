@@ -866,6 +866,9 @@ uniform float uGlassIor;
 uniform sampler2D uLayers;       // glass layers covering this pixel, 1/8 each
 uniform float uGlassLayerGain;
 uniform float uGlassFusion;      // droplet merge: bend along the MERGED silhouette, not each normal
+uniform float uGlassCaustic;
+uniform sampler2D uGlassNormals; // this wave's surface normal, screen space, from the normal pass
+uniform float uNormalPass;       // 1 while rendering that buffer: write the normal, shade nothing
 uniform float uGlassRipple;      // liquid: how hard the travelling waves tilt the normal
 uniform float uGlassRippleScale; // waves per world unit
 uniform float uGlassFlow;        // rad/s
@@ -951,6 +954,17 @@ float coverageField(vec2 uv){
   return f / 16.0;
 }
 
+// The same offset the shading path computes, but evaluated from the normal BUFFER at an arbitrary
+// screen position — which is what lets the caustic take a second difference of it.
+vec2 glassOffsetAt(vec2 uv){
+  vec4 texel = texture2D(uGlassNormals, uv);
+  if (texel.a < 0.5) return vec2(0.0);
+  vec3 n = normalize(texel.xyz * 2.0 - 1.0);
+  vec3 v = normalize(vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]));
+  float r = pow(1.0 - abs(dot(n, v)), max(uGlassRimPower, 0.001));
+  return -n.xy * r * uGlassStrength;
+}
+
 // Frosting is SCATTER, not blur. Blurring one lookup smears whatever that single ray happened to
 // hit, which reads as a dirty window; spreading real samples over a cone is what loses the image
 // behind while keeping the light. Eleven samples on a golden-angle spiral, spread by sqrt(i/N) so
@@ -984,6 +998,13 @@ void main(){
   vec3 V = normalize(vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]));
   vec3 flatN = N; // the geometric normal, kept so the ripple's CONTRIBUTION can be isolated below
   if (uGlassRipple > 0.001) N = rippleNormal(N, vWorldPos);
+  // The normal pass writes the shading normal and stops. Same program, same deformation, so the
+  // buffer agrees with the shaded frame exactly — which a separate override material could not
+  // promise, since every twist and path lives in this program's vertex stage.
+  if (uNormalPass > 0.5) {
+    gl_FragColor = vec4(N * 0.5 + 0.5, 1.0);
+    return;
+  }
   // The rim band, in 3D: 1 where the surface grazes the eye, 0 where it faces us. This is the same
   // curve the 2D work bakes as a rounded-rect inset, except it comes from the geometry, so it
   // follows every fold and twist without anything being authored.
@@ -1012,6 +1033,33 @@ void main(){
   vec2 uvG = sUv + off * (1.0 + uGlassChroma * 0.1);
   vec2 uvB = sUv + off;
   vec3 col = vec3(backdropAt(uvR).r, backdropAt(uvG).g, backdropAt(uvB).b);
+  // CAUSTICS. A caustic is not a decal painted near the glass — it is what happens when the
+  // refraction map compresses, so neighbouring rays land on top of each other and energy piles up.
+  // The sampling map here is m(p) = p + offPx(p), so its Jacobian is the identity plus the offset's
+  // screen-space derivative, and brightness goes as 1/|det J|: below 1 where the map compresses,
+  // above 1 where it spreads. The derivatives are already free in a fragment shader, which is why
+  // this needs no extra pass — it is the gather form of the usual light-space splat.
+  if (uGlassCaustic > 0.001) {
+    // The offset has to be re-evaluated from NEIGHBOURING normals, not differentiated in place.
+    // N here comes from dFdx/dFdy of the world position, which is constant across each 2x2 quad, so
+    // its own derivative is identically zero: dFdx(offPx) returns 0, det J is exactly 1, and the
+    // caustic silently does nothing. Sampling the normal buffer a few pixels away is the only way
+    // to get a second difference out of a first-difference normal.
+    vec2 st = 3.0 / uResolution;
+    vec2 oR = glassOffsetAt(sUv + vec2(st.x, 0.0));
+    vec2 oL = glassOffsetAt(sUv - vec2(st.x, 0.0));
+    vec2 oU = glassOffsetAt(sUv + vec2(0.0, st.y));
+    vec2 oD = glassOffsetAt(sUv - vec2(0.0, st.y));
+    vec2 dOdx = (oR - oL) / (2.0 * 3.0);
+    vec2 dOdy = (oU - oD) / (2.0 * 3.0);
+    float detJ = (1.0 + dOdx.x) * (1.0 + dOdy.y) - dOdy.x * dOdx.y;
+    // The floor matters: at a fold the map folds too, det passes through zero, and the true
+    // brightness there is infinite. Real caustics are bounded by the width of the light source, so
+    // clamping is physical rather than a fudge — it is what stops a cusp blowing out to white.
+    float gain = clamp(1.0 / max(abs(detJ), 0.12), 0.0, 6.0);
+    col *= mix(1.0, gain, clamp(uGlassCaustic, 0.0, 1.0));
+  }
+
   if (uGlassFrost > 0.001) {
     // Radius grows with the SQUARE of frost, the way a scattering lobe does: gentle at the low end
     // where you want a hint of ground glass, and genuinely opaque by the top.

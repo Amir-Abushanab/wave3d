@@ -331,6 +331,12 @@ export interface WaveConfig {
    *  blob of something viscous — in the neck between them the bend rotates smoothly from one rim to
    *  the other instead of tearing between two centres. 0 is off and each sheet keeps its own. */
   glassFusion?: number;
+  /** Glass only: CAUSTICS — brightness where the refraction map compresses and neighbouring rays
+   *  pile up, darkness where it spreads. Computed from the Jacobian of the sampling map, so it
+   *  costs no extra pass and lands exactly where the optics put it rather than being painted on.
+   *  Only visible where there is a backdrop to concentrate: a sheet over blank page has no light
+   *  to gather. */
+  glassCaustic?: number;
   /** Glass only: LIQUID — how hard four travelling waves tilt the surface normal. Everything
    *  downstream (dispersion, rim, specular) reads the rippled normal, so the shimmer stays coherent
    *  instead of sitting on top as a separate layer. 0 is still glass, just not moving. */
@@ -1234,6 +1240,7 @@ export function normalizeWave(s: WaveConfig): void {
     if (!Number.isFinite(s.glassIor)) s.glassIor = 1.45;
     if (!Number.isFinite(s.glassLayerGain)) s.glassLayerGain = 0.6;
     if (!Number.isFinite(s.glassFusion)) s.glassFusion = 0;
+    if (!Number.isFinite(s.glassCaustic)) s.glassCaustic = 0;
   }
   if (!Number.isFinite(s.lineAmount)) s.lineAmount = 425;
   if (!Number.isFinite(s.lineThickness)) s.lineThickness = 1;
