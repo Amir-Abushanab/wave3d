@@ -1121,6 +1121,25 @@ void main(){
   col = mix(col, film, smoothstep(mix(0.62, 0.42, uGlassIrid), 1.0, 1.0 - ndv) * uGlassRim);
   col *= 1.0 - smoothstep(0.62, 0.86, 1.0 - ndv) * 0.10;
 
+  // TWO keys, and a wide lobe. One overhead light never reaches a surface whose normals are all
+  // horizontal — a twisted ribbon has plenty of those — and no exponent fixes that, so a second,
+  // low key near the view axis fills them in.
+  vec3 KEY = normalize(vec3(-0.30, 0.86, 0.42));
+  vec3 KEY_FILL = normalize(vec3(0.42, 0.16, 0.89));
+  vec3 mirror = reflect(-V, N);
+  float lobe = pow(max(dot(mirror, KEY), 0.0), 40.0)
+             + 0.55 * pow(max(dot(mirror, KEY_FILL), 0.0), 40.0);
+  float spec = (lobe + rim * 0.25) * uGlassSpec;
+  col += lobe * uGlassSpec * 0.35 * film;
+
+  float lumaV = dot(col, vec3(0.299, 0.587, 0.114));
+  // Over a dark backdrop the glint adds; over a bright one it darkens. Without this the rim simply
+  // disappears on the warm paper most of these scenes use.
+  float darkBlend = smoothstep(0.25, 0.7, lumaV);
+  col = max(mix(col + spec, col * (1.0 - spec), darkBlend), 0.0);
+  // Vibrancy: pull the interior toward mid-grey — the haze that says "glass" rather than "hole".
+  col += (0.5 - lumaV) * uGlassVibrancy;
+
   float alpha = uOpacity;
   if (uEdgeFeather > 0.0) {
     float e = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));

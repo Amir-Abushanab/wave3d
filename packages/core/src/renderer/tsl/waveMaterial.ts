@@ -39,6 +39,7 @@ import {
   cos,
   pow,
   max,
+  min,
   clamp,
   mix,
   smoothstep,
@@ -497,7 +498,14 @@ function buildGlassFragment(u: WaveTslUniforms, flags: WaveMaterialFlags, ndc: V
     If(u.uGlassFrost.greaterThan(0.001), () => {
       const radius = u.uGlassFrost.mul(u.uGlassFrost).mul(46.0);
       const r = radius.div(max(u.uResolution, vec2(1, 1)));
-      const rot = grainHash(ndc.mul(u.uResolution)).mul(6.2831853);
+      // The SAME hash the GLSL uses. A different per-pixel rotation is not "equivalent noise": the
+      // two backends then pick different sample sets and the frosted area disagrees everywhere at
+      // once, which is pure mae with no bias to point at it.
+      const p = ndc.mul(u.uResolution);
+      const rot = sin(dot(p, vec2(12.9898, 78.233)))
+        .mul(43758.5453)
+        .fract()
+        .mul(6.2831853);
       const tap = (base: Vec2Node, i: number, chan: "r" | "g" | "b"): FloatNode => {
         const t = (i + 0.5) / 11;
         const a = rot.add(i * 2.399963);
@@ -575,9 +583,11 @@ function buildGlassFragment(u: WaveTslUniforms, flags: WaveMaterialFlags, ndc: V
     // Two keys, wide lobe: one overhead light never reaches horizontal normals.
     const KEY = normalize(vec3(-0.3, 0.86, 0.42));
     const KEY_FILL = normalize(vec3(0.42, 0.16, 0.89));
+    // reflect(-V, N) = -V - 2*dot(-V,N)*N. Spelled out because there is no reflect() helper here;
+    // negating the whole expression, as this first did, points the mirror direction backwards and
+    // puts the highlight on the wrong face.
     const mirror = V.mul(-1)
       .sub(N.mul(dot(V.mul(-1), N).mul(2)))
-      .mul(-1)
       .toVar("glassMirror");
     const lobe = pow(max(dot(mirror, KEY), float(0)), float(40))
       .add(pow(max(dot(mirror, KEY_FILL), float(0)), float(40)).mul(0.55))
@@ -591,6 +601,12 @@ function buildGlassFragment(u: WaveTslUniforms, flags: WaveMaterialFlags, ndc: V
     col.addAssign(float(0.5).sub(luma).mul(u.uGlassVibrancy));
 
     const alpha = u.uOpacity.toVar("glassAlpha");
+    // The GLSL twin feathers the ribbon's own edges here. Leaving it out left a hard rim on this
+    // backend and a soft one on the other — a constant alpha bias across the whole silhouette.
+    If(u.uEdgeFeather.greaterThan(0), () => {
+      const e = min(min(vUv.x, float(1).sub(vUv.x)), min(vUv.y, float(1).sub(vUv.y)));
+      alpha.mulAssign(e.smoothstep(float(0), u.uEdgeFeather));
+    });
     const shaded = vec4(clamp(col, 0, 1), clamp(alpha, 0, 1));
     // No early return in TSL: the normal pass is selected at the end.
     return select(u.uNormalPass.greaterThan(0.5), vec4(N.mul(0.5).add(0.5), 1.0), shaded);
