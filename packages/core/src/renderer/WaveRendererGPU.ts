@@ -156,7 +156,7 @@ export function withTslBackend<TBase extends typeof WaveRenderer>(Base: TBase): 
         sc?.interaction?.bindings?.some((b) => b.target === "dissolveAmount") ?? false;
       const pointer = !!sc && wavePointerFxActive(this.config, sc);
       return {
-        theme: sc?.theme === "wireframe" ? "wireframe" : "solid",
+        theme: sc?.theme === "wireframe" ? "wireframe" : sc?.theme === "glass" ? "glass" : "solid",
         loopMotion: (this.config.loopSeconds ?? 0) > 0,
         detailOctave: (sc?.detailAmount ?? 0) !== 0 || bindsDetail,
         helix: (sc?.helixRadius ?? 0) !== 0 || (sc?.helixRoll ?? 0) !== 0 || bindsHelix,
@@ -320,6 +320,9 @@ export function withTslBackend<TBase extends typeof WaveRenderer>(Base: TBase): 
       for (const wave of this.waves) {
         (wave.material as TslMaterial).userData.tsl.packed.sync();
       }
+      // Same glass captures the WebGL path takes, and for the same reason — the backdrop, the layer
+      // count and the normals all have to exist before the shaded frame reads them.
+      this.renderGlassPasses();
       this.syncPostUniforms();
       this.ensurePost().render();
     }

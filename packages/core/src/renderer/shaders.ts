@@ -869,6 +869,7 @@ uniform float uGlassFusion;      // droplet merge: bend along the MERGED silhoue
 uniform float uGlassCaustic;
 uniform sampler2D uGlassNormals; // this wave's surface normal, screen space, from the normal pass
 uniform float uNormalPass;       // 1 while rendering that buffer: write the normal, shade nothing
+uniform vec3 uViewAxis;          // world-space axis from the surface TOWARD an orthographic camera
 uniform float uGlassRipple;      // liquid: how hard the travelling waves tilt the normal
 uniform float uGlassRippleScale; // waves per world unit
 uniform float uGlassFlow;        // rad/s
@@ -922,13 +923,12 @@ vec3 thinFilm(float ndv){
 
 // One frosted tap set, taken AT the already-refracted position so the blur rides the bend instead
 // of sitting flat underneath it. Five taps is enough at these radii; more just costs fill.
-// The backdrop is captured on a TRANSPARENT clear, because a scene with transparentBackground has
-// no background of its own — what is behind the wave is the page. So every sample composites over
-// the page colour by its own alpha; without this, glass over a transparent scene samples zeros and
-// renders as a black silhouette.
+// The backdrop is captured OPAQUE, cleared to the page colour, so a sample is simply the colour
+// behind the glass. It used to be captured transparent and composited over the page here, which
+// left the result at the mercy of what alpha a render target hands back — and the two backends
+// disagree about that.
 vec3 backdropAt(vec2 uv){
-  vec4 s = texture2D(uBackdrop, uv);
-  return mix(uClearColor, s.rgb, s.a);
+  return texture2D(uBackdrop, uv).rgb;
 }
 
 // Droplet fusion. Two sheets passing close should behave like one blob of something viscous rather
@@ -960,7 +960,7 @@ vec2 glassOffsetAt(vec2 uv){
   vec4 texel = texture2D(uGlassNormals, uv);
   if (texel.a < 0.5) return vec2(0.0);
   vec3 n = normalize(texel.xyz * 2.0 - 1.0);
-  vec3 v = normalize(vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]));
+  vec3 v = normalize(uViewAxis);
   float r = pow(1.0 - abs(dot(n, v)), max(uGlassRimPower, 0.001));
   return -n.xy * r * uGlassStrength;
 }
@@ -994,8 +994,9 @@ void main(){
   // ORTHOGRAPHIC camera: every ray is parallel, so the view direction is the camera's forward axis,
   // NOT a per-fragment vector to the eye. vViewDir (cameraPosition - world) is the perspective form
   // and under ortho it fans out across the frame — using it swings the rim band and the specular
-  // across the ribbon as if the camera were inches away. Column 2 of the view matrix is that axis.
-  vec3 V = normalize(vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]));
+  // across the ribbon as if the camera were inches away. Fed as a uniform rather than dug out of
+  // viewMatrix, because the TSL twin cannot index a matrix node and the two must not diverge.
+  vec3 V = normalize(uViewAxis);
   vec3 flatN = N; // the geometric normal, kept so the ripple's CONTRIBUTION can be isolated below
   if (uGlassRipple > 0.001) N = rippleNormal(N, vWorldPos);
   // The normal pass writes the shading normal and stops. Same program, same deformation, so the

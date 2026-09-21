@@ -105,6 +105,27 @@ function syntheticConfigs(): Record<string, () => StudioConfig> {
       c.bloomStrength = 0;
       return c;
     },
+    // Glass, with everything it can sample turned on: a solid wave BEHIND it to bend, the layer
+    // buffer, the normal buffer and the caustic that reads from it. Three extra render targets and
+    // a screen-space sample chain, none of which any preset exercises.
+    "synthetic:glass": () => {
+      const c = PRESETS["Hero"]();
+      const back = structuredClone(c.waves[0]);
+      const front = c.waves[0];
+      back.theme = "solid";
+      back.scale = { x: 11, y: 9, z: 5 };
+      front.theme = "glass";
+      front.glassStrength = 45;
+      front.glassChroma = 0.8;
+      front.glassFrost = 0.3;
+      front.glassCaustic = 0.7;
+      front.glassFusion = 0.4;
+      front.glassIrid = 0.5;
+      c.waves = [back, front];
+      c.waveCount = 2;
+      c.bloomStrength = 0; // the backends' bloom differs on its own; this case is about the glass
+      return c;
+    },
     "synthetic:pointer-hover": withPointer(0),
     "synthetic:pointer-ripples": withPointer(2),
     // The emitter alone: no motion, no jitter, no twinkle. Anything wrong here is spawn or size.

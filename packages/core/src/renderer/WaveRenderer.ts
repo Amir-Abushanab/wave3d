@@ -690,6 +690,7 @@ export class WaveRenderer {
       uGlassCaustic: { value: 0 },
       uGlassNormals: { value: null as THREE.Texture | null },
       uNormalPass: { value: 0 },
+      uViewAxis: { value: new THREE.Vector3(0, 0, 1) },
       uOpacity: { value: 1 },
       uSquared: { value: 1 }, // "squared" deep-colour mode: square the colour in-shader (see applyBlendMode)
       // Seed from the CURRENT drawing buffer, not (1,1): resize() is the only other writer, so a wave
@@ -2029,7 +2030,7 @@ export class WaveRenderer {
 
   /** Draw the composed frame. WebGL runs the EffectComposer; WebGPU runs a node post chain. */
   protected renderComposed(): void {
-    this.renderBackdrop();
+    this.renderGlassPasses();
     this.composer.render();
   }
 
@@ -2041,7 +2042,30 @@ export class WaveRenderer {
    *
    *  The texture MUST be unbound while we render into it: binding a target as a texture while it is
    *  the render target is a framebuffer feedback loop, and the frame is undefined. */
-  private renderBackdrop(): void {
+  /** The world axis from a surface toward the camera. Constant under an orthographic projection,
+   *  which is exactly why it is a uniform rather than something the shader derives per fragment. */
+  private pushViewAxis(): void {
+    const fwd = this.camera.getWorldDirection(this.viewAxisTmp).multiplyScalar(-1);
+    for (const w of this.waves) {
+      (w.material.uniforms.uViewAxis.value as THREE.Vector3).copy(fwd);
+    }
+  }
+
+  private viewAxisTmp = new THREE.Vector3();
+  private empty?: THREE.DataTexture;
+  private backdropClear = new THREE.Color();
+
+  /** A 1x1 transparent texture, used wherever a sampler must be BOUND but must contribute nothing. */
+  private emptyTexture(): THREE.DataTexture {
+    if (!this.empty) {
+      this.empty = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1);
+      this.empty.needsUpdate = true;
+    }
+    return this.empty;
+  }
+
+  protected renderGlassPasses(): void {
+    this.pushViewAxis();
     // Everything from the FIRST glass wave onward is excluded from the backdrop, not just the glass
     // itself. Waves are drawn in array order, so anything after a glass wave is in front of it, and
     // leaving those in meant the sheet refracted things that sit on top of it.
@@ -2069,10 +2093,22 @@ export class WaveRenderer {
     } else if (this.backdropTarget.width !== size.x || this.backdropTarget.height !== size.y) {
       this.backdropTarget.setSize(size.x, size.y);
     }
-    for (const w of this.waves) w.material.uniforms.uBackdrop.value = null; // break the loop
+    // Unbind with a 1x1 rather than null: a TSL texture node cannot hold null, and binding a target
+    // as a texture while rendering into it is a framebuffer feedback loop either way.
+    for (const w of this.waves) w.material.uniforms.uBackdrop.value = this.emptyTexture();
     for (const m of excluded) m.visible = false;
     const prevTarget = this.renderer.getRenderTarget();
     this.renderer.setRenderTarget(this.backdropTarget);
+    // Clear to the PAGE colour, opaque, rather than to transparent black. A transparent capture
+    // forces every sample to composite over a fallback by its own alpha, and the two backends do
+    // not agree on what alpha a render target hands back — the parity case showed the same window
+    // washed on one and vivid on the other. An opaque capture takes alpha out of the question, and
+    // it is also what is actually behind the glass: a transparent scene is showing the page.
+    // setClearColor is called with the target BOUND, because three encodes the colour for whatever
+    // is bound at the time.
+    this.backdropClear.set(this.config.background || "#ffffff");
+    this.renderer.setClearColor(this.backdropClear, 1);
+    this.renderer.clear(true, true, false);
     this.renderer.render(this.scene, this.camera);
     this.renderer.setRenderTarget(prevTarget);
     for (const m of excluded) m.visible = true;
@@ -2097,7 +2133,7 @@ export class WaveRenderer {
     } else if (this.layerTarget.width !== size.x || this.layerTarget.height !== size.y) {
       this.layerTarget.setSize(size.x, size.y);
     }
-    for (const w of this.waves) w.material.uniforms.uLayers.value = null; // break the loop
+    for (const w of this.waves) w.material.uniforms.uLayers.value = this.emptyTexture();
     const hidden: THREE.Mesh[] = [];
     for (const w of this.waves) {
       if (!glass.includes(w.mesh) && w.mesh.visible) {
@@ -2124,7 +2160,7 @@ export class WaveRenderer {
       (sc) => sc?.theme === "glass" && (sc.glassCaustic ?? 0) > 0.001,
     );
     if (!wantsCaustic) {
-      for (const w of this.waves) w.material.uniforms.uGlassNormals.value = null;
+      for (const w of this.waves) w.material.uniforms.uGlassNormals.value = this.emptyTexture();
       return;
     }
     if (!this.normalTarget) {
@@ -2133,7 +2169,7 @@ export class WaveRenderer {
       this.normalTarget.setSize(size.x, size.y);
     }
     for (const w of this.waves) {
-      w.material.uniforms.uGlassNormals.value = null;
+      w.material.uniforms.uGlassNormals.value = this.emptyTexture();
       w.material.uniforms.uNormalPass.value = 1;
     }
     for (const m of hidden) m.visible = false;
@@ -2169,6 +2205,8 @@ export class WaveRenderer {
     this.layerMaterial = undefined;
     this.normalTarget?.dispose();
     this.normalTarget = undefined;
+    this.empty?.dispose();
+    this.empty = undefined;
   }
 
   /** Render exactly one frame at the current time. */
