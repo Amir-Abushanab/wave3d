@@ -834,18 +834,18 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     const c = PRESETS["Hero"]();
     const base = c.waves[0];
     base.theme = "wireframe";
-    // INK across the width with lilac only on the narrow rims: a black-and-white striped surface
-    // that lights to violet at its near edges, not a violet sheet with dark edges.
+    // INK across the width with violet only on the narrow rims: a near-black striped surface that
+    // lights to violet at its near edges, not a violet sheet with dark edges.
     base.usePaletteTexture = false;
     base.palette = [
-      { color: "#e6dcfa", pos: 0 },
-      { color: "#9b79ec", pos: 0.035 },
-      { color: "#2a1a44", pos: 0.08 },
-      { color: "#050409", pos: 0.16 },
-      { color: "#050409", pos: 0.84 },
-      { color: "#2a1a44", pos: 0.92 },
-      { color: "#9b79ec", pos: 0.965 },
-      { color: "#e6dcfa", pos: 1 },
+      { color: "#cbb8f5", pos: 0 },
+      { color: "#7c55d8", pos: 0.03 },
+      { color: "#2a1750", pos: 0.075 },
+      { color: "#07050c", pos: 0.15 },
+      { color: "#07050c", pos: 0.85 },
+      { color: "#2a1750", pos: 0.925 },
+      { color: "#7c55d8", pos: 0.97 },
+      { color: "#cbb8f5", pos: 1 },
     ];
     base.gradientType = "linear";
     base.gradientAngle = 90; // across uv.x, the folded width — so the ramp runs across the strands
@@ -859,8 +859,12 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     base.lineDerivativePower = 0; // see above — the knob that decides whether there is ink at all
     base.lineSharpness = 0.96;
     base.lineDepthFade = 0; // full contrast at every depth; the default is tuned for a single ribbon
-    // Gaps left at the page background (the default): opaque, so the near lobe hides the far one,
-    // which is what makes a stack of folds read as one solid object rather than a transparent weave.
+    // The between-strand gaps are the sheet's BODY, not the page. Left at the default they take the
+    // page background, and warm paper showing between the strands keeps the whole thing reading
+    // pale however black the ink is — an explicit near-black gap is what makes it deep. Still
+    // opaque, so the near lobe hides the far one and a stack of folds reads as one solid object
+    // rather than a transparent weave.
+    base.lineGapColor = "#0a0714";
     // Lit, round strands. A stripe is otherwise a MASK — no cross-section, so no highlight can run
     // along one and the bundle reads as hatching however dense it gets. These two give each strand a
     // crest and flanks and shade it as the surface turns, which is the difference between a drawing
@@ -882,7 +886,9 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     base.speed = 0.08;
     base.position = { x: 0, y: 0, z: 0 };
     base.dissolve = {
-      amount: 0.26,
+      // HALF gone in the still frame: the preset is named for the front, so it should arrive with
+      // the sheet already half debris rather than barely nicked.
+      amount: 0.5,
       axis: "screenX", // on the CANVAS, so the front is an edge of the frame however the sheet is posed
       reverse: true, // eat in from the RIGHT, leaving the standing fold on the left
       band: 0.22,
@@ -906,6 +912,10 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     loop.scale = { x: 3.4, y: 3.4, z: 3.4 };
     loop.rotation = { x: 45, y: 25, z: 15 };
     loop.particles = snapDust(0); // the INK debris: dark motes, not the violet ones
+    // Half a sheet's worth of surface has to go somewhere, and this is now the only emitter in the
+    // preset — the second wave that carried its own field is gone.
+    loop.particles.count = 9000;
+    loop.particles.size = 18;
 
     c.waves = [loop];
     c.waveCount = 1;
@@ -921,9 +931,10 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     c.lights = [{ position: { x: 600, y: 900, z: 800 }, color: "#ffffff", intensity: 2 }];
     c.cameraDistance = 5001;
     c.cameraPosition = { x: 0, y: 0, z: 5000 };
-    // Centred on the fold itself. The old -170 balanced a second, much wider sheet that sat behind
-    // this one; with that gone the same target pushed the composition off to the right.
-    c.cameraTarget = { x: -40, y: 10, z: 0 };
+    // Centred on what is LEFT of the fold plus the debris it sheds. The old -170 balanced a second,
+    // much wider sheet that sat behind this one; with that gone the same target pushed the
+    // composition off to the right, and y rises to sit the standing half against the frame.
+    c.cameraTarget = { x: -40, y: 120, z: 0 };
     c.cameraZoom = 0.75;
     // The front is a SCREEN edge, so a narrow phone cropping to a quarter of the authored width
     // would put it somewhere else entirely on the composition. Holding 70% of that width on screen

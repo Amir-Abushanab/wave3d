@@ -11,7 +11,7 @@
     },
     "cameraTarget": {
       "x": -40,
-      "y": 10,
+      "y": 120,
       "z": 0
     },
     "cameraZoom": 0.75,
@@ -35,35 +35,35 @@
       {
         "palette": [
           {
-            "color": "#e6dcfa",
+            "color": "#cbb8f5",
             "pos": 0
           },
           {
-            "color": "#9b79ec",
-            "pos": 0.035
+            "color": "#7c55d8",
+            "pos": 0.03
           },
           {
-            "color": "#2a1a44",
-            "pos": 0.08
+            "color": "#2a1750",
+            "pos": 0.075
           },
           {
-            "color": "#050409",
-            "pos": 0.16
+            "color": "#07050c",
+            "pos": 0.15
           },
           {
-            "color": "#050409",
-            "pos": 0.84
+            "color": "#07050c",
+            "pos": 0.85
           },
           {
-            "color": "#2a1a44",
-            "pos": 0.92
+            "color": "#2a1750",
+            "pos": 0.925
           },
           {
-            "color": "#9b79ec",
-            "pos": 0.965
+            "color": "#7c55d8",
+            "pos": 0.97
           },
           {
-            "color": "#e6dcfa",
+            "color": "#cbb8f5",
             "pos": 1
           }
         ],
@@ -115,8 +115,9 @@
         },
         "blendMode": "normal",
         "speed": 0.08,
+        "lineGapColor": "#0a0714",
         "dissolve": {
-          "amount": 0.26,
+          "amount": 0.5,
           "axis": "screenX",
           "reverse": true,
           "band": 0.22,
@@ -182,8 +183,8 @@
           }
         ],
         "particles": {
-          "count": 5000,
-          "size": 15.4,
+          "count": 9000,
+          "size": 18,
           "seed": 11,
           "sizeJitter": 1,
           "color": "#0b0812",
