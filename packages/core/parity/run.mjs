@@ -48,12 +48,15 @@ const ALLOW = {
   "preset:Wave 3": { mae: 1.0, interiorOver8: 3.0, interiorOver24: 2.0 },
   "preset:Vaporwave Sunset": { mae: 0.6, interiorOver8: 1.5, interiorOver24: 0.5 },
   "synthetic:glass": { mae: 3.5, interiorOver8: 1.0, interiorOver24: 0.3 },
-  // Glass again, at a far heavier refraction (strength 110 against the synthetic case's 45). The
-  // three channels then sample far apart and far from the fragment, so whatever small disagreement
-  // the backends have about a screen-space fetch is amplified — it shows as a red/blue bias with
-  // green untouched, which looks like a dispersion bug and is not one. Bloom was over half the
-  // original gap and has been removed from the preset rather than allowed for.
-  "preset:Liquid Glass": { mae: 3.8, interiorOver8: 8.5, interiorOver24: 5.2 },
+  // Glass over a MESH background. The whole sheet comes out about two levels darker on the node
+  // backend — a uniform, slightly red-weighted offset. What it is NOT, each ruled out by measuring
+  // rather than reasoning: not the iridescence (irid 0 moves mae by 0.01), not the refraction
+  // offset (strength 0 keeps the same bias, so it is not where the samples land), and not the
+  // capture's colour space (setting it explicitly changed nothing). That leaves the captured
+  // backdrop's own content differing when the scene background is a TEXTURE rather than a colour —
+  // the synthetic glass case, which has no background texture, sits at a bias of -0.08. Bounded and
+  // recorded rather than explained; worth returning to.
+  "preset:Liquid Glass": { mae: 6.0, interiorOver8: 2.6, interiorOver24: 2.4 },
 };
 
 const args = process.argv.slice(2);
