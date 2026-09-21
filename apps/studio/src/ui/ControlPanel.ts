@@ -2661,6 +2661,157 @@ export class ControlPanel {
       const bRungThickness = finF
         .addBinding(wave, "rungThickness", { min: 0, max: 6, step: 0.05, label: "rung thickness" })
         .on("change", refresh);
+      // --- Glass ---
+      // Present-only on the config, so the panel edits a PROXY seeded from the wave's current
+      // values (or the theme's defaults) and writes back on change. That keeps a solid or
+      // wireframe wave's JSON free of a dozen glass fields it will never read.
+      const glassProxy = {
+        glassPath: wave.glassPath ?? 1,
+        glassDensity: wave.glassDensity ?? 4,
+        glassTint: wave.glassTint ?? 0.9,
+        glassStrength: wave.glassStrength ?? 28,
+        glassChroma: wave.glassChroma ?? 0.45,
+        glassFrost: wave.glassFrost ?? 0.25,
+        glassRim: wave.glassRim ?? 0.28,
+        glassSpec: wave.glassSpec ?? 0.9,
+        glassIrid: wave.glassIrid ?? 0,
+        glassFilmNm: wave.glassFilmNm ?? 380,
+        glassIor: wave.glassIor ?? 1.45,
+        glassVibrancy: wave.glassVibrancy ?? 0.12,
+        glassRimPower: wave.glassRimPower ?? 1.5,
+        glassRipple: wave.glassRipple ?? 0,
+        glassRippleScale: wave.glassRippleScale ?? 0.012,
+        glassFlow: wave.glassFlow ?? 0.9,
+      };
+      const b_glassPath = finF
+        .addBinding(glassProxy, "glassPath", { min: 0, max: 3, step: 0.01, label: "thickness" })
+        .on("change", () => {
+          wave.glassPath = glassProxy.glassPath;
+          refresh();
+        });
+      const b_glassDensity = finF
+        .addBinding(glassProxy, "glassDensity", { min: 0, max: 12, step: 0.05, label: "density" })
+        .on("change", () => {
+          wave.glassDensity = glassProxy.glassDensity;
+          refresh();
+        });
+      const b_glassTint = finF
+        .addBinding(glassProxy, "glassTint", { min: 0, max: 1, step: 0.01, label: "tint" })
+        .on("change", () => {
+          wave.glassTint = glassProxy.glassTint;
+          refresh();
+        });
+      const b_glassStrength = finF
+        .addBinding(glassProxy, "glassStrength", {
+          min: 0,
+          max: 150,
+          step: 1,
+          label: "refraction px",
+        })
+        .on("change", () => {
+          wave.glassStrength = glassProxy.glassStrength;
+          refresh();
+        });
+      const b_glassChroma = finF
+        .addBinding(glassProxy, "glassChroma", { min: 0, max: 2, step: 0.01, label: "dispersion" })
+        .on("change", () => {
+          wave.glassChroma = glassProxy.glassChroma;
+          refresh();
+        });
+      const b_glassFrost = finF
+        .addBinding(glassProxy, "glassFrost", { min: 0, max: 1, step: 0.01, label: "frost" })
+        .on("change", () => {
+          wave.glassFrost = glassProxy.glassFrost;
+          refresh();
+        });
+      const b_glassRim = finF
+        .addBinding(glassProxy, "glassRim", { min: 0, max: 2, step: 0.01, label: "rim" })
+        .on("change", () => {
+          wave.glassRim = glassProxy.glassRim;
+          refresh();
+        });
+      const b_glassSpec = finF
+        .addBinding(glassProxy, "glassSpec", { min: 0, max: 3, step: 0.01, label: "specular" })
+        .on("change", () => {
+          wave.glassSpec = glassProxy.glassSpec;
+          refresh();
+        });
+      const b_glassIrid = finF
+        .addBinding(glassProxy, "glassIrid", { min: 0, max: 1, step: 0.01, label: "iridescence" })
+        .on("change", () => {
+          wave.glassIrid = glassProxy.glassIrid;
+          refresh();
+        });
+      const b_glassFilmNm = finF
+        .addBinding(glassProxy, "glassFilmNm", { min: 50, max: 1500, step: 5, label: "film nm" })
+        .on("change", () => {
+          wave.glassFilmNm = glassProxy.glassFilmNm;
+          refresh();
+        });
+      const b_glassIor = finF
+        .addBinding(glassProxy, "glassIor", { min: 1.01, max: 3, step: 0.01, label: "ior" })
+        .on("change", () => {
+          wave.glassIor = glassProxy.glassIor;
+          refresh();
+        });
+      const b_glassVibrancy = finF
+        .addBinding(glassProxy, "glassVibrancy", { min: 0, max: 1, step: 0.01, label: "vibrancy" })
+        .on("change", () => {
+          wave.glassVibrancy = glassProxy.glassVibrancy;
+          refresh();
+        });
+      const b_glassRimPower = finF
+        .addBinding(glassProxy, "glassRimPower", {
+          min: 0.1,
+          max: 6,
+          step: 0.05,
+          label: "rim falloff",
+        })
+        .on("change", () => {
+          wave.glassRimPower = glassProxy.glassRimPower;
+          refresh();
+        });
+      const b_glassRipple = finF
+        .addBinding(glassProxy, "glassRipple", { min: 0, max: 2, step: 0.01, label: "ripple" })
+        .on("change", () => {
+          wave.glassRipple = glassProxy.glassRipple;
+          refresh();
+        });
+      const b_glassRippleScale = finF
+        .addBinding(glassProxy, "glassRippleScale", {
+          min: 0.001,
+          max: 0.1,
+          step: 0.001,
+          label: "ripple scale",
+        })
+        .on("change", () => {
+          wave.glassRippleScale = glassProxy.glassRippleScale;
+          refresh();
+        });
+      const b_glassFlow = finF
+        .addBinding(glassProxy, "glassFlow", { min: 0, max: 6, step: 0.05, label: "flow" })
+        .on("change", () => {
+          wave.glassFlow = glassProxy.glassFlow;
+          refresh();
+        });
+      const glassOnly = [
+        b_glassPath,
+        b_glassDensity,
+        b_glassTint,
+        b_glassStrength,
+        b_glassChroma,
+        b_glassFrost,
+        b_glassRim,
+        b_glassSpec,
+        b_glassIrid,
+        b_glassFilmNm,
+        b_glassIor,
+        b_glassVibrancy,
+        b_glassRimPower,
+        b_glassRipple,
+        b_glassRippleScale,
+        b_glassFlow,
+      ];
       const solidOnly = [
         bFiberCount,
         bFiberStrength,
@@ -2689,8 +2840,10 @@ export class ControlPanel {
       ];
       const updateMaterialControls = (): void => {
         const wire = wave.theme === "wireframe";
-        for (const b of solidOnly) b.hidden = wire;
+        const glass = wave.theme === "glass";
+        for (const b of solidOnly) b.hidden = wire || glass;
         for (const b of wireOnly) b.hidden = !wire;
+        for (const b of glassOnly) b.hidden = !glass;
       };
       updateMaterialControls();
       sectionRandom(finF, randomizeFinish);

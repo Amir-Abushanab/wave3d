@@ -236,6 +236,24 @@ export const WAVE_APPLIERS = {
   // The dissolve front. Writing the wave's own uniform is enough for the dust too: the particle
   // field MIRRORS this wave's uniforms every frame in updateSceneFx(), which runs immediately after
   // applyInteraction() — the same path the pointer uniforms already take.
+  glassRipple: waveApplier(
+    (w) => w.glassRipple ?? 0,
+    (v, a) => {
+      a.u.uGlassRipple.value = v;
+    },
+  ),
+  glassStrength: waveApplier(
+    (w) => w.glassStrength ?? 28,
+    (v, a) => {
+      a.u.uGlassStrength.value = v;
+    },
+  ),
+  glassTint: waveApplier(
+    (w) => w.glassTint ?? 0.9,
+    (v, a) => {
+      a.u.uGlassTint.value = v;
+    },
+  ),
   dissolveAmount: waveApplier(
     (w) => w.dissolve?.amount ?? 0,
     (v, a) => {

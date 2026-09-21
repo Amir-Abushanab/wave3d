@@ -945,6 +945,7 @@ void main(){
   // and under ortho it fans out across the frame — using it swings the rim band and the specular
   // across the ribbon as if the camera were inches away. Column 2 of the view matrix is that axis.
   vec3 V = normalize(vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]));
+  vec3 flatN = N; // the geometric normal, kept so the ripple's CONTRIBUTION can be isolated below
   if (uGlassRipple > 0.001) N = rippleNormal(N, vWorldPos);
   // The rim band, in 3D: 1 where the surface grazes the eye, 0 where it faces us. This is the same
   // curve the 2D work bakes as a rounded-rect inset, except it comes from the geometry, so it
@@ -952,7 +953,11 @@ void main(){
   float rim = pow(1.0 - abs(dot(N, V)), max(uGlassRimPower, 0.001));
 
   vec2 sUv = gl_FragCoord.xy / max(uResolution, vec2(1.0));
-  vec2 offPx = -N.xy * rim * uGlassStrength;
+  // The ripple is fed into the OFFSET as well as the normal. Tilting a normal where the surface
+  // faces the camera barely changes N·V, so on a broad flat ribbon the ripple was nearly invisible
+  // and only showed on the twisting flanks; displacing there costs nothing and reads everywhere.
+  vec2 offPx = -(N.xy + (N.xy - flatN.xy) * 2.0) * mix(rim, 1.0, uGlassRipple * 0.25)
+             * uGlassStrength;
   vec2 off = offPx / max(uResolution, vec2(1.0));
 
   // Dispersion: the same bend at three slightly different scales, one per channel.
@@ -991,7 +996,11 @@ void main(){
   // and thick glass comes out as pale as thin.
   vec3 hue = lit / max(max(lit.r, max(lit.g, lit.b)), 0.001);
   vec3 sigma = uGlassDensity * (1.0 - hue * 0.9);
-  vec3 transmittance = exp(-sigma * chord);
+  // Dispersion in the BODY, not only in the backdrop lens: each channel travels a slightly
+  // different path, so a thick edge fringes even with nothing behind the sheet to bend. Without
+  // this, glassChroma did nothing at all on a standalone wave.
+  vec3 chordRGB = chord * (1.0 + vec3(uGlassChroma * 0.12, 0.0, -uGlassChroma * 0.12));
+  vec3 transmittance = exp(-sigma * chordRGB);
   col = col * mix(vec3(1.0), transmittance, clamp(uGlassTint, 0.0, 1.0));
 
   vec3 film = thinFilm(ndv);

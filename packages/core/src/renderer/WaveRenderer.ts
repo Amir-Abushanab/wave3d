@@ -1113,7 +1113,19 @@ export class WaveRenderer {
         u.uGlassRimPower.value = sc.glassRimPower ?? 1.5;
         u.uGlassRipple.value = sc.glassRipple ?? 0;
         u.uGlassRippleScale.value = sc.glassRippleScale ?? 0.012;
-        u.uGlassFlow.value = sc.glassFlow ?? 0.9;
+        // Snap the ripple to a whole number of cycles over loopSeconds, the same convention every
+        // other animated frequency here follows — otherwise a seamless loop visibly jumps where the
+        // water does not come back to where it started.
+        {
+          const flow = sc.glassFlow ?? 0.9;
+          const loop = this.config.loopSeconds ?? 0;
+          u.uGlassFlow.value =
+            loop > 0 && flow !== 0
+              ? (Math.max(1, Math.round((Math.abs(flow) * loop) / (Math.PI * 2))) * (Math.PI * 2)) /
+                loop /
+                (flow < 0 ? -1 : 1)
+              : flow;
+        }
         u.uGlassPath.value = sc.glassPath ?? 1;
         u.uGlassDensity.value = sc.glassDensity ?? 4;
         u.uGlassRim.value = sc.glassRim ?? 0.28;
