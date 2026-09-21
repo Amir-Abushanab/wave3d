@@ -942,6 +942,73 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     c.cameraMinVisibleWidth = 0.7;
     return c;
   },
+  /**
+   * A clear sheet with something worth looking through it at.
+   *
+   * Glass only reads as glass when there is something BEHIND it to bend — over a flat colour it is
+   * a silvered ribbon and little else. So this preset ships the backdrop as part of the idea: a
+   * saturated ribbon set back and to the left, a deep field behind that, and the glass standing in
+   * front of both where its refraction has the most to work with.
+   *
+   * The liquid comes from `glassRipple`, four travelling waves tilting the normal — but the offset
+   * reads it too, because tilting a normal where the surface faces the camera barely moves N·V and
+   * a broad flat ribbon is mostly facing the camera.
+   */
+  "Liquid Glass": () => {
+    const c = PRESETS["Hero"]();
+    const back = structuredClone(c.waves[0]);
+    const glass = c.waves[0];
+
+    // The thing being looked through AT. Saturated on purpose: what survives the bend is colour,
+    // and a pale ribbon behind glass just reads as haze.
+    back.theme = "solid";
+    back.usePaletteTexture = false;
+    back.palette = [
+      { color: "#2de2e6", pos: 0 },
+      { color: "#3a86ff", pos: 0.32 },
+      { color: "#8338ec", pos: 0.62 },
+      { color: "#ff006e", pos: 1 },
+    ];
+    back.scale = { x: 10, y: 8, z: 5 };
+    // Pushed down-left so the ribbon's END leaves the frame: an end cap is a hard-edged slab, and
+    // seen THROUGH glass it reads as a rectangle of stray colour rather than as part of the sweep.
+    back.position = { x: 240, y: -380, z: -140 };
+    back.rotation = { ...back.rotation, z: back.rotation.z + 14 };
+    back.edgeFeather = 0.26; // soften the ribbon ENDS, which otherwise cut a hard notch at frame edge
+
+    glass.theme = "glass";
+    glass.glassRipple = 0.9;
+    glass.glassRippleScale = 0.02;
+    glass.glassFlow = 0.7;
+    glass.glassStrength = 110; // well past the default: there is a lot behind it worth displacing
+    glass.glassChroma = 0.9;
+    glass.glassIrid = 0.35;
+    glass.edgeFeather = 0.16;
+    glass.scale = { x: 8, y: 7, z: 4 };
+    glass.position = { x: 430, y: -300, z: 60 }; // in FRONT in z, so the capture has the other wave
+
+    c.waves = [back, glass]; // order matters: everything from the first glass wave on is excluded
+    c.waveCount = 2;
+
+    c.backgroundMode = "gradient";
+    c.transparentBackground = false;
+    c.backgroundGradientType = "linear";
+    c.backgroundGradientAngle = 160;
+    c.backgroundGradientSource = "stops";
+    c.backgroundPalette = [
+      { color: "#050b1f", pos: 0 },
+      { color: "#10254d", pos: 0.5 },
+      { color: "#1d3b6b", pos: 1 },
+    ];
+    c.grain = 0;
+    // No bloom. At 0.25 it was barely perceptible here and it more than doubled the cross-backend
+    // difference on its own (mae 3.06 -> 6.89), because the two bloom passes already disagree —
+    // see the parity README. Not worth compounding two known divergences for a glow you cannot see.
+    c.bloomStrength = 0;
+    c.cameraZoom = 0.45;
+    c.cameraTarget = { x: -40, y: -220, z: 0 };
+    return c;
+  },
   Kaleidoscope: () => {
     const c = PRESETS["Wave 3"]();
     const w = c.waves[0];

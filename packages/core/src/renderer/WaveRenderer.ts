@@ -2055,6 +2055,19 @@ export class WaveRenderer {
   private empty?: THREE.DataTexture;
   private backdropClear = new THREE.Color();
 
+  /** Pin a capture's sampling so both backends read it the same way. Left to their defaults the
+   *  two disagree about filtering and edge behaviour, and a glass sheet samples FAR from the
+   *  fragment — one offset per channel — so the disagreement shows up as a red/blue bias with green
+   *  untouched, which looks like a dispersion bug and is not one. */
+  private pinSampling(t: THREE.WebGLRenderTarget): THREE.WebGLRenderTarget {
+    t.texture.minFilter = THREE.LinearFilter;
+    t.texture.magFilter = THREE.LinearFilter;
+    t.texture.wrapS = THREE.ClampToEdgeWrapping;
+    t.texture.wrapT = THREE.ClampToEdgeWrapping;
+    t.texture.generateMipmaps = false;
+    return t;
+  }
+
   /** A 1x1 transparent texture, used wherever a sampler must be BOUND but must contribute nothing. */
   private emptyTexture(): THREE.DataTexture {
     if (!this.empty) {
@@ -2086,10 +2099,9 @@ export class WaveRenderer {
     }
     const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
     if (!this.backdropTarget) {
-      this.backdropTarget = new THREE.WebGLRenderTarget(size.x, size.y, {
-        depthBuffer: true,
-        stencilBuffer: false,
-      });
+      this.backdropTarget = this.pinSampling(
+        new THREE.WebGLRenderTarget(size.x, size.y, { depthBuffer: true, stencilBuffer: false }),
+      );
     } else if (this.backdropTarget.width !== size.x || this.backdropTarget.height !== size.y) {
       this.backdropTarget.setSize(size.x, size.y);
     }
@@ -2118,10 +2130,9 @@ export class WaveRenderer {
     // contributes. 1/8 per layer, so the channel saturates at eight folds — well past anything a
     // ribbon does to itself.
     if (!this.layerTarget) {
-      this.layerTarget = new THREE.WebGLRenderTarget(size.x, size.y, {
-        depthBuffer: false,
-        stencilBuffer: false,
-      });
+      this.layerTarget = this.pinSampling(
+        new THREE.WebGLRenderTarget(size.x, size.y, { depthBuffer: false, stencilBuffer: false }),
+      );
       this.layerMaterial = new THREE.MeshBasicMaterial({
         color: 0xffffff,
         blending: THREE.AdditiveBlending,
@@ -2164,7 +2175,9 @@ export class WaveRenderer {
       return;
     }
     if (!this.normalTarget) {
-      this.normalTarget = new THREE.WebGLRenderTarget(size.x, size.y, { stencilBuffer: false });
+      this.normalTarget = this.pinSampling(
+        new THREE.WebGLRenderTarget(size.x, size.y, { stencilBuffer: false }),
+      );
     } else if (this.normalTarget.width !== size.x || this.normalTarget.height !== size.y) {
       this.normalTarget.setSize(size.x, size.y);
     }

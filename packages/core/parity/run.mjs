@@ -48,6 +48,12 @@ const ALLOW = {
   "preset:Wave 3": { mae: 1.0, interiorOver8: 3.0, interiorOver24: 2.0 },
   "preset:Vaporwave Sunset": { mae: 0.6, interiorOver8: 1.5, interiorOver24: 0.5 },
   "synthetic:glass": { mae: 3.5, interiorOver8: 1.0, interiorOver24: 0.3 },
+  // Glass again, at a far heavier refraction (strength 110 against the synthetic case's 45). The
+  // three channels then sample far apart and far from the fragment, so whatever small disagreement
+  // the backends have about a screen-space fetch is amplified — it shows as a red/blue bias with
+  // green untouched, which looks like a dispersion bug and is not one. Bloom was over half the
+  // original gap and has been removed from the preset rather than allowed for.
+  "preset:Liquid Glass": { mae: 3.8, interiorOver8: 8.5, interiorOver24: 5.2 },
 };
 
 const args = process.argv.slice(2);
