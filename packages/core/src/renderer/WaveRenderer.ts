@@ -665,11 +665,17 @@ export class WaveRenderer {
       uGlassFrost: { value: 0.25 },
       uGlassSpec: { value: 0.9 },
       uGlassVibrancy: { value: 0.12 },
-      uGlassTint: { value: 0.25 },
+      uGlassTint: { value: 0.9 },
       uGlassRimPower: { value: 1.5 },
       uGlassRipple: { value: 0 },
       uGlassRippleScale: { value: 0.012 },
       uGlassFlow: { value: 0.9 },
+      uGlassPath: { value: 1 },
+      uGlassDensity: { value: 4 },
+      uGlassRim: { value: 0.28 },
+      uGlassIrid: { value: 0 },
+      uGlassFilmNm: { value: 380 },
+      uGlassIor: { value: 1.45 },
       uOpacity: { value: 1 },
       uSquared: { value: 1 }, // "squared" deep-colour mode: square the colour in-shader (see applyBlendMode)
       // Seed from the CURRENT drawing buffer, not (1,1): resize() is the only other writer, so a wave
@@ -1103,11 +1109,17 @@ export class WaveRenderer {
         u.uGlassFrost.value = sc.glassFrost ?? 0.25;
         u.uGlassSpec.value = sc.glassSpec ?? 0.9;
         u.uGlassVibrancy.value = sc.glassVibrancy ?? 0.12;
-        u.uGlassTint.value = sc.glassTint ?? 0.25;
+        u.uGlassTint.value = sc.glassTint ?? 0.9;
         u.uGlassRimPower.value = sc.glassRimPower ?? 1.5;
         u.uGlassRipple.value = sc.glassRipple ?? 0;
         u.uGlassRippleScale.value = sc.glassRippleScale ?? 0.012;
         u.uGlassFlow.value = sc.glassFlow ?? 0.9;
+        u.uGlassPath.value = sc.glassPath ?? 1;
+        u.uGlassDensity.value = sc.glassDensity ?? 4;
+        u.uGlassRim.value = sc.glassRim ?? 0.28;
+        u.uGlassIrid.value = sc.glassIrid ?? 0;
+        u.uGlassFilmNm.value = sc.glassFilmNm ?? 380;
+        u.uGlassIor.value = sc.glassIor ?? 1.45;
       }
       // Lights + ambient are scene-level (shared by every wave).
       const lights = this.config.lights ?? [];

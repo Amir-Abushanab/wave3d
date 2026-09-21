@@ -857,6 +857,12 @@ uniform float uGlassVibrancy;
 uniform float uGlassTint;
 uniform float uGlassRimPower;
 uniform vec3 uClearColor;        // the page behind a transparent scene
+uniform float uGlassPath;        // HALF the optical path at normal incidence
+uniform float uGlassDensity;     // absorption coefficient
+uniform float uGlassRim;
+uniform float uGlassIrid;
+uniform float uGlassFilmNm;
+uniform float uGlassIor;
 uniform float uGlassRipple;      // liquid: how hard the travelling waves tilt the normal
 uniform float uGlassRippleScale; // waves per world unit
 uniform float uGlassFlow;        // rad/s
@@ -897,6 +903,15 @@ vec3 rippleNormal(vec3 N, vec3 p){
   g += k3 * cos(dot(p, k3) * uGlassRippleScale + ph * 3.0 + 3.9) * 0.42;
   g += k4 * cos(dot(p, k4) * uGlassRippleScale - ph + 2.6) * 0.55;
   return normalize(N + g * uGlassRipple * 0.16);
+}
+
+// Thin-film interference, tinting only what BOUNCES — reflection, rim and specular. Colouring the
+// transmission too reads as dye rather than as a film on the surface.
+vec3 thinFilm(float ndv){
+  float s2 = (1.0 - ndv * ndv) / max(uGlassIor * uGlassIor, 1.0e-4);
+  float cosT = sqrt(max(1.0 - s2, 0.0));
+  vec3 phase = 6.2831853 * (2.0 * uGlassIor * uGlassFilmNm * cosT) / vec3(650.0, 550.0, 440.0);
+  return mix(vec3(1.0), 0.5 + 0.5 * cos(phase), clamp(uGlassIrid, 0.0, 1.0));
 }
 
 // One frosted tap set, taken AT the already-refracted position so the blur rides the bend instead
@@ -955,27 +970,46 @@ void main(){
     col = mix(col, f, clamp(uGlassFrost, 0.0, 1.0));
   }
 
-  // Tint: the wave keeps its own palette, but as a colour the light picks up passing through
-  // rather than as a painted surface.
-  if (uGlassTint > 0.001) {
-    vec3 tint = applyColorGrade(waveBaseColor(vUv));
-    col = mix(col, col * tint * 1.6, clamp(uGlassTint, 0.0, 1.0));
-  }
+  // ---- the material itself ----
+  // This is what makes glass a MATERIAL and not a window. The ribbon's own palette is treated as
+  // transmitted light, absorbed over the sheet's own thickness: 2·path at normal incidence, longer
+  // as the surface turns away. A single-sided ribbon has no back face to measure against, so the
+  // chord is analytic. The result survives with nothing behind it — the page is simply what the
+  // colour is absorbed OUT of.
+  float ndv = clamp(abs(dot(N, V)), 0.02, 1.0);
+  vec3 lit = applyColorGrade(waveBaseColor(vUv));
+  float chord = 2.0 * uGlassPath * pow(ndv, 0.40);
+  float trans = 1.0 - exp(-uGlassDensity * chord);
+  // True per-channel Beer-Lambert. The palette is read as what the sheet LETS THROUGH, so its dark
+  // channels absorb and its bright ones pass: pink glass over cream paper stays pink instead of
+  // washing to cream. The alternative — normalising to the brightest channel and tinting — can only
+  // ever lighten, so deep glass came out as a pale film however far its thickness was pushed.
+  // The palette sets the HUE of what gets through; density sets how much is stopped. Every channel
+  // absorbs something (the 0.9 keeps the floor above zero), so thickness DARKENS as well as tints —
+  // which is the part that reads as a solid volume. Deriving absorption straight from the palette
+  // instead fails on this library's bright palettes: 1-lit is then near zero, nothing is absorbed,
+  // and thick glass comes out as pale as thin.
+  vec3 hue = lit / max(max(lit.r, max(lit.g, lit.b)), 0.001);
+  vec3 sigma = uGlassDensity * (1.0 - hue * 0.9);
+  vec3 transmittance = exp(-sigma * chord);
+  col = col * mix(vec3(1.0), transmittance, clamp(uGlassTint, 0.0, 1.0));
 
-  // Specular from a REAL half-vector, not a baked rim ramp, so the glint moves with the light and
-  // the surface. Falls back to a fixed key when the scene has no lights.
-  vec3 L = uNumLights > 0 ? normalize(uLightPos[0] - vWorldPos) : normalize(vec3(-0.4, 0.8, 0.7));
-  vec3 H = normalize(L + V);
-  float specLobe = pow(max(dot(N, H), 0.0), 48.0);
-  float spec = (specLobe + rim * 0.35) * uGlassSpec;
-  float luma = dot(col, vec3(0.299, 0.587, 0.114));
-  // Over a dark backdrop the glint adds; over a bright one it darkens. Without this the rim simply
-  // disappears on the warm paper most of these scenes use.
-  float darkBlend = smoothstep(0.25, 0.7, luma);
-  col = max(mix(col + spec, col * (1.0 - spec), darkBlend), 0.0);
+  vec3 film = thinFilm(ndv);
 
-  // Vibrancy: pull the interior toward mid-grey — the haze that says "glass" rather than "hole".
-  col += (0.5 - luma) * uGlassVibrancy;
+  // Fresnel: at a grazing angle the sheet stops transmitting and starts mirroring. With nothing to
+  // mirror it reflects the page, which is exactly what glass on paper does.
+  float f0 = pow((uGlassIor - 1.0) / (uGlassIor + 1.0), 2.0);
+  float F = f0 + (1.0 - f0) * pow(1.0 - ndv, 5.0);
+  // The reflection weight is deliberately LOW. Over a dark room the bounce is the only thing
+  // describing the solid and wants to dominate; over bright paper the same weight turns the whole
+  // sheet white and the colour we just absorbed is thrown away.
+  col = mix(col, mix(uClearColor, vec3(1.0), 0.35) * film, F * (0.18 + uGlassIrid * 0.4));
+
+  // Rim. The window is WIDE on purpose: a band that only covers the last few degrees before
+  // edge-on is thinner than a pixel on a ribbon, and a knob nothing responds to is not subtle, it
+  // is broken. A narrow darker band just inside gives the edge a lip rather than a glow.
+  col = mix(col, film, smoothstep(mix(0.62, 0.42, uGlassIrid), 1.0, 1.0 - ndv) * uGlassRim);
+  col *= 1.0 - smoothstep(0.62, 0.86, 1.0 - ndv) * 0.10;
 
   float alpha = uOpacity;
   if (uEdgeFeather > 0.0) {
