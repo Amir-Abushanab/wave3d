@@ -8,6 +8,7 @@ import {
   vertexShader,
   fragmentShader,
   lineFragmentShader,
+  glassFragmentShader,
   postVertexShader,
   postFragmentShader,
   ditherFragmentShader,
@@ -58,6 +59,13 @@ import {
   ensureStudioConfig,
 } from "../config/model";
 import type { StudioConfig, WaveConfig, BlendMode, CameraFit, DissolveAxis } from "../config/model";
+
+/** Which fragment program a wave's theme wants. */
+function fragmentFor(sc: WaveConfig | undefined): string {
+  if (sc?.theme === "wireframe") return lineFragmentShader;
+  if (sc?.theme === "glass") return glassFragmentShader;
+  return fragmentShader;
+}
 
 /** How opaque a wave's between-strand colour is. Absent is the page background at full strength (the
  *  theme as it always drew); `"transparent"` or an 8-digit hex carries its own alpha. */
@@ -376,6 +384,8 @@ export class WaveRenderer {
 
   // 2D palette textures (+ any palette videos) live per-wave — see WavePalette on each Wave.
   private backgroundTexture?: THREE.Texture;
+  /** The frame behind the glass waves — allocated only once a wave asks for the glass theme. */
+  private backdropTarget?: THREE.WebGLRenderTarget;
   private backgroundSig = "";
   private backgroundImage?: HTMLImageElement;
   private backgroundImageUrl = "";
@@ -646,6 +656,20 @@ export class WaveRenderer {
       uCreaseSoftness: { value: 1.0 },
       uEdgeFade: { value: 0.06 },
       uEdgeFeather: { value: 0.1 }, // ribbon-edge softness (read only under EDGE_FEATHER)
+      // Glass theme. uBackdrop is everything drawn BEHIND this wave; it is null on the backdrop
+      // pass itself, because binding a target as a texture while rendering into it is a
+      // framebuffer feedback loop and the frame is undefined.
+      uBackdrop: { value: null as THREE.Texture | null },
+      uGlassStrength: { value: 28 },
+      uGlassChroma: { value: 0.45 },
+      uGlassFrost: { value: 0.25 },
+      uGlassSpec: { value: 0.9 },
+      uGlassVibrancy: { value: 0.12 },
+      uGlassTint: { value: 0.25 },
+      uGlassRimPower: { value: 1.5 },
+      uGlassRipple: { value: 0 },
+      uGlassRippleScale: { value: 0.012 },
+      uGlassFlow: { value: 0.9 },
       uOpacity: { value: 1 },
       uSquared: { value: 1 }, // "squared" deep-colour mode: square the colour in-shader (see applyBlendMode)
       // Seed from the CURRENT drawing buffer, not (1,1): resize() is the only other writer, so a wave
@@ -840,8 +864,10 @@ export class WaveRenderer {
       vertexShader,
       // solid theme = surfaceColor shader; wireframe theme = thin-line shader.
       // Swapped live in refresh() when the wave's theme changes.
-      fragmentShader: sc?.theme === "wireframe" ? lineFragmentShader : fragmentShader,
-      transparent: true,
+      fragmentShader: fragmentFor(sc),
+      // Glass draws OPAQUE with depth write on: the see-through is sampled from the backdrop, not
+      // blended. That is what keeps overlapping sheets robust — no sorting, no order dependence.
+      transparent: sc?.theme !== "glass",
       depthTest: true,
       depthWrite: true,
       side: THREE.DoubleSide,
@@ -867,7 +893,7 @@ export class WaveRenderer {
     }
     // Swap the fragment shader when this wave's theme changes: solid surfaceColor <->
     // wireframe thin-line. Three recompiles the program on needsUpdate.
-    const wantFrag = sc.theme === "wireframe" ? lineFragmentShader : fragmentShader;
+    const wantFrag = fragmentFor(sc);
     if (material.fragmentShader !== wantFrag) {
       material.fragmentShader = wantFrag;
       changed = true;
@@ -1069,6 +1095,20 @@ export class WaveRenderer {
       hexToLinearVec3(sc.depthTintColor ?? "#0a2540", u.uDepthTintColor.value as THREE.Vector3);
       u.uEdgeFade.value = sc.edgeFade;
       u.uEdgeFeather.value = sc.edgeFeather ?? 0.1;
+      if (sc.theme === "glass") {
+        // The page behind a transparent scene — what a glass sample composites over.
+        hexToLinearVec3(this.config.background, u.uClearColor.value as THREE.Vector3);
+        u.uGlassStrength.value = sc.glassStrength ?? 28;
+        u.uGlassChroma.value = sc.glassChroma ?? 0.45;
+        u.uGlassFrost.value = sc.glassFrost ?? 0.25;
+        u.uGlassSpec.value = sc.glassSpec ?? 0.9;
+        u.uGlassVibrancy.value = sc.glassVibrancy ?? 0.12;
+        u.uGlassTint.value = sc.glassTint ?? 0.25;
+        u.uGlassRimPower.value = sc.glassRimPower ?? 1.5;
+        u.uGlassRipple.value = sc.glassRipple ?? 0;
+        u.uGlassRippleScale.value = sc.glassRippleScale ?? 0.012;
+        u.uGlassFlow.value = sc.glassFlow ?? 0.9;
+      }
       // Lights + ambient are scene-level (shared by every wave).
       const lights = this.config.lights ?? [];
       u.uAmbient.value = this.config.ambient ?? 0.45;
@@ -1948,7 +1988,46 @@ export class WaveRenderer {
 
   /** Draw the composed frame. WebGL runs the EffectComposer; WebGPU runs a node post chain. */
   protected renderComposed(): void {
+    this.renderBackdrop();
     this.composer.render();
+  }
+
+  /** Capture what sits BEHIND the glass waves, so they have something to bend.
+   *
+   *  Glass is drawn opaque and fakes its see-through by sampling this texture, which is why
+   *  overlapping sheets need no sorting. The pass is skipped entirely when no wave asks for it, so
+   *  a scene without glass renders exactly as before.
+   *
+   *  The texture MUST be unbound while we render into it: binding a target as a texture while it is
+   *  the render target is a framebuffer feedback loop, and the frame is undefined. */
+  private renderBackdrop(): void {
+    const glass: THREE.Mesh[] = [];
+    for (let i = 0; i < this.waves.length; i++) {
+      const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
+      if (sc?.theme === "glass") glass.push(this.waves[i].mesh);
+    }
+    if (glass.length === 0) {
+      if (this.backdropTarget)
+        for (const w of this.waves) w.material.uniforms.uBackdrop.value = null;
+      return;
+    }
+    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    if (!this.backdropTarget) {
+      this.backdropTarget = new THREE.WebGLRenderTarget(size.x, size.y, {
+        depthBuffer: true,
+        stencilBuffer: false,
+      });
+    } else if (this.backdropTarget.width !== size.x || this.backdropTarget.height !== size.y) {
+      this.backdropTarget.setSize(size.x, size.y);
+    }
+    for (const w of this.waves) w.material.uniforms.uBackdrop.value = null; // break the loop
+    for (const m of glass) m.visible = false;
+    const prevTarget = this.renderer.getRenderTarget();
+    this.renderer.setRenderTarget(this.backdropTarget);
+    this.renderer.render(this.scene, this.camera);
+    this.renderer.setRenderTarget(prevTarget);
+    for (const m of glass) m.visible = true;
+    for (const w of this.waves) w.material.uniforms.uBackdrop.value = this.backdropTarget.texture;
   }
 
   /** Resize the post chain's render targets. */
@@ -1960,6 +2039,8 @@ export class WaveRenderer {
   /** Release the post chain's GPU resources. */
   protected disposePost(): void {
     this.composer.dispose();
+    this.backdropTarget?.dispose();
+    this.backdropTarget = undefined;
   }
 
   /** Render exactly one frame at the current time. */

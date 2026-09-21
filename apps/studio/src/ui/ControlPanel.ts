@@ -2551,7 +2551,7 @@ export class ControlPanel {
       finF
         .addBinding(wave, "theme", {
           label: "material",
-          options: { solid: "solid", wireframe: "wireframe" },
+          options: { solid: "solid", wireframe: "wireframe", glass: "glass" },
         })
         .on("change", () => {
           updateMaterialControls();

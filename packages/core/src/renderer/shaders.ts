@@ -823,6 +823,172 @@ void main(){
 }
 `;
 
+// ---- Glass theme: a refracting sheet ----
+// The ribbon stops being a coloured surface and becomes a LENS over whatever is behind it. The
+// backdrop (everything drawn before this wave) arrives as a texture and is sampled at an offset
+// that follows the surface's own normal, so the bend is strongest where the sheet turns away from
+// the camera and vanishes where it faces us — which is what compresses an edge and reads as
+// thickness. Three ingredients carry the look, all borrowed from 2D "liquid glass" work and
+// re-derived against a real normal instead of a baked rounded-rect map:
+//
+//   · dispersion — the three channels sample at slightly different offsets, so edges fringe.
+//   · adaptive specular — the glint ADDS over a dark backdrop and DARKENS over a bright one. A
+//     purely additive highlight disappears on white paper, which is most of this library's output.
+//   · vibrancy — a pull toward mid-grey inside the sheet, the haze that separates glass from a hole.
+//
+// Nothing here is time-varying: the LIQUID comes from the geometry, which is already moving, so the
+// refraction flows with the wave for free.
+export const glassFragmentShader = /* glsl */ `
+#define MAX_COLORS ${MAX_COLORS}
+#define MAX_MESH_POINTS ${MAX_MESH_POINTS}
+#define MAX_LIGHTS ${MAX_LIGHTS}
+#define PI 3.14159265359
+
+${simplex2d}
+
+${colorUniforms}
+uniform sampler2D uBackdrop;  // everything drawn behind this wave, in screen space
+uniform vec2 uResolution;
+uniform float uGlassStrength; // peak bend at the silhouette, in pixels
+uniform float uGlassChroma;
+uniform float uGlassFrost;
+uniform float uGlassSpec;
+uniform float uGlassVibrancy;
+uniform float uGlassTint;
+uniform float uGlassRimPower;
+uniform vec3 uClearColor;        // the page behind a transparent scene
+uniform float uGlassRipple;      // liquid: how hard the travelling waves tilt the normal
+uniform float uGlassRippleScale; // waves per world unit
+uniform float uGlassFlow;        // rad/s
+uniform float uTime;
+uniform float uAmbient;
+uniform int uNumLights;
+uniform vec3 uLightPos[MAX_LIGHTS];
+uniform vec3 uLightColor[MAX_LIGHTS];
+uniform float uLightIntensity[MAX_LIGHTS];
+uniform float uEdgeFeather;
+uniform float uEdgeFade;
+
+varying vec2 vUv;
+varying vec3 vWorldPos;
+varying vec3 vViewDir;
+varying vec4 vClipPosition;
+
+#ifdef DISSOLVE
+${dissolveChunk}
+#endif
+
+${colorFns}
+
+// LIQUID: four travelling trig waves added to the normal as a gradient. Trig rather than scrolled
+// noise on purpose — a scrolled texture drifts one way and reads as a conveyor belt, where crossing
+// waves interfere, which is what water does. The temporal frequencies are integer multiples of one
+// phase so a loop that closes for the motion closes for the water, and the four spatial vectors are
+// incommensurate so the pattern does not visibly repeat.
+vec3 rippleNormal(vec3 N, vec3 p){
+  float ph = uTime * uGlassFlow;
+  vec3 k1 = vec3( 1.00,  0.62,  0.31);
+  vec3 k2 = vec3(-0.54,  1.13,  0.47);
+  vec3 k3 = vec3( 0.36, -0.82,  1.07);
+  vec3 k4 = vec3(-1.18, -0.33,  0.72);
+  vec3 g = vec3(0.0);
+  g += k1 * cos(dot(p, k1) * uGlassRippleScale + ph);
+  g += k2 * cos(dot(p, k2) * uGlassRippleScale - ph * 2.0 + 1.7) * 0.65;
+  g += k3 * cos(dot(p, k3) * uGlassRippleScale + ph * 3.0 + 3.9) * 0.42;
+  g += k4 * cos(dot(p, k4) * uGlassRippleScale - ph + 2.6) * 0.55;
+  return normalize(N + g * uGlassRipple * 0.16);
+}
+
+// One frosted tap set, taken AT the already-refracted position so the blur rides the bend instead
+// of sitting flat underneath it. Five taps is enough at these radii; more just costs fill.
+// The backdrop is captured on a TRANSPARENT clear, because a scene with transparentBackground has
+// no background of its own — what is behind the wave is the page. So every sample composites over
+// the page colour by its own alpha; without this, glass over a transparent scene samples zeros and
+// renders as a black silhouette.
+vec3 backdropAt(vec2 uv){
+  vec4 s = texture2D(uBackdrop, uv);
+  return mix(uClearColor, s.rgb, s.a);
+}
+
+vec3 frostSample(vec2 uv, float radiusPx){
+  vec2 r = radiusPx / uResolution;
+  vec3 c = backdropAt(uv) * 0.36;
+  c += backdropAt(uv + vec2(r.x, 0.0)) * 0.16;
+  c += backdropAt(uv - vec2(r.x, 0.0)) * 0.16;
+  c += backdropAt(uv + vec2(0.0, r.y)) * 0.16;
+  c += backdropAt(uv - vec2(0.0, r.y)) * 0.16;
+  return c;
+}
+
+void main(){
+#ifdef DISSOLVE
+  if (dissolved(vUv, vClipPosition.xy / max(vClipPosition.w, 1.0e-6) * 0.5 + 0.5)) discard;
+#endif
+  vec3 N = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
+  // ORTHOGRAPHIC camera: every ray is parallel, so the view direction is the camera's forward axis,
+  // NOT a per-fragment vector to the eye. vViewDir (cameraPosition - world) is the perspective form
+  // and under ortho it fans out across the frame — using it swings the rim band and the specular
+  // across the ribbon as if the camera were inches away. Column 2 of the view matrix is that axis.
+  vec3 V = normalize(vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]));
+  if (uGlassRipple > 0.001) N = rippleNormal(N, vWorldPos);
+  // The rim band, in 3D: 1 where the surface grazes the eye, 0 where it faces us. This is the same
+  // curve the 2D work bakes as a rounded-rect inset, except it comes from the geometry, so it
+  // follows every fold and twist without anything being authored.
+  float rim = pow(1.0 - abs(dot(N, V)), max(uGlassRimPower, 0.001));
+
+  vec2 sUv = gl_FragCoord.xy / max(uResolution, vec2(1.0));
+  vec2 offPx = -N.xy * rim * uGlassStrength;
+  vec2 off = offPx / max(uResolution, vec2(1.0));
+
+  // Dispersion: the same bend at three slightly different scales, one per channel.
+  vec2 uvR = sUv + off * (1.0 + uGlassChroma * 0.2);
+  vec2 uvG = sUv + off * (1.0 + uGlassChroma * 0.1);
+  vec2 uvB = sUv + off;
+  vec3 col = vec3(backdropAt(uvR).r, backdropAt(uvG).g, backdropAt(uvB).b);
+  if (uGlassFrost > 0.001) {
+    float radius = uGlassFrost * 14.0;
+    vec3 f = vec3(
+      frostSample(uvR, radius).r,
+      frostSample(uvG, radius).g,
+      frostSample(uvB, radius).b
+    );
+    col = mix(col, f, clamp(uGlassFrost, 0.0, 1.0));
+  }
+
+  // Tint: the wave keeps its own palette, but as a colour the light picks up passing through
+  // rather than as a painted surface.
+  if (uGlassTint > 0.001) {
+    vec3 tint = applyColorGrade(waveBaseColor(vUv));
+    col = mix(col, col * tint * 1.6, clamp(uGlassTint, 0.0, 1.0));
+  }
+
+  // Specular from a REAL half-vector, not a baked rim ramp, so the glint moves with the light and
+  // the surface. Falls back to a fixed key when the scene has no lights.
+  vec3 L = uNumLights > 0 ? normalize(uLightPos[0] - vWorldPos) : normalize(vec3(-0.4, 0.8, 0.7));
+  vec3 H = normalize(L + V);
+  float specLobe = pow(max(dot(N, H), 0.0), 48.0);
+  float spec = (specLobe + rim * 0.35) * uGlassSpec;
+  float luma = dot(col, vec3(0.299, 0.587, 0.114));
+  // Over a dark backdrop the glint adds; over a bright one it darkens. Without this the rim simply
+  // disappears on the warm paper most of these scenes use.
+  float darkBlend = smoothstep(0.25, 0.7, luma);
+  col = max(mix(col + spec, col * (1.0 - spec), darkBlend), 0.0);
+
+  // Vibrancy: pull the interior toward mid-grey — the haze that says "glass" rather than "hole".
+  col += (0.5 - luma) * uGlassVibrancy;
+
+  float alpha = uOpacity;
+  if (uEdgeFeather > 0.0) {
+    float e = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));
+    alpha *= smoothstep(0.0, uEdgeFeather, e);
+  }
+  gl_FragColor = vec4(clamp(col, 0.0, 1.0), clamp(alpha, 0.0, 1.0));
+#ifdef PREMULTIPLIED_ALPHA
+  gl_FragColor.rgb *= gl_FragColor.a;
+#endif
+}
+`;
+
 // ---- Wireframe "thin-line" theme ----
 // The same wave geometry, but instead of a solid surface the colour is carved into fine
 // LENGTHWISE strands (abs(sin(uv.x * lineAmount)) — uv.x is the folded width, so lineAmount

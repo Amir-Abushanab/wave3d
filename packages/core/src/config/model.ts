@@ -284,8 +284,38 @@ export interface WaveConfig {
    */
   path?: PathPoint[];
 
-  // Material ("solid" surface vs "wireframe" line shader)
-  theme?: "solid" | "wireframe";
+  // Material ("solid" surface · "wireframe" line shader · "glass" refracting sheet)
+  theme?: "solid" | "wireframe" | "glass";
+
+  // ---- glass theme ----
+  /** Glass only: how far the ribbon bends what is behind it, in PIXELS at the silhouette. The bend
+   *  is strongest where the surface turns away from the camera and falls to nothing face-on, which
+   *  is what gives a sheet its edge compression. 0 is a clear pane. */
+  glassStrength?: number;
+  /** Glass only: per-channel split of that bend (dispersion). Past ~1 it reads as an oil sheen. */
+  glassChroma?: number;
+  /** Glass only: 0 clear · 1 frosted. Blurs the backdrop AT the refracted position, so the frost
+   *  rides the bend rather than sitting flat under it. */
+  glassFrost?: number;
+  /** Glass only: strength of the edge glint. It ADDS light over a dark backdrop and DARKENS over a
+   *  bright one, which is what keeps a rim visible on white paper. */
+  glassSpec?: number;
+  /** Glass only: how far the interior pulls toward mid-grey — legibility for anything read through
+   *  the sheet, and the haze that separates glass from a clear hole. */
+  glassVibrancy?: number;
+  /** Glass only: how much of the wave's own palette colour tints the glass (0 = colourless). */
+  glassTint?: number;
+  /** Glass only: LIQUID — how hard four travelling waves tilt the surface normal. Everything
+   *  downstream (dispersion, rim, specular) reads the rippled normal, so the shimmer stays coherent
+   *  instead of sitting on top as a separate layer. 0 is still glass, just not moving. */
+  glassRipple?: number;
+  /** Glass only: waves per world unit. */
+  glassRippleScale?: number;
+  /** Glass only: how fast they travel, rad/s. */
+  glassFlow?: number;
+  /** Glass only: falloff exponent of the rim band. Low = the whole sheet bends; high = only the
+   *  silhouette does, which is the crisp compression ring. */
+  glassRimPower?: number;
   lineAmount?: number;
   lineThickness?: number;
   lineDerivativePower?: number;
@@ -1154,6 +1184,20 @@ export function normalizeWave(s: WaveConfig): void {
   if (!Number.isFinite(s.radialCone)) s.radialCone = 0;
   if (!Number.isFinite(s.radialSwirl)) s.radialSwirl = 0;
   if (typeof s.theme !== "string") s.theme = "solid";
+  // Glass knobs are PRESENT-ONLY: a config without them is untouched, and the defaults below only
+  // apply once a wave opts into the theme.
+  if (s.theme === "glass") {
+    if (!Number.isFinite(s.glassStrength)) s.glassStrength = 28;
+    if (!Number.isFinite(s.glassChroma)) s.glassChroma = 0.45;
+    if (!Number.isFinite(s.glassFrost)) s.glassFrost = 0.25;
+    if (!Number.isFinite(s.glassSpec)) s.glassSpec = 0.9;
+    if (!Number.isFinite(s.glassVibrancy)) s.glassVibrancy = 0.12;
+    if (!Number.isFinite(s.glassTint)) s.glassTint = 0.25;
+    if (!Number.isFinite(s.glassRimPower)) s.glassRimPower = 1.5;
+    if (!Number.isFinite(s.glassRipple)) s.glassRipple = 0;
+    if (!Number.isFinite(s.glassRippleScale)) s.glassRippleScale = 0.012;
+    if (!Number.isFinite(s.glassFlow)) s.glassFlow = 0.9;
+  }
   if (!Number.isFinite(s.lineAmount)) s.lineAmount = 425;
   if (!Number.isFinite(s.lineThickness)) s.lineThickness = 1;
   if (!Number.isFinite(s.lineDerivativePower)) s.lineDerivativePower = 0.95;
