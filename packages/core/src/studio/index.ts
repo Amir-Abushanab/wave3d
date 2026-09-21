@@ -3,6 +3,7 @@ import type { StudioWaveRenderer } from "./StudioWaveRenderer";
 
 export * from "./randomize";
 export { StudioWaveRenderer } from "./StudioWaveRenderer";
+export type { GizmoMode } from "./StudioWaveRenderer";
 export { createThumbHost, prepThumbConfig, renderThumbFrame } from "./thumbnail";
 
 /**

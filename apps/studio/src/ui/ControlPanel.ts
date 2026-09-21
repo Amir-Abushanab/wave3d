@@ -3,7 +3,7 @@ import waveStudioLogoUrl from "../assets/favicon.png?inline";
 import principleStashMarkUrl from "../assets/principle-stash.svg?inline";
 import { injectStyleOnce } from "../util/dom";
 import { flashButtonSuccess, flashButtonError } from "./buttonFeedback";
-import { showPathHints } from "./PathHintBar";
+import { showPathHints, showWaveHints } from "./PathHintBar";
 import { roundTo } from "../util/math";
 import {
   resizeWaves,
@@ -43,7 +43,7 @@ import {
   randomizePostFx,
   randomizeWave,
 } from "@wave3d/core/studio";
-import type { StudioWaveRenderer } from "@wave3d/core/studio";
+import type { GizmoMode, StudioWaveRenderer } from "@wave3d/core/studio";
 import { PALETTE_MAPS, buildPaletteCanvas, paletteMapCanvas } from "@wave3d/core/renderer";
 import { buildHeroPaletteCanvas } from "@wave3d/core/renderer";
 import { PARTICLE_PRESETS } from "@wave3d/core/presets";
@@ -2152,6 +2152,18 @@ export class ControlPanel {
     };
     // Path editing is all direct manipulation, so the gestures have to be on screen while it is on —
     // and the panel has to rebuild, since its Path buttons read "Add"/"Clear" off the wave's state.
+    // Whole-wave transform editing has the same problem as path editing: the gestures are on the
+    // canvas, not in the panel, so they have to be on screen while the mode is on.
+    this.renderer.onWaveEditChanged = (waveIndex: number) => {
+      showWaveHints(
+        waveIndex,
+        () => void this.renderer.leaveEditing(),
+        this.config.waves[waveIndex]?.name,
+        this.renderer.getGizmoMode(),
+      );
+      this.focusWave(waveIndex < 0 ? null : waveIndex);
+      this.scheduleRebuild();
+    };
     this.renderer.onPathEditChanged = (waveIndex: number) => {
       // The bar's Done button leaves the mode, which is the only exit that is visible on screen.
       showPathHints(
@@ -2845,10 +2857,11 @@ export class ControlPanel {
       wavesF
         .addBinding(gizmoProxy, "mode", {
           label: "gizmo",
-          options: { move: "translate", rotate: "rotate" },
+          options: { move: "translate", rotate: "rotate", resize: "scale" },
         })
         .on("change", (ev) => {
-          this.renderer.setGizmoMode(ev.value as "translate" | "rotate");
+          this.renderer.setGizmoMode(ev.value as GizmoMode);
+          this.scheduleRebuild();
         });
     }
     cfg.waves.forEach((wave, i) => buildWaveFolder(wavesF, wave, i));

@@ -22,6 +22,14 @@ interface Hint {
   text: string;
 }
 
+const WAVE_HINTS: Hint[] = [
+  { icon: GESTURE_ICONS.left, text: "Drag the gizmo to move the whole wave" },
+  { icon: GESTURE_ICONS.left, text: "Drag the marker itself to slide it freely" },
+  { icon: GESTURE_ICONS.doubleLeft, text: "Double-click this wave again to shape its points" },
+  { icon: GESTURE_ICONS.doubleLeft, text: "Double-click another wave to select that one" },
+  { icon: GESTURE_ICONS.doubleLeft, text: "Double-click empty space to finish" },
+];
+
 const HINTS: Hint[] = [
   { icon: GESTURE_ICONS.left, text: "Drag the ribbon to shape it" },
   { icon: GESTURE_ICONS.left, text: "Shift-drag for a tighter push" },
@@ -33,6 +41,11 @@ const HINTS: Hint[] = [
 ];
 
 let card: HTMLElement | undefined;
+/** Pending removal from a hide that is still fading, so a show inside that window can cancel it
+ *  and REUSE the element — stepping points → whole wave hides and shows within a few ms, and two
+ *  cards would otherwise overlap for the length of the fade. */
+let removeTimer: ReturnType<typeof setTimeout> | undefined;
+let fading: HTMLElement | undefined;
 /** The panel's own bottom padding, to put back when the card goes. */
 let padWas: string | undefined;
 
@@ -61,11 +74,44 @@ function row(h: Hint): HTMLElement {
   return line;
 }
 
+/** Show the cheatsheet for the wave being MOVED (whole-wave transform), or hide it at -1. The
+ *  gizmo keys are listed because nothing on screen advertises them. */
+export function showWaveHints(
+  waveIndex: number,
+  onDone?: () => void,
+  waveName?: string,
+  gizmo: "translate" | "rotate" | "scale" = "translate",
+): void {
+  const label = gizmo === "translate" ? "Moving" : gizmo === "rotate" ? "Rotating" : "Resizing";
+  renderCard(waveIndex, `${label} ${waveName ?? `wave ${waveIndex + 1}`}`, WAVE_HINTS, onDone, [
+    { key: "G", what: "move" },
+    { key: "R", what: "rotate" },
+    { key: "S", what: "resize" },
+  ]);
+}
+
 /** Show the cheatsheet for the wave being shaped, or hide it when `waveIndex` is -1. */
 export function showPathHints(waveIndex: number, onDone?: () => void, waveName?: string): void {
+  renderCard(waveIndex, `Shaping ${waveName ?? `wave ${waveIndex + 1}`}`, HINTS, onDone);
+}
+
+function renderCard(
+  waveIndex: number,
+  titleText: string,
+  hints: Hint[],
+  onDone?: () => void,
+  keys?: { key: string; what: string }[],
+): void {
   if (waveIndex < 0) {
     hidePathHints();
     return;
+  }
+  if (!card && fading) {
+    // A hide is mid-fade: take that element back instead of stacking a second one on top of it.
+    clearTimeout(removeTimer);
+    removeTimer = undefined;
+    card = fading;
+    fading = undefined;
   }
   if (!card) {
     card = document.createElement("div");
@@ -83,10 +129,28 @@ export function showPathHints(waveIndex: number, onDone?: () => void, waveName?:
   card.textContent = "";
 
   const title = document.createElement("div");
-  title.textContent = `Shaping ${waveName ?? `wave ${waveIndex + 1}`}`;
+  title.textContent = titleText;
   title.style.cssText = "font-weight:600;letter-spacing:0.01em;margin-block-end:1px;";
   card.appendChild(title);
-  for (const h of HINTS) card.appendChild(row(h));
+  for (const h of hints) card.appendChild(row(h));
+  if (keys?.length) {
+    const keyRow = document.createElement("div");
+    keyRow.style.cssText =
+      "display:flex;gap:6px;align-items:center;margin-block-start:3px;opacity:0.8;";
+    for (const k of keys) {
+      const kb = document.createElement("kbd");
+      kb.textContent = k.key;
+      kb.title = k.what;
+      kb.style.cssText =
+        "font:inherit;font-weight:600;padding:1px 5px;border-radius:4px;" +
+        "background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.16);";
+      const lbl = document.createElement("span");
+      lbl.textContent = k.what;
+      lbl.style.cssText = "opacity:0.75;margin-inline-end:4px;";
+      keyRow.append(kb, lbl);
+    }
+    card.appendChild(keyRow);
+  }
 
   const done = document.createElement("button");
   done.type = "button";
@@ -122,10 +186,14 @@ export function hidePathHints(): void {
   if (!card) return;
   const el = card;
   card = undefined;
+  fading = el;
   const panel = panelEl();
   if (panel) panel.style.paddingBottom = padWas ?? "";
   padWas = undefined;
   el.style.opacity = "0";
   el.style.transform = "translateY(8px)";
-  setTimeout(() => el.remove(), 220);
+  removeTimer = setTimeout(() => {
+    if (fading === el) fading = undefined;
+    el.remove();
+  }, 220);
 }

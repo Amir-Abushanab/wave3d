@@ -16,6 +16,9 @@ import { roundTo } from "../util/math";
 // The minimap's fixed 3/4 vantage direction.
 const MINIMAP_VANTAGE = new THREE.Vector3(0.85, 0.6, 1).normalize();
 
+/** What the 3D gizmo does to the selected wave. */
+export type GizmoMode = "translate" | "rotate" | "scale";
+
 export class StudioWaveRenderer extends WaveRenderer {
   /** Set while the panel drives the camera, so orbit's 'change' doesn't re-refresh the
    *  panel mid-drag (the panel already knows the new value). */
@@ -80,7 +83,10 @@ export class StudioWaveRenderer extends WaveRenderer {
    *  point, and how far along the ribbon the push reaches. */
   private sculptState?: { s: number; last: THREE.Vector3; radius: number };
   /** Gizmo operation: "translate" moves the handle, "rotate" spins the whole wave. */
-  private gizmoMode: "translate" | "rotate" = "translate";
+  private gizmoMode: GizmoMode = "translate";
+  /** Wave scale at the start of a scale drag, with the helper scale it started from, so the
+   *  drag applies as a RATIO — the helper is also resized every frame to stay screen-constant. */
+  private scaleDragStart?: { helper: THREE.Vector3; wave: { x: number; y: number; z: number } };
   /** Active free screen-plane drag of a handle (grab anywhere on the marker, camera locked). */
   private dragState?: { helper: THREE.Mesh; offset: THREE.Vector3 };
   private readonly dragPlane = new THREE.Plane();
@@ -107,6 +113,10 @@ export class StudioWaveRenderer extends WaveRenderer {
   /** Fires when path editing starts (the wave's index) or ends (-1), so the app can put the gestures
    *  on screen — none of them are discoverable from the canvas alone. */
   onPathEditChanged?: (waveIndex: number) => void;
+
+  /** Set by the panel: fired when whole-wave transform editing starts/stops (-1 = off), so the
+   *  gestures can be shown and the panel's gizmo controls rebuilt. */
+  onWaveEditChanged?: (waveIndex: number) => void;
 
   // ---------------- 3D editing (draggable gizmo: lights or wave/waves) ----------------
 
@@ -245,22 +255,23 @@ export class StudioWaveRenderer extends WaveRenderer {
       : { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
   }
 
-  /** Switch the wave-edit gizmo between moving handles and rotating the whole wave. Rotate
-   *  targets the whole-wave box (config.rotation), so selecting it makes the intent obvious. */
-  setGizmoMode(mode: "translate" | "rotate"): void {
+  /** Switch the wave-edit gizmo between moving, rotating and resizing the whole wave. Rotate and
+   *  scale target the whole-wave box (config.rotation / config.scale), so selecting one makes the
+   *  intent obvious. */
+  setGizmoMode(mode: GizmoMode): void {
     this.gizmoMode = mode;
     this.transform?.setMode(mode);
-    // Rotate in LOCAL space so the gizmo rings reorient with the wave — a visual read-out of its
-    // current rotation; translate stays in world space so the arrows track the world axes.
-    this.transform?.setSpace(mode === "rotate" ? "local" : "world");
-    if (mode === "rotate" && this.editMode === "wave") {
+    // Rotate and scale work in LOCAL space so the gizmo reorients with the wave — a visual read-out
+    // of its current pose; translate stays in world space so the arrows track the world axes.
+    this.transform?.setSpace(mode === "translate" ? "world" : "local");
+    if (mode !== "translate" && this.editMode === "wave") {
       const waveIdx = this.waveHelpers.findIndex((h) => h.userData.kind === "wave");
       if (waveIdx >= 0) this.selectWaveHandle(waveIdx);
     }
     if (!this.running) this.renderOnce();
   }
 
-  getGizmoMode(): "translate" | "rotate" {
+  getGizmoMode(): GizmoMode {
     return this.gizmoMode;
   }
 
@@ -310,11 +321,32 @@ export class StudioWaveRenderer extends WaveRenderer {
 
   /** Arrow keys orbit the camera around the target (←/→ azimuth, ↑/↓ elevation). */
   private onKeyDown = (e: KeyboardEvent): void => {
-    // Escape leaves path editing — the way out of a mode you entered with a double-click.
-    if (e.key === "Escape" && this.editMode === "path") {
+    // Escape steps out ONE level, mirroring how double-click steps in: points → whole wave → off.
+    if (e.key === "Escape" && (this.editMode === "path" || this.editMode === "wave")) {
       e.preventDefault();
-      void this.setPathEditMode(-1);
+      if (this.editMode === "path") {
+        const wave = this.pathWave;
+        this.onPathEditChanged?.(-1);
+        void this.enterWaveEdit(wave);
+      } else {
+        void this.leaveEditing();
+      }
       return;
+    }
+    // Blender-style gizmo keys while a wave is selected: G move, R rotate, S scale.
+    if (this.editMode === "wave" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const t = e.target instanceof HTMLElement ? e.target : null;
+      if (!(t && (t.closest("#panel") || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))) {
+        const key = e.key.toLowerCase();
+        const mode =
+          key === "g" ? "translate" : key === "r" ? "rotate" : key === "s" ? "scale" : "";
+        if (mode) {
+          e.preventDefault();
+          this.setGizmoMode(mode as GizmoMode);
+          this.onWaveEditChanged?.(this.selectedWave);
+          return;
+        }
+      }
     }
     if (!this.mainOrbitOn || !this.orbit || this.editing) return;
     const t = e.target instanceof HTMLElement ? e.target : null;
@@ -792,7 +824,18 @@ export class StudioWaveRenderer extends WaveRenderer {
     this.transform = new TransformControls(this.camera, this.renderer.domElement);
     this.transform.setMode("translate");
     this.transform.addEventListener("dragging-changed", (e) => {
-      if (this.orbit) this.orbit.enabled = !(e as unknown as { value: boolean }).value;
+      const dragging = (e as unknown as { value: boolean }).value;
+      if (this.orbit) this.orbit.enabled = !dragging;
+      // A scale drag multiplies the HELPER's scale, but the helper is re-scaled every frame to keep
+      // a constant screen size — so its absolute scale means nothing. Snapshot both at drag start
+      // and apply the ratio instead.
+      if (dragging && this.gizmoMode === "scale" && this.editMode === "wave") {
+        const h = this.waveHelpers[this.selectedWave];
+        const sc = this.config.waves[this.selectedWave];
+        if (h && sc) this.scaleDragStart = { helper: h.scale.clone(), wave: { ...sc.scale } };
+      } else if (!dragging) {
+        this.scaleDragStart = undefined;
+      }
     });
     this.transform.addEventListener("objectChange", this.onGizmoMoved);
     // (onGizmoMoved routes to the light- or wave-drag handler based on the active mode.)
@@ -894,10 +937,41 @@ export class StudioWaveRenderer extends WaveRenderer {
         return;
       }
     }
-    // Not in path mode (or clicked off the ribbon): enter on whichever wave was hit, leave if none.
-    // Double-clicking empty space is the way OUT, alongside Escape.
-    void this.setPathEditMode(this.pickWave());
+    // A double-click ESCALATES rather than jumping straight to the spline: first one selects the
+    // wave and hands you the move/rotate/scale gizmo, a second one on that same wave goes a level
+    // deeper into its points. Empty space steps all the way out, alongside Escape.
+    const hitWave = this.pickWave();
+    if (hitWave < 0) {
+      void this.leaveEditing();
+      return;
+    }
+    if (this.editMode === "path") {
+      void this.setPathEditMode(hitWave); // already in the spline: move it to the wave you clicked
+      return;
+    }
+    if (this.editMode === "wave" && hitWave === this.selectedWave) {
+      void this.setPathEditMode(hitWave); // second click on the selected wave: into its points
+      return;
+    }
+    void this.enterWaveEdit(hitWave);
   };
+
+  /** Select a wave and show its transform gizmo — the first stop of a double-click, and what the
+   *  panel's "drag waves in 3D" toggle lands on. */
+  async enterWaveEdit(waveIndex: number): Promise<void> {
+    if (waveIndex < 0 || !this.config.waves[waveIndex]) return;
+    this.selectedWave = waveIndex;
+    if (this.editMode !== "wave") await this.setEditMode("wave");
+    this.selectWaveHandle(waveIndex);
+    this.onWaveEditChanged?.(waveIndex);
+  }
+
+  /** Leave whichever edit level is active and tell the panel about both. */
+  async leaveEditing(): Promise<void> {
+    await this.setEditMode("none");
+    this.onPathEditChanged?.(-1);
+    this.onWaveEditChanged?.(-1);
+  }
 
   /**
    * Which wave a click meant. An exact hit on a wave's mesh wins, but that mesh is the UNDEFORMED
@@ -1415,6 +1489,13 @@ export class StudioWaveRenderer extends WaveRenderer {
       wave.rotation.x = roundTo(THREE.MathUtils.radToDeg(h.rotation.x), 2);
       wave.rotation.y = roundTo(THREE.MathUtils.radToDeg(h.rotation.y), 2);
       wave.rotation.z = roundTo(THREE.MathUtils.radToDeg(h.rotation.z), 2);
+    } else if (this.gizmoMode === "scale") {
+      const st = this.scaleDragStart;
+      if (!st) return;
+      const MIN = 0.01;
+      wave.scale.x = roundTo(Math.max(MIN, (st.wave.x * h.scale.x) / st.helper.x), 3);
+      wave.scale.y = roundTo(Math.max(MIN, (st.wave.y * h.scale.y) / st.helper.y), 3);
+      wave.scale.z = roundTo(Math.max(MIN, (st.wave.z * h.scale.z) / st.helper.z), 3);
     } else {
       wave.position.x = roundTo(h.position.x, 2);
       wave.position.y = roundTo(h.position.y, 2);
@@ -1629,6 +1710,9 @@ export class StudioWaveRenderer extends WaveRenderer {
     if (this.overlay && this.editing && !this.capturing && this.overlay.children.length > 0) {
       const helpers = this.editMode === "wave" ? this.waveHelpers : this.lightHelpers;
       for (const h of helpers) {
+        // While a SCALE drag is live the gizmo owns the selected helper's scale — rewriting it here
+        // every frame would stomp the drag and the ratio it is measured against.
+        if (this.scaleDragStart && h === this.waveHelpers[this.selectedWave]) continue;
         h.scale.setScalar(Math.max(0.1, this.camera.position.distanceTo(h.position) * 0.09));
       }
       this.renderer.autoClear = false;
