@@ -303,7 +303,10 @@ export interface WaveConfig {
   /** Glass only: how far the interior pulls toward mid-grey — legibility for anything read through
    *  the sheet, and the haze that separates glass from a clear hole. */
   glassVibrancy?: number;
-  /** Glass only: how much of the wave's own palette colour tints the glass (0 = colourless). */
+  /** Glass only: how much of the wave's own palette colour tints the glass (0 = colourless).
+   *  Deliberately LOW by default. Glass reads as glass because of what is behind it being bent, not
+   *  because the sheet carries colour — push this up and it stops looking like glass and starts
+   *  looking like a filled material that happens to be shiny. */
   glassTint?: number;
   /** Glass only: HALF the optical path at normal incidence — the sheet's thickness. With density it
    *  sets how saturated the transmitted colour gets. This is what makes glass a material rather
@@ -1222,25 +1225,25 @@ export function normalizeWave(s: WaveConfig): void {
   // Glass knobs are PRESENT-ONLY: a config without them is untouched, and the defaults below only
   // apply once a wave opts into the theme.
   if (s.theme === "glass") {
-    if (!Number.isFinite(s.glassStrength)) s.glassStrength = 28;
-    if (!Number.isFinite(s.glassChroma)) s.glassChroma = 0.45;
-    if (!Number.isFinite(s.glassFrost)) s.glassFrost = 0.25;
-    if (!Number.isFinite(s.glassSpec)) s.glassSpec = 0.9;
-    if (!Number.isFinite(s.glassVibrancy)) s.glassVibrancy = 0.12;
-    if (!Number.isFinite(s.glassTint)) s.glassTint = 0.9;
-    if (!Number.isFinite(s.glassRimPower)) s.glassRimPower = 1.5;
+    if (!Number.isFinite(s.glassStrength)) s.glassStrength = 90;
+    if (!Number.isFinite(s.glassChroma)) s.glassChroma = 0.7;
+    if (!Number.isFinite(s.glassFrost)) s.glassFrost = 0.08;
+    if (!Number.isFinite(s.glassSpec)) s.glassSpec = 1.2;
+    if (!Number.isFinite(s.glassVibrancy)) s.glassVibrancy = 0.05;
+    if (!Number.isFinite(s.glassTint)) s.glassTint = 0.12;
+    if (!Number.isFinite(s.glassRimPower)) s.glassRimPower = 1.2;
     if (!Number.isFinite(s.glassRipple)) s.glassRipple = 0;
     if (!Number.isFinite(s.glassRippleScale)) s.glassRippleScale = 0.012;
     if (!Number.isFinite(s.glassFlow)) s.glassFlow = 0.9;
-    if (!Number.isFinite(s.glassPath)) s.glassPath = 1;
-    if (!Number.isFinite(s.glassDensity)) s.glassDensity = 4;
-    if (!Number.isFinite(s.glassRim)) s.glassRim = 0.28;
+    if (!Number.isFinite(s.glassPath)) s.glassPath = 0.45;
+    if (!Number.isFinite(s.glassDensity)) s.glassDensity = 1.2;
+    if (!Number.isFinite(s.glassRim)) s.glassRim = 0.5;
     if (!Number.isFinite(s.glassIrid)) s.glassIrid = 0;
     if (!Number.isFinite(s.glassFilmNm)) s.glassFilmNm = 380;
     if (!Number.isFinite(s.glassIor)) s.glassIor = 1.45;
     if (!Number.isFinite(s.glassLayerGain)) s.glassLayerGain = 0.6;
     if (!Number.isFinite(s.glassFusion)) s.glassFusion = 0;
-    if (!Number.isFinite(s.glassCaustic)) s.glassCaustic = 0;
+    if (!Number.isFinite(s.glassCaustic)) s.glassCaustic = 0.4;
   }
   if (!Number.isFinite(s.lineAmount)) s.lineAmount = 425;
   if (!Number.isFinite(s.lineThickness)) s.lineThickness = 1;

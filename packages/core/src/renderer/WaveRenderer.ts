@@ -668,26 +668,26 @@ export class WaveRenderer {
       // pass itself, because binding a target as a texture while rendering into it is a
       // framebuffer feedback loop and the frame is undefined.
       uBackdrop: { value: null as THREE.Texture | null },
-      uGlassStrength: { value: 28 },
-      uGlassChroma: { value: 0.45 },
-      uGlassFrost: { value: 0.25 },
-      uGlassSpec: { value: 0.9 },
-      uGlassVibrancy: { value: 0.12 },
-      uGlassTint: { value: 0.9 },
-      uGlassRimPower: { value: 1.5 },
+      uGlassStrength: { value: 90 },
+      uGlassChroma: { value: 0.7 },
+      uGlassFrost: { value: 0.08 },
+      uGlassSpec: { value: 1.2 },
+      uGlassVibrancy: { value: 0.05 },
+      uGlassTint: { value: 0.12 },
+      uGlassRimPower: { value: 1.2 },
       uGlassRipple: { value: 0 },
       uGlassRippleScale: { value: 0.012 },
       uGlassFlow: { value: 0.9 },
-      uGlassPath: { value: 1 },
-      uGlassDensity: { value: 4 },
-      uGlassRim: { value: 0.28 },
+      uGlassPath: { value: 0.45 },
+      uGlassDensity: { value: 1.2 },
+      uGlassRim: { value: 0.5 },
       uGlassIrid: { value: 0 },
       uGlassFilmNm: { value: 380 },
       uGlassIor: { value: 1.45 },
       uLayers: { value: null as THREE.Texture | null },
       uGlassLayerGain: { value: 0.6 },
       uGlassFusion: { value: 0 },
-      uGlassCaustic: { value: 0 },
+      uGlassCaustic: { value: 0.4 },
       uGlassNormals: { value: null as THREE.Texture | null },
       uNormalPass: { value: 0 },
       uViewAxis: { value: new THREE.Vector3(0, 0, 1) },
@@ -1119,13 +1119,13 @@ export class WaveRenderer {
       if (sc.theme === "glass") {
         // The page behind a transparent scene — what a glass sample composites over.
         hexToLinearVec3(this.config.background, u.uClearColor.value as THREE.Vector3);
-        u.uGlassStrength.value = sc.glassStrength ?? 28;
-        u.uGlassChroma.value = sc.glassChroma ?? 0.45;
-        u.uGlassFrost.value = sc.glassFrost ?? 0.25;
-        u.uGlassSpec.value = sc.glassSpec ?? 0.9;
-        u.uGlassVibrancy.value = sc.glassVibrancy ?? 0.12;
-        u.uGlassTint.value = sc.glassTint ?? 0.9;
-        u.uGlassRimPower.value = sc.glassRimPower ?? 1.5;
+        u.uGlassStrength.value = sc.glassStrength ?? 90;
+        u.uGlassChroma.value = sc.glassChroma ?? 0.7;
+        u.uGlassFrost.value = sc.glassFrost ?? 0.08;
+        u.uGlassSpec.value = sc.glassSpec ?? 1.2;
+        u.uGlassVibrancy.value = sc.glassVibrancy ?? 0.05;
+        u.uGlassTint.value = sc.glassTint ?? 0.12;
+        u.uGlassRimPower.value = sc.glassRimPower ?? 1.2;
         u.uGlassRipple.value = sc.glassRipple ?? 0;
         u.uGlassRippleScale.value = sc.glassRippleScale ?? 0.012;
         // Snap the ripple to a whole number of cycles over loopSeconds, the same convention every
@@ -1141,15 +1141,15 @@ export class WaveRenderer {
                 (flow < 0 ? -1 : 1)
               : flow;
         }
-        u.uGlassPath.value = sc.glassPath ?? 1;
-        u.uGlassDensity.value = sc.glassDensity ?? 4;
-        u.uGlassRim.value = sc.glassRim ?? 0.28;
+        u.uGlassPath.value = sc.glassPath ?? 0.45;
+        u.uGlassDensity.value = sc.glassDensity ?? 1.2;
+        u.uGlassRim.value = sc.glassRim ?? 0.5;
         u.uGlassIrid.value = sc.glassIrid ?? 0;
         u.uGlassFilmNm.value = sc.glassFilmNm ?? 380;
         u.uGlassIor.value = sc.glassIor ?? 1.45;
         u.uGlassLayerGain.value = sc.glassLayerGain ?? 0.6;
         u.uGlassFusion.value = sc.glassFusion ?? 0;
-        u.uGlassCaustic.value = sc.glassCaustic ?? 0;
+        u.uGlassCaustic.value = sc.glassCaustic ?? 0.4;
       }
       // Lights + ambient are scene-level (shared by every wave).
       const lights = this.config.lights ?? [];
