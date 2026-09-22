@@ -1,5 +1,285 @@
 # @wave3d/core
 
+## 0.11.0
+
+### Minor Changes
+
+- [#31](https://github.com/Amir-Abushanab/wave3d/pull/31) [`4c8a1ac`](https://github.com/Amir-Abushanab/wave3d/commit/4c8a1acd08818df5ff8a5f82c4021a811990b750) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Disintegration — a wave can now come apart. `WaveConfig.dissolve` sweeps a front across the ribbon
+  and eats it away chunk by chunk, so the surface CRUMBLES rather than fading: holes open in it, the
+  holes merge, and the last fragments break off. Absent ⇒ intact, and the `DISSOLVE` path is never
+  compiled.
+
+  ```ts
+  dissolve: { amount: 0.3, axis: "screenX", reverse: true, band: 0.55, scale: 150, blocky: 0.75, dust: 1 }
+  ```
+
+  `amount` is the whole animation (0 whole, 1 gone, whatever the `band` fray width) and it is a
+  binding target, so `{ source: "scroll", target: "dissolveAmount", to: 1 }` snaps the wave as the page
+  moves. `scale` dices the sheet and `blocky` sets the chunk character, from organic tatters to hard
+  quantized cells.
+
+  **The axis can leave the ribbon.** `"length"` / `"width"` ride the wave's own uv and bend with it;
+  `"screenX"` / `"screenY"` are a straight line on the CANVAS, which is what lets a whole multi-wave
+  stack crumble as one object — give every wave the same axis and amount and they share one edge
+  however each is rotated. The crumb pattern stays on the surface either way.
+
+  **The dust is the surface.** `dissolve.dust` pins the wave's own `particles` field to that same
+  front: a mote does not exist until the front reaches its patch, then peels off and drifts on from
+  there, so the debris and the holes are one event instead of two effects that happen to overlap.
+  Under a screen-space front the debris also blows along the sweep, away from the part still standing.
+
+  Three supporting knobs, each inert at its default:
+
+  - `ParticlesConfig.shape: "square"` — a hard-edged screen-aligned chip, the blocky debris a dissolve
+    sheds — and `ParticlesConfig.blend: "normal"`, which alpha-blends the field instead of adding it.
+    Additive dust can only brighten, so it is invisible on a white page and can never read as dark;
+    `"normal"` is what soot, ash and ink need.
+  - `lineSharpness` (wireframe) steepens the strand profile, which turns `lineThickness` into a DUTY
+    CYCLE. The stripe is a soft ramp by default, so thickness alone goes from pale hairlines to flat
+    solid without ever passing through dense ink; hardening it gives engraved black strands with the
+    page still showing between them. `lineDepthFade` turns off the recede into the background colour,
+    which a deep or stacked composition needs — the default is tuned for a single ribbon.
+  - `radialCone` lifts the radial fan out of its own plane as it spreads, turning the flat plume into a
+    TRUMPET whose combed strands run down the slant into the throat — a shape neither the twists nor
+    the helix can reach, since a helix carries the ribbon around an axis but its WIDTH never follows a
+    slant. `radialSwirl` curls each arm around the throat (see above).
+
+  **`WaveConfig.path` — a centreline the ribbon is swept along, dragged in the studio.** Every other
+  deform bends a ribbon whose centreline is fixed, so none of them can make one that changes direction
+  more than once, crosses itself, or is wide here and narrow there. A path can, because it IS the
+  centreline: control points in the wave's local space, each with an optional `width` and `twist`.
+  Absent ⇒ the straight ribbon, byte-identical.
+
+  Points are swept by ARC LENGTH with a parallel-transported frame. Both matter: sampling by curve
+  parameter would bunch the strand comb wherever the author happened to crowd points, and a Frenet
+  frame would flip the ribbon 180° at every inflection. A path whose last point sits on its first is a
+  closed ring — that repeat is the whole declaration, rather than a `closed` flag for something the
+  points already say. `arcPath(turns)` builds one.
+
+  A straight path is exactly the identity for ANY wave — twists, helix and radial fan included — which
+  is what lets the studio give a ribbon a path on double-click without it moving. Points are where the
+  centreline goes in the wave's local space, and the ribbon's own centreline runs along z = −8, so
+  `straightPath()` sits there. `parity --path-identity` holds this to float noise on both backends.
+
+  **Double-click a ribbon in the studio and shape it like putty.** The primary gesture is dragging the
+  RIBBON, not a control point: the push falls off smoothly along the length, so only the part under the
+  cursor follows and the rest stays where you left it (Shift narrows the push from a palm to a
+  fingertip). The path densifies itself on the first sculpt, because a three-point path can only be
+  bent as a whole and that feels like bending wire rather than pressing clay. Control points remain for
+  precision — drag a handle, double-click one to remove it, double-click the ribbon to insert one — and
+  Escape leaves.
+
+  While the mode is on, a bar lists the gestures (none of them are discoverable from a canvas) and the
+  cursor reports what is under it: grab on the ribbon, pointer on a control point, move on empty space.
+
+  Picking goes through a proxy strip rebuilt from the current frames, because the ribbon's vertices are
+  only deformed on the GPU: a raycast against the wave's own mesh would hit the straight ribbon the
+  geometry was born as rather than the curve on screen. The frames themselves are baked into a small
+  texture the vertex shader samples, so a sculpt costs one 128×3 texture write per frame rather than an
+  80k-vertex geometry rebuild.
+
+  This REPLACES three controls added earlier in this same unreleased batch: `pinch` (a path's per-point
+  `width`), `wrapAmount` (a closed path) and `helixTaper` (a path whose points spiral outward). All
+  three were knobs for shapes the centreline already says.
+
+  `helix*` and `radial*` are NOT replaced, and the difference is worth knowing: a path SWEEPS the
+  ribbon with a transported frame, so it banks into its curves like a rollercoaster track, where a
+  helix TRANSLATES the ribbon around an axis, so it keeps facing the same way — the same coil, a
+  different object. The radial fan remaps the ribbon's WIDTH to an angle, which a centreline cannot do
+  at all. And the helix is animatable where a path is not: `helixPhase` / `helixTurns` / `helixRadius`
+  are binding targets, so scroll can spin a coil.
+
+  Rungs (`rungAmount`, the cross-wise stripe family) are now usable as a wave's PRIMARY striping rather
+  than just a DNA-ladder accent. `lineSharpness` hardens the merged coverage, after the rungs have been
+  folded in, so a cross-wise family reaches dense ink the same way a lengthwise one does; and a rung
+  whose period has gone sub-pixel now falls back to its ANALYTIC duty cycle — the flat tone those
+  strands average to — instead of being point-sampled once per period, which is both what a compressed
+  region should look like and where two backends previously stopped agreeing.
+
+  `edgeFeather` now applies to the WIREFRAME theme as well as the solid one. Without it a wireframe
+  ribbon stops dead at its end-cap — a flat cross-section that reads as a straight cut drawn across the
+  strands, glaring the moment a ribbon curls back into frame. Clear-gap strands also stop writing
+  DEPTH: they are thin transparent slivers layered many deep, and two sheets passing near-coplanar
+  would otherwise decide who occludes whom by depth precision, which is arbitrary and differs between
+  backends; with the write off they composite in wave order, which is stable.
+
+  `maxWidth` is **removed**. It multiplied the uv derivative inside the same power as `lineThickness`,
+  and pow(a·b, p) = pow(a, p)·pow(b, p) — so every value of it was already reachable by scaling the
+  thickness, and at `lineDerivativePower: 0` (what a close-framed wave wants) it did nothing at all.
+  The reference width is now the 1232 it always defaulted to, so a wave that left it alone is
+  byte-identical; a config that SET it renders with thicker strands, and the fix is one multiplication:
+  `lineThickness × (maxWidth / 1232) ^ lineDerivativePower`.
+
+  `lineGapColor` decides what sits between the strands, which is most of what a wireframe looks like.
+  Absent (the default, and what the theme has always drawn) the gaps take the page background: the wave
+  is a window onto the page, and being opaque the near fold HIDES the far one, which is what makes a
+  stack read as one solid object. A colour makes the ribbon its own body — bright combed lines on a
+  dark ground. `"transparent"`, or an 8-digit hex, leaves the gaps clear so stacked folds show through
+  each other: airier, at the cost of that occlusion. `radialSwirl` lets the radial
+  fan's ANGLE advance along the band as well as across it; radius already grows with uv.y, so angle
+  growing with it too is exactly what curls a straight arm into a spiral one wrapping the throat.
+
+  Two rendering fixes the look depends on. The hardened stripe's edge is floored by its own
+  SCREEN-SPACE derivative rather than a constant: a hard step on strands already thinner than a pixel
+  is the classic moire generator, and holding the transition at ~1.4 px makes the edge exactly as crisp
+  as the strand can support — razor-sharp where it resolves, box-filtered to a flat tone where it does
+  not. And a `"square"` particle now cuts its OWN shard from its quad — its own extent, proportion and
+  quarter-turn, with a squared extent for the heavy tail real rubble has — because a field of identical
+  squares reads as grain rather than debris.
+
+  **Wireframe strands can be lit.** Until now a strand's colour came from its uv alone, so it held one
+  tone wherever the surface turned — which is why a dense wireframe reads as hatching however it is
+  posed or coloured. `lineLight` (0..1) shades it with the same derivative normal, scene `lights` and
+  view-facing term the solid theme uses. `lineRound` goes further and bends the normal ACROSS each
+  stripe, so every strand is a half-round filament with a lit crest and dark flanks: that is what lets
+  a specular (`lineSpecular`) run along one strand and not its neighbour, and it is the difference
+  between a drawing of a combed surface and a combed surface. All three default to off, and the block
+  is only compiled when `lineLight` > 0.
+
+  One more thing worth knowing about the wireframe, learned the hard way: `lineDerivativePower` decides
+  whether a close-framed wave has any ink at all. It scales strand thickness by the screen-space uv
+  derivative — right for a ribbon seen whole, since strands then thicken where the surface turns away —
+  but the bigger a sheet gets on screen the smaller that derivative is, so framed close the strands
+  thin to pale grey exactly where they should be black. At 0, `lineThickness` alone is the duty cycle
+  and the strands stay crisp at any zoom (it also removes a derivative from the cross-backend budget:
+  the preset's parity went from 0.86% of pixels over 8 to 0.03%).
+
+  New preset **Disintegration**: a broad combed sheet curling around a spiral eye over warm paper,
+  crumbling into blocky debris across a straight edge, with scroll wired to finish the job.
+
+- [#31](https://github.com/Amir-Abushanab/wave3d/pull/31) [`8c221fc`](https://github.com/Amir-Abushanab/wave3d/commit/8c221fc8dfaa50c9f58ef54dbfbbc3de69edde71) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - `webgl="auto"` now upgrades only onto a GPU.
+
+  A software rasteriser (SwiftShader, llvmpipe, Microsoft Basic Render) keeps the poster and reports a
+  new `"software-renderer"` fallback reason. The probe already asked for this via
+  `failIfMajorPerformanceCaveat`, which does not deliver it — Chrome hands back a SwiftShader context
+  regardless — so a machine with no usable GPU was running the full renderer at ~2 fps with seconds of
+  blocked main thread, when the element was already carrying the right answer in its poster.
+
+  `probeWebGL()` and `isSoftwareRenderer(gl)` are exported, because otherwise every consumer wanting
+  this writes the same `WEBGL_debug_renderer_info` read, and the failure mode is silent: the extension
+  is hidden under some privacy settings, and treating "cannot tell" as "software" downgrades people
+  with a perfectly good GPU who then see a poster forever with nothing to report. An unreadable
+  renderer counts as hardware.
+
+  If you want the live render on a software renderer, that is `webgl="force"`.
+
+- [#31](https://github.com/Amir-Abushanab/wave3d/pull/31) [`7077a27`](https://github.com/Amir-Abushanab/wave3d/commit/7077a279a7624be2f52c38fbfbd676ceac7b3cee) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - `WaveConfig.name` — call a wave something. Absent ⇒ it stays "Wave 3". The studio binds it at the
+  top of each wave's folder and uses it for the folder title and the path-editing cheatsheet, because
+  a stack of "Wave 1…5" says nothing about which one is the collar and which is the sheet.
+
+### Patch Changes
+
+- [#31](https://github.com/Amir-Abushanab/wave3d/pull/31) [`daf59ce`](https://github.com/Amir-Abushanab/wave3d/commit/daf59ce6155f50a0aef5e3d45b6d379e7fe3d530) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Double-clicking empty space now leaves path editing, as it was always meant to. The wave being
+  edited is excluded from `pickWave`'s bounding-sphere fallback — on a large ribbon that sphere covers
+  most of the viewport, so every double-click re-picked the same wave and Escape was the only way out.
+
+- [#31](https://github.com/Amir-Abushanab/wave3d/pull/31) [`8fce3d3`](https://github.com/Amir-Abushanab/wave3d/commit/8fce3d38efccc5fb881378d882275171fb6462e1) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Glass: the layer count follows the deformed sheet, frost stops paying for an invisible blur, and a
+  soft edge no longer draws a dark line.
+
+  - **Thickness and droplet fusion read the wrong shape.** The layer-count capture was drawn with a
+    stock override material, whose vertex stage knows nothing of the wave's deformation and which
+    culls back faces — so it counted the rest-pose plane, front faces only. Measured against the
+    normal pass (the wave's own program): a tenth of the real silhouette on Liquid Glass. Each glass
+    wave now has a companion program on its own vertex stage and uniforms; the two captures match
+    exactly, on both backends.
+  - **Frost is gated on its radius in pixels.** The default 0.08 is a 0.29 px scatter, which eleven
+    taps can only average back to the sample they surround — 33 backdrop taps per fragment for
+    nothing. One RGB gather now, and none under half a pixel.
+  - **Edge feather and opacity fade toward the unbent backdrop.** Glass draws opaque, so scaling the
+    colour by an alpha no blend ever reads faded the feather toward black and drew a hard dark line
+    along the silhouette. This was also the "unexplained" two-level darkening on the WebGPU backend:
+    both glass parity cases now pass the thresholds with no allowance.
+  - **Glass gets a vertex-stage normal, and the normal pass is gone.** The geometry bakes each
+    vertex's two grid neighbours; the vertex shader runs the same deformation on them (pointer bump
+    included) and crosses the tangents, so the normal is exact and interpolates smoothly where the
+    fragment's `dFdx` normal was constant per triangle — a 120 px refraction turned every triangle
+    edge into a seam. The caustic is now the Jacobian of the offset from ±3 px finite differences of
+    that interpolated normal in the same pass, so the normal buffer, its render target and the third
+    geometry pass are gone. Bent images are coherent now; presets tuned against the old faceted
+    refraction (Liquid Glass) look smoother and blobbier than before.
+  - **TSL: varyings created inside `positionNode` were never reaching the fragment.** The closure
+    runs when the vertex stage is _built_, after `buildWaveMaterial` has returned, so a varying
+    handed to the fragment builders by value was always `null` — the glass normal silently fell back
+    to the faceted one on WebGPU, and the pointer field's hue shift, lighten and strand thinning have
+    been missing on that backend since they were ported. Both are now read at build time, and a
+    missing varying throws instead of falling back.
+  - The backdrop excludes waves by depth toward the camera (array order breaks ties), so a wave
+    moved behind a sheet stays visible through it; the passes restore the clear colour; a wave
+    switched to glass live leaves the transparent list.
+
+  Liquid Glass at 1000×700: 2.1 → 1.4 ms/frame on WebGL, 1.1 → 0.7 on WebGPU. Parity: Liquid Glass
+  mae 0.08, synthetic glass 0.23, both without an allowance.
+
+- [#31](https://github.com/Amir-Abushanab/wave3d/pull/31) [`2d93a06`](https://github.com/Amir-Abushanab/wave3d/commit/2d93a06cf281886b39ff6cabf1682110ec5638e5) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Studio: **Finish now sits above Color & Gradient**, so the material is chosen before the palette
+  whose meaning it changes. Under glass, `blend` and Noise Bands are greyed out or hidden (the glass
+  shader never reads them) and the palette editor carries a note that the palette only sets the hue of
+  the transmission. **Caustics, fold thickness and droplet fusion** get sliders, and every glass
+  control has a hover hint grounded in what the shader does with it. The `wave3d` skill gains a glass
+  section.
+
+  Shaping a path: each point's pick target is nearly twice the dot, and the cursor says what a click
+  here does — an arrow with a "+" over the ribbon (double-click adds a point, drag sculpts), a "−"
+  over a point (double-click removes it, drag moves it), and a plain pointer on a point that cannot be
+  removed.
+
+- [#31](https://github.com/Amir-Abushanab/wave3d/pull/31) [`40eb90d`](https://github.com/Amir-Abushanab/wave3d/commit/40eb90d6c1a0729db3932c264f3f1a19a83082d5) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - A wave no longer fast-forwards when you come back to its tab. Leave a page while the engine was still
+  loading and the renderer was built with the document hidden — but it assumed it was visible
+  (`pageVisible = true`, never read from the document), so it marked itself running with no frame to
+  run on. Returning fired a `visibilitychange` that found nothing to restart, the delta baseline was
+  never reset, and the first frame was handed the whole absence at once while the intro ramp was still
+  at zero: `time × ramp` then swept minutes of motion through about a second. Measured on a live site,
+  19.8 s of wave time in the first 600 ms after a 20 s absence.
+
+  The renderer now reads `document.visibilityState` when it is built, the same as `@materials3d/core`.
+  And a single frame can no longer advance the clock by more than a second, which covers the same stall
+  where no `visibilitychange` arrives to announce it — an embedding webview that parks
+  `requestAnimationFrame`, a debugger pause, a sleeping machine. It is a ceiling rather than a jitter
+  clamp on purpose: recordings run on this same wall-clock loop, so a slow frame still advances by its
+  real length and a `loopSeconds` export still closes.
+
+  Old against new in a real hidden tab: built while hidden, 12.86 s of wave time in the first second
+  back, now 0.99 s; a 300 s stall with no event, the clock jumped 300.02 s, now 1.01 s.
+
+- [#31](https://github.com/Amir-Abushanab/wave3d/pull/31) [`0d60f25`](https://github.com/Amir-Abushanab/wave3d/commit/0d60f25b59d2b0f2984d3999bac4f72782c6a619) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - The path-editing hint bar now has a **Done** button, names the two double-click gestures that were
+  undocumented (double-click another wave to shape that one; double-click empty space to leave), and
+  sits clear of the history cluster's default dock instead of directly on top of it.
+
+- [#31](https://github.com/Amir-Abushanab/wave3d/pull/31) [`28016aa`](https://github.com/Amir-Abushanab/wave3d/commit/28016aa11dee61288c3a5f34bf5a30f95b11c81a) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Fix a sculpted path losing its twist. `PathSample` now reports the roll it applied, and the
+  studio's densify step carries it across instead of writing `twist: 0`.
+
+  The studio resamples a path to more control points before sculpting it, so there is something local
+  to push. A frame cannot be stored in a `PathPoint` — only x/y/z/width/twist can — so dropping the
+  roll there resampled the ribbon back to unrolled. On a 360° twist that flipped the surface a full
+  half-turn (measured: 179.5° of frame divergence, now 6°, which is ordinary 9→15 resampling error).
+
+  It only bit paths under 12 points, since densify is a no-op above that — which is why a
+  hand-authored path with many points never showed it.
+
+- [#31](https://github.com/Amir-Abushanab/wave3d/pull/31) [`efb4eb0`](https://github.com/Amir-Abushanab/wave3d/commit/efb4eb0c0f12c90630dd79715a21b8fea51676b5) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Selecting a wave in the viewport now reveals its config. Double-click a ribbon, or pick one with the
+  transform gizmo, and the panel expands that wave's folder, scrolls it into view and flashes it —
+  instead of leaving you to find "Wave 3" in a rail of identical folders.
+
+  `StudioWaveRenderer.onWaveChanged` now carries the selected wave's index, matching `onLightsChanged`.
+
+- [#31](https://github.com/Amir-Abushanab/wave3d/pull/31) [`b9ebf9f`](https://github.com/Amir-Abushanab/wave3d/commit/b9ebf9fd48f445d0b9ba4eb8519581dfe349f2e9) Thanks [@Amir-Abushanab](https://github.com/Amir-Abushanab)! - Fix transparency on the WebGPU backend. Anywhere a wave was partly transparent it composited too
+  bright — the soft ENDS every ribbon has by default (`edgeFeather`), the antialiased flank of every
+  wireframe strand, every particle, and any wave with `opacity` below 1.
+
+  `NodeMaterial.setupOutput()` does call `setupPremultipliedAlpha()` — but on its own `basicOutput`,
+  which it discards the moment a custom `outputNode` is set. So the wave material was getting the
+  premultiplied BLEND FACTORS without the premultiply. Since `blendMode` defaults to `"squared"`,
+  which asks for premultiplied factors, this was every wave. The material now premultiplies its own
+  output, exactly as the GLSL does under the `PREMULTIPLIED_ALPHA` define Three injects for it.
+
+  WebGL was always correct and is untouched — byte-identical. The scale of the WebGPU error, measured
+  against it: a ribbon at `opacity: 0.5` went from 13.3 % of its pixels visibly wrong to 0.02 %, and
+  the densest particle case in the parity suite from `mae` 12.18 to 0.17. The cross-backend suite goes
+  from 7 of 39 configs passing to 34.
+
+  It hid for so long because the opaque body of every frame kept agreeing perfectly, so the residual
+  looked like "dense additive dust is a hard case" rather than a bug — which is what the parity
+  README used to say.
+
 ## 0.10.0
 
 No changes in this release.
