@@ -16,6 +16,38 @@ import { roundTo } from "../util/math";
 // The minimap's fixed 3/4 vantage direction.
 const MINIMAP_VANTAGE = new THREE.Vector3(0.85, 0.6, 1).normalize();
 
+/** Path handle size on screen, as a fraction of the view height (the dot's own radius is 0.32 of
+ *  this — about 5 px on a laptop). */
+const PATH_HANDLE_VIEW = 0.012;
+/** Radius of a path point's pick target, in screen pixels. The dot is a precise thing to land on
+ *  and nothing else competes for the spot, so the target under it is generous and fixed in pixels
+ *  whatever the zoom. */
+const PATH_PICK_PX = 14;
+/** How much a hovered dot grows, so the point under the cursor is unmistakable. */
+const PATH_HOVER_SCALE = 1.8;
+
+/** Cursors for path mode, so the ribbon says what a click here does before anyone tries it: an
+ *  arrow with a "+" badge over the ribbon (double-click adds a point, drag sculpts) and a "−" badge
+ *  over a point (double-click removes it, drag moves it). Inline SVG data URLs with a keyword
+ *  fallback, so nothing depends on an asset or a stylesheet. */
+function badgedCursor(badge: string): string {
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 26 26">' +
+    '<path d="M4 2.5v16l4.3-3.6 3 6.6 2.6-1.2-2.9-6.4 5.6-.1z" fill="#fff" stroke="#111" stroke-width="1.3" stroke-linejoin="round"/>' +
+    '<circle cx="19" cy="19" r="5.6" fill="#fff" stroke="#111" stroke-width="1.3"/>' +
+    badge +
+    "</svg>";
+  return `url("data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}") 4 2, pointer`;
+}
+const PATH_CURSOR = {
+  add: badgedCursor(
+    '<path d="M19 15.6v6.8M15.6 19h6.8" stroke="#111" stroke-width="1.8" stroke-linecap="round"/>',
+  ),
+  remove: badgedCursor(
+    '<path d="M15.6 19h6.8" stroke="#111" stroke-width="1.8" stroke-linecap="round"/>',
+  ),
+};
+
 /** What the 3D gizmo does to the selected wave. */
 export type GizmoMode = "translate" | "rotate" | "scale";
 
@@ -72,6 +104,12 @@ export class StudioWaveRenderer extends WaveRenderer {
    *  them. The handles live in WORLD space (that is what the drag machinery and the gizmo speak);
    *  the points they write are in the wave's local space, which is where a path is authored. */
   private pathHelpers: THREE.Mesh[] = [];
+  /** Each path dot's larger, invisible pick target (a child of the dot), so a point is comfortable
+   *  to land on without the dot itself growing into a boulder. */
+  private pathPicks: THREE.Mesh[] = [];
+  /** The dots' current screen-constant scale, so a hover can grow one and put it back. */
+  private pathHandleScale = 1;
+  private hoverPathPoint = -1;
   private pathLine?: THREE.Line;
   private pathWave = 0;
   private selectedPathPoint = 0;
@@ -918,11 +956,10 @@ export class StudioWaveRenderer extends WaveRenderer {
     if (!this.mainOrbitOn) return; // studio only; an embed has no editing surface
     this.raycaster.setFromCamera(this.pointerNdc(ev as unknown as PointerEvent), this.camera);
     if (this.editMode === "path") {
-      const onPoint = this.raycaster.intersectObjects(this.pathHelpers, false)[0];
+      const i = this.pickPathHandle();
       const pts = this.config.waves[this.pathWave]?.path;
-      if (onPoint && pts) {
+      if (i >= 0 && pts) {
         // Remove — but never below two points, which is the least a centreline can be.
-        const i = this.pathHelpers.indexOf(onPoint.object as THREE.Mesh);
         const closed = isClosedPath(pts);
         if (i >= 0 && pts.length - (closed ? 1 : 0) > 2) {
           pts.splice(i, 1);
@@ -1079,8 +1116,12 @@ export class StudioWaveRenderer extends WaveRenderer {
         : this.editMode === "path"
           ? this.pathHelpers
           : this.lightHelpers;
-    const hit = this.raycaster.intersectObjects(helpers, false)[0];
-    if (!hit && this.editMode === "path") {
+    // Path points are picked through their larger invisible targets; the others by their own mesh.
+    const pathIdx = this.editMode === "path" ? this.pickPathHandle() : -1;
+    const hit =
+      this.editMode === "path" ? undefined : this.raycaster.intersectObjects(helpers, false)[0];
+    const hitAny = pathIdx >= 0 || !!hit;
+    if (!hitAny && this.editMode === "path") {
       // Grabbed the RIBBON itself: push it around like putty. This is the primary gesture — control
       // points are there for precision, but nobody thinks in control points while shaping something.
       const onRibbon = this.raycastWave(this.pathWave);
@@ -1089,7 +1130,7 @@ export class StudioWaveRenderer extends WaveRenderer {
         return;
       }
     }
-    if (!hit) {
+    if (!hitAny) {
       // Missed every handle → pan the view (the tool's normal left-drag). OrbitControls' LEFT is
       // unmapped in edit mode, so onPointerMove pans manually without fighting the object drag.
       if (this.orbit) {
@@ -1098,7 +1139,7 @@ export class StudioWaveRenderer extends WaveRenderer {
       }
       return;
     }
-    const idx = helpers.indexOf(hit.object as THREE.Mesh);
+    const idx = pathIdx >= 0 ? pathIdx : hit ? helpers.indexOf(hit.object as THREE.Mesh) : -1;
     if (idx < 0) return;
     if (this.editMode === "wave") this.selectWaveHandle(idx);
     else if (this.editMode === "path") this.selectPathHandle(idx);
@@ -1126,9 +1167,7 @@ export class StudioWaveRenderer extends WaveRenderer {
     // grabbable — otherwise the whole gesture is invisible until someone happens to try it.
     if (this.editMode === "path" && !this.dragState && !this.panState) {
       this.raycaster.setFromCamera(this.pointerNdc(ev), this.camera);
-      const overHandle = this.raycaster.intersectObjects(this.pathHelpers, false).length > 0;
-      const overRibbon = !overHandle && !!this.raycastWave(this.pathWave);
-      this.renderer.domElement.style.cursor = overHandle ? "pointer" : overRibbon ? "grab" : "move";
+      this.renderer.domElement.style.cursor = this.pathCursorAt();
     }
     if (this.panState) {
       // Ortho pan: unproject the pointer delta into world units (auto-handles zoom/aspect/dpr),
@@ -1160,7 +1199,7 @@ export class StudioWaveRenderer extends WaveRenderer {
   private onPointerUp = (ev: PointerEvent): void => {
     if (this.sculptState) {
       this.sculptState = undefined;
-      this.renderer.domElement.style.cursor = "grab";
+      this.renderer.domElement.style.cursor = PATH_CURSOR.add; // still over the ribbon it pushed
       if (this.orbit) this.orbit.enabled = true;
       this.renderer.domElement.releasePointerCapture?.(ev.pointerId);
       return;
@@ -1324,6 +1363,36 @@ export class StudioWaveRenderer extends WaveRenderer {
   /** True when the path's ends coincide — the same test the sampler uses to decide it is a ring. */
 
   /** Select a path point (attach the gizmo to its handle and highlight it). */
+  /** Which path point the ray is over, through the enlarged pick targets — or -1. The raycaster
+   *  must already be aimed. */
+  private pickPathHandle(): number {
+    const hit = this.raycaster.intersectObjects(this.pathPicks, false)[0];
+    return hit ? ((hit.object.userData as { index?: number }).index ?? -1) : -1;
+  }
+
+  /** The cursor for the pointer's current spot in path mode: what a click here would do. The
+   *  raycaster must already be aimed. */
+  private pathCursorAt(): string {
+    const onPoint = this.pickPathHandle();
+    if (onPoint !== this.hoverPathPoint) {
+      // Grow the dot under the cursor (and put the last one back), so the pick target's reach is
+      // visible rather than something you discover by clicking.
+      this.hoverPathPoint = onPoint;
+      const r = this.pathHandleScale;
+      this.pathHelpers.forEach((h, k) =>
+        h.scale.setScalar(k === onPoint ? r * PATH_HOVER_SCALE : r),
+      );
+      if (!this.running) this.renderOnce();
+    }
+    if (onPoint >= 0) {
+      const pts = this.config.waves[this.pathWave]?.path;
+      // A centreline is two points at the least, so the last two cannot be removed.
+      const removable = !!pts && pts.length - (isClosedPath(pts) ? 1 : 0) > 2;
+      return removable ? PATH_CURSOR.remove : "pointer";
+    }
+    return this.raycastWave(this.pathWave) ? PATH_CURSOR.add : "move";
+  }
+
   private selectPathHandle(i: number): void {
     this.selectedPathPoint = Math.max(0, Math.min(i, this.pathHelpers.length - 1));
     const sel = this.pathHelpers[this.selectedPathPoint];
@@ -1364,18 +1433,31 @@ export class StudioWaveRenderer extends WaveRenderer {
         dot.userData = { kind: "path", index: i };
         this.overlay.add(dot);
         this.pathHelpers.push(dot);
+        // The pick target: larger than the dot and invisible (the raycaster reads geometry, not
+        // visibility, so it costs no draw), riding the dot's position and screen-constant scale.
+        const pick = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8));
+        pick.visible = false;
+        pick.userData = { kind: "path", index: i };
+        dot.add(pick);
+        this.pathPicks.push(pick);
       }
     }
     // Handles are sized in VIEW units, not world ones: the ribbon is 400 units long and a wave can
     // be scaled by 5, so a fixed-radius marker is either a speck or a boulder. This keeps every
     // handle the same size on screen whatever the zoom or the wave's scale.
     const viewH = (this.camera.top - this.camera.bottom) / Math.max(this.camera.zoom, 1e-6);
-    const r = viewH * 0.012;
+    const r = viewH * PATH_HANDLE_VIEW;
+    this.pathHandleScale = r;
+    // The pick target in the dot's own units: its radius is PATH_PICK_PX on screen, where the dot
+    // (radius 0.32) is PATH_HANDLE_VIEW * 0.32 of the canvas height.
+    const canvasH = Math.max(1, this.renderer.domElement.clientHeight);
+    const pickLocal = PATH_PICK_PX / (PATH_HANDLE_VIEW * canvasH);
     this.pathHelpers.forEach((h, i) => {
       const p = pts[i];
       h.position.set(p.x, p.y, p.z).applyMatrix4(mesh.matrixWorld);
-      h.scale.setScalar(r);
+      h.scale.setScalar(i === this.hoverPathPoint ? r * PATH_HOVER_SCALE : r);
     });
+    for (const pick of this.pathPicks) pick.scale.setScalar(pickLocal);
     // The line is the centreline itself, sampled the same way the shader sees it — so what you drag
     // is what the ribbon follows, not an approximation of it.
     const frames = samplePath(pts, 96);
@@ -1450,6 +1532,12 @@ export class StudioWaveRenderer extends WaveRenderer {
       (mesh.material as THREE.Material).dispose();
     }
     this.pathHelpers = [];
+    for (const pick of this.pathPicks) {
+      pick.geometry.dispose();
+      (pick.material as THREE.Material).dispose();
+    }
+    this.pathPicks = [];
+    this.hoverPathPoint = -1;
     if (this.pathProxy) {
       this.pathProxy.geometry.dispose();
       (this.pathProxy.material as THREE.Material).dispose();

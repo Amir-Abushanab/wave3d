@@ -225,6 +225,18 @@ radial fan maps to `radialArc`, so a narrow arc needs a proportionally SMALLER c
 go sub-pixel and average to grey. `edgeFeather` now applies to the wireframe too — without it a
 ribbon ends at a flat end-cap that reads as a straight cut across the strands.
 
+**Glass (`theme: "glass"`) is a lens over whatever is behind it — so put something there.** The
+sheet draws opaque and samples the frame behind it, bent along its own normal: over a flat page it is
+a silvered ribbon with a bright rim and nothing more; a gradient, an image or another wave behind it
+is what makes it read. The palette only sets the HUE of what gets through — `glassTint` (default
+0.12) and `glassDensity` decide how much — and `blendMode`, `lights`, `fiber*` and noise bands are
+not read at all. The knobs: `glassStrength` (bend at the silhouette, px), `glassChroma` (dispersion),
+`glassRim` / `glassRimPower`, `glassSpec`, `glassIrid` + `glassFilmNm`, `glassFrost` (scatter; under
+~0.1 it is sub-pixel and skipped), `glassCaustic`, `glassLayerGain` (a fold over itself thickens),
+`glassFusion` (two close sheets bend along one merged silhouette), and the liquid trio `glassRipple`
+/ `glassRippleScale` / `glassFlow`. `glassRipple`, `glassStrength` and `glassTint` are binding
+targets.
+
 **React flat props** are a shortcut mapped onto `waves[0]` and the scene:
 `palette` (`string[]` | `ColorStop[]`), `fiberCount`, `fiberStrength`, `sheen`, `iridescence`,
 `displaceAmount`, `speed`, `opacity`, `blendMode`, `theme` → the first wave; `background`,

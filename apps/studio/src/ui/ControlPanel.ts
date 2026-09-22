@@ -2324,19 +2324,19 @@ export class ControlPanel {
 
       // Compositing (how this wave stacks on the others).
       sf.addBinding(wave, "opacity", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
-      sepAfter(
-        sf
-          .addBinding(wave, "blendMode", {
-            label: "blend",
-            options: {
-              Squared: "squared",
-              Normal: "normal",
-              Additive: "additive",
-              Multiply: "multiply",
-            },
-          })
-          .on("change", refresh),
-      );
+      // Kept as a handle: glass draws opaque and never reads it, so the material switch greys it out.
+      const bBlend = sf
+        .addBinding(wave, "blendMode", {
+          label: "blend",
+          options: {
+            Squared: "squared",
+            Normal: "normal",
+            Additive: "additive",
+            Multiply: "multiply",
+          },
+        })
+        .on("change", refresh);
+      sepAfter(bBlend);
       sf.addBinding(wave, "speed", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
       sf.addBinding(wave, "seed", { min: 0, max: 20, step: 0.1 }).on("change", refresh);
 
@@ -2348,6 +2348,15 @@ export class ControlPanel {
       const gradF = sf.addFolder({ title: "Color & Gradient", expanded: true });
       const gradContent =
         (gradF.element.querySelector(".tp-fldv_c") as HTMLElement | null) ?? gradF.element;
+      // Under glass the palette IS still read — it sets the hue of what the sheet lets through — but
+      // tint and density in Finish decide how much of it shows, so say so here rather than leave a
+      // full gradient editor that seems to do nothing at the default tint. Seated by the material
+      // switch below, once the folder's rows exist.
+      const glassNote = document.createElement("div");
+      glassNote.className = "wv-ctl-cap wv-glass-note";
+      glassNote.textContent =
+        "glass: the palette only sets the hue of what the sheet lets through — tint & density (Finish) decide how much";
+      glassNote.hidden = true;
       let swatchRaf = 0;
       const gradientEditor = new GradientEditor(gradContent, () => wave.palette, {
         onChange: () => {
@@ -2575,6 +2584,9 @@ export class ControlPanel {
       updatePaletteControls();
 
       // --- Finish (surface material) ---
+      // Built after Color & Gradient but SEATED above it (see the order at the end): the material
+      // decides what the palette even means, so it is chosen first.
+      let bandsFolder: FolderApi | undefined; // Noise Bands, built later; only the solid theme reads them
       const finF = sf.addFolder({ title: "Finish", expanded: true });
       finF
         .addBinding(wave, "theme", {
@@ -2710,6 +2722,9 @@ export class ControlPanel {
         glassRipple: wave.glassRipple ?? 0,
         glassRippleScale: wave.glassRippleScale ?? 0.012,
         glassFlow: wave.glassFlow ?? 0.9,
+        glassCaustic: wave.glassCaustic ?? 0.4,
+        glassLayerGain: wave.glassLayerGain ?? 0.6,
+        glassFusion: wave.glassFusion ?? 0,
       };
       const b_glassPath = finF
         .addBinding(glassProxy, "glassPath", { min: 0, max: 3, step: 0.01, label: "thickness" })
@@ -2822,6 +2837,34 @@ export class ControlPanel {
           wave.glassFlow = glassProxy.glassFlow;
           refresh();
         });
+      const b_glassCaustic = finF
+        .addBinding(glassProxy, "glassCaustic", { min: 0, max: 1, step: 0.01, label: "caustics" })
+        .on("change", () => {
+          wave.glassCaustic = glassProxy.glassCaustic;
+          refresh();
+        });
+      const b_glassLayerGain = finF
+        .addBinding(glassProxy, "glassLayerGain", {
+          min: 0,
+          max: 3,
+          step: 0.05,
+          label: "fold thickness",
+        })
+        .on("change", () => {
+          wave.glassLayerGain = glassProxy.glassLayerGain;
+          refresh();
+        });
+      const b_glassFusion = finF
+        .addBinding(glassProxy, "glassFusion", {
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: "droplet fusion",
+        })
+        .on("change", () => {
+          wave.glassFusion = glassProxy.glassFusion;
+          refresh();
+        });
       const glassOnly = [
         b_glassPath,
         b_glassDensity,
@@ -2839,6 +2882,9 @@ export class ControlPanel {
         b_glassRipple,
         b_glassRippleScale,
         b_glassFlow,
+        b_glassCaustic,
+        b_glassLayerGain,
+        b_glassFusion,
       ];
       const solidOnly = [
         bFiberCount,
@@ -2872,12 +2918,22 @@ export class ControlPanel {
         for (const b of solidOnly) b.hidden = wire || glass;
         for (const b of wireOnly) b.hidden = !wire;
         for (const b of glassOnly) b.hidden = !glass;
+        // What the other themes never read: glass draws opaque (no blend), and only the solid
+        // fragment consumes the noise bands (they steer its streaks). Greyed / hidden rather than
+        // silently inert.
+        bBlend.disabled = glass;
+        glassNote.hidden = !glass;
+        if (bandsFolder) bandsFolder.hidden = wire || glass;
       };
       updateMaterialControls();
       sectionRandom(finF, randomizeFinish);
+      // Second child of Color & Gradient: after its 🎲, before the palette picker.
+      gradContent.insertBefore(glassNote, gradContent.children[1] ?? null);
 
       // --- Noise Bands ---
       const bandsF = sf.addFolder({ title: "Noise Bands", expanded: true });
+      bandsFolder = bandsF;
+      updateMaterialControls(); // now that the folder exists, hide it for the themes that never read it
       wave.noiseBands.forEach((band, bi) => {
         const sub = bandsF.addFolder({ title: `Band ${bi + 1}`, expanded: true });
         sub.addBinding(band, "startX", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
@@ -3014,12 +3070,13 @@ export class ControlPanel {
       // This wave's disintegration front, then the dust field it sheds through.
       const diF = this.buildWaveDissolveFolder(sf, wave, refresh);
       const paF = this.buildWaveParticlesFolder(sf, wave, refresh);
-      // Order the sub-sections: appearance (colour, finish) → shape (displacement, twist) → pose
-      // (transform) → advanced (noise bands) → particles → interaction (this wave's reactivity, last —
-      // mirrors the global Interaction folder sitting last in the panel). DOM move so blocks stay grouped.
+      // Order the sub-sections: appearance (finish first — it decides what the palette means — then
+      // colour) → shape (displacement, twist) → pose (transform) → advanced (noise bands) → particles
+      // → interaction (this wave's reactivity, last — mirrors the global Interaction folder sitting
+      // last in the panel). DOM move so blocks stay grouped.
       const waveContent =
         (sf.element.querySelector(":scope > .tp-fldv_c") as HTMLElement | null) ?? sf.element;
-      for (const f of [gradF, finF, dispF, twF, hxF, pathF, raF, trF, bandsF, diF, paF, waveIx])
+      for (const f of [finF, gradF, dispF, twF, hxF, pathF, raF, trF, bandsF, diF, paF, waveIx])
         waveContent.appendChild(f.element);
       // Delete, last in the folder and only when there is something to fall back to — the model
       // keeps at least one wave, so the button would be a no-op on a single-wave config.
