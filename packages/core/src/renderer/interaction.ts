@@ -243,13 +243,13 @@ export const WAVE_APPLIERS = {
     },
   ),
   glassStrength: waveApplier(
-    (w) => w.glassStrength ?? 28,
+    (w) => w.glassStrength ?? 90,
     (v, a) => {
       a.u.uGlassStrength.value = v;
     },
   ),
   glassTint: waveApplier(
-    (w) => w.glassTint ?? 0.9,
+    (w) => w.glassTint ?? 0.12,
     (v, a) => {
       a.u.uGlassTint.value = v;
     },

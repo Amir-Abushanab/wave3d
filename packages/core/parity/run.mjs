@@ -30,16 +30,17 @@ const OUT = resolve(HERE, "out");
 const THRESHOLDS = { mae: 2.0, interiorOver8: 1.0, interiorOver24: 0.25 };
 
 /**
- * Configs the port does not reach THRESHOLDS on. Five are order-dependent transparency; the README
- * says why, and why there is no cheap fix. The sixth is glass, which is a different story: its two
- * PERCEPTUAL metrics both pass (0.44% over 8 against a 1% ceiling, 0.22% over 24 against 0.25%) and
- * only the aggregate mae is over, by small differences spread thinly rather than anything you can
- * point at. That is what a screen-space effect reading three extra render targets looks like when
- * the two backends filter them a hair differently.
+ * Configs the port does not reach THRESHOLDS on: five order-dependent transparency cases; the README
+ * says why, and why there is no cheap fix.
+ *
+ * The two glass cases used to sit here too, over a uniform two-level darkening on the node backend
+ * that nothing in the material explained. It was the edge feather: glass draws OPAQUE, and the
+ * premultiplied output scaled the colour by an alpha no blend ever read — differently on the two
+ * backends. With the feather fading toward the backdrop instead, both pass the thresholds outright.
  *
  * Ceilings ~25% above measured, so a driver change does not rewrite the file. Per-config on purpose:
  * one global threshold loose enough for the worst of them would let a real regression through on the
- * other 34.
+ * other 37.
  */
 const ALLOW = {
   "preset:Neon Dark Multistrand": { mae: 6.0, interiorOver8: 19.0, interiorOver24: 8.5 },
@@ -47,16 +48,6 @@ const ALLOW = {
   "preset:Kaleidoscope": { mae: 1.0, interiorOver8: 3.0, interiorOver24: 2.0 },
   "preset:Wave 3": { mae: 1.0, interiorOver8: 3.0, interiorOver24: 2.0 },
   "preset:Vaporwave Sunset": { mae: 0.6, interiorOver8: 1.5, interiorOver24: 0.5 },
-  "synthetic:glass": { mae: 3.5, interiorOver8: 1.0, interiorOver24: 0.3 },
-  // Glass over a MESH background. The whole sheet comes out about two levels darker on the node
-  // backend — a uniform, slightly red-weighted offset. What it is NOT, each ruled out by measuring
-  // rather than reasoning: not the iridescence (irid 0 moves mae by 0.01), not the refraction
-  // offset (strength 0 keeps the same bias, so it is not where the samples land), and not the
-  // capture's colour space (setting it explicitly changed nothing). That leaves the captured
-  // backdrop's own content differing when the scene background is a TEXTURE rather than a colour —
-  // the synthetic glass case, which has no background texture, sits at a bias of -0.08. Bounded and
-  // recorded rather than explained; worth returning to.
-  "preset:Liquid Glass": { mae: 6.0, interiorOver8: 2.6, interiorOver24: 2.4 },
 };
 
 const args = process.argv.slice(2);

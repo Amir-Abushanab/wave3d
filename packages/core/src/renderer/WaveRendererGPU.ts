@@ -251,6 +251,16 @@ export function withTslBackend<TBase extends typeof WaveRenderer>(Base: TBase): 
       return false; // the mesh already points at a fresh material; nothing to recompile in place
     }
 
+    /** The layer-count companion as a node material: same uniform registry, same flags. */
+    protected override createLayerMaterial(sc: WaveConfig, material: WaveMaterial): THREE.Material {
+      const { tsl } = (material as TslMaterial).userData;
+      return buildWaveMaterial(tsl, { ...this.flagsFor(sc), layerPass: true });
+    }
+
+    protected override layerVariantKey(material: WaveMaterial): string {
+      return (material as TslMaterial).userData.variant;
+    }
+
     // ---- Post chain --------------------------------------------------------------------------
 
     /** Which effects the config currently asks for — the node twin of applyPost()'s pass juggling. */

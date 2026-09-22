@@ -15,7 +15,7 @@
  * every partly transparent pixel composites too bright. The GLSL does the same multiply under the
  * PREMULTIPLIED_ALPHA define Three injects for it; this is that line.
  */
-import { NodeMaterial } from "three/webgpu";
+import { AdditiveBlending, NodeMaterial } from "three/webgpu";
 import {
   Fn,
   varying,
@@ -67,6 +67,9 @@ import type { WaveTslUniforms } from "./uniforms";
 
 export interface WaveMaterialFlags extends WaveShapeFlags {
   theme: "solid" | "wireframe" | "glass";
+  /** Build the glass LAYER-COUNT companion instead of the shaded material: the same vertex stage
+   *  on the same uniforms, with a fragment that only marks coverage. Drawn additively, depth off. */
+  layerPass?: boolean;
   /** Pointer field: per-wave, config-only, so input never triggers a rebuild. */
   pointerFx: boolean;
   /** Click ripples, which nest inside the pointer field. */
@@ -173,6 +176,13 @@ export function buildWaveMaterial(u: WaveTslUniforms, flags: WaveMaterialFlags):
   material.depthTest = true;
   material.depthWrite = true;
   material.side = 2; // THREE.DoubleSide
+  if (flags.layerPass) {
+    // Every layer over a pixel has to land and add up: no depth test, additive.
+    material.transparent = true;
+    material.blending = AdditiveBlending;
+    material.depthTest = false;
+    material.depthWrite = false;
+  }
 
   // ---- Vertex ----
   // The pointer falloff is computed in the vertex stage alongside the displacement and carried to
@@ -224,11 +234,13 @@ export function buildWaveMaterial(u: WaveTslUniforms, flags: WaveMaterialFlags):
   // the same clip vector the depth fade uses, so the two never disagree about where a fragment is.
   const ndc = rawClip.xy.div(max(rawClip.w, 1.0e-6)).mul(0.5).add(0.5);
   const fragment = (
-    flags.theme === "wireframe"
-      ? buildWireframeFragment(u, flags, clipZ, pointerFall, ndc)
-      : flags.theme === "glass"
-        ? buildGlassFragment(u, flags, ndc)
-        : buildSolidFragment(u, flags, clipZ, pointerFall, ndc)
+    flags.layerPass
+      ? buildGlassLayerFragment(u, flags, ndc)
+      : flags.theme === "wireframe"
+        ? buildWireframeFragment(u, flags, clipZ, pointerFall, ndc)
+        : flags.theme === "glass"
+          ? buildGlassFragment(u, flags, ndc)
+          : buildSolidFragment(u, flags, clipZ, pointerFall, ndc)
   ).toVar("fragOut");
   material.outputNode = flags.premultiplied
     ? vec4(fragment.rgb.mul(fragment.a), fragment.a)
@@ -391,9 +403,10 @@ function buildWireframeFragment(
  * normal, absorb the wave's own palette over a thickness, then fresnel / rim / specular on top.
  *
  * Three TSL-specific departures, all forced:
- *  - There is no early `return`, so the normal pass is a SELECT at the end rather than a bail-out
- *    near the top. It costs the shading work on that pass; the pass only runs when a wave asks for
- *    caustics, so it is paid rarely.
+ *  - There is no early `return`, so the normal pass is an If/Else around the whole shade rather
+ *    than a bail-out near the top. (It was a select() at the very end for a while — which evaluates
+ *    BOTH sides, so the pass that only wants a normal was paying for the full shade, frost taps
+ *    included, on every frame a wave asked for caustics.)
  *  - The frost samples are unrolled in JavaScript. A Loop carrying a toVar accumulator inside
  *    another control block does not survive node generation — the accumulator gets hoisted out of
  *    scope — and building eleven taps as straight-line graph avoids the question entirely.
@@ -433,183 +446,203 @@ function buildGlassFragment(u: WaveTslUniforms, flags: WaveMaterialFlags, ndc: V
       N.assign(normalize(N.add(g.mul(u.uGlassRipple).mul(0.16))));
     });
 
-    // ORTHOGRAPHIC view axis, not a per-fragment ray to the eye — column 2 of the view matrix.
-    const V = normalize(u.uViewAxis).toVar("glassV");
-    const ndv = clamp(tabs(dot(N, V)), 0.02, 1.0).toVar("glassNdv");
-    const rim = pow(float(1).sub(tabs(dot(N, V))), max(u.uGlassRimPower, float(0.001))).toVar();
+    const out = vec4(0, 0, 0, 1).toVar("glassOut");
+    // The normal pass is a real BRANCH, so the shade below is skipped on it.
+    If(u.uNormalPass.greaterThan(0.5), () => {
+      out.assign(vec4(N.mul(0.5).add(0.5), 1.0));
+    }).Else(() => {
+      // ORTHOGRAPHIC view axis, not a per-fragment ray to the eye — column 2 of the view matrix.
+      const V = normalize(u.uViewAxis).toVar("glassV");
+      const ndv = clamp(tabs(dot(N, V)), 0.02, 1.0).toVar("glassNdv");
+      const rim = pow(float(1).sub(tabs(dot(N, V))), max(u.uGlassRimPower, float(0.001))).toVar();
 
-    const sUv = ndc.toVar("glassSUv");
-    // The captures are sampled TOP-DOWN here while a clip-derived UV is y-up, so every texture
-    // coordinate and every offset that rides one has its y flipped. These are not two flips that
-    // cancel: getting it wrong does not mirror the image, it sends each sample to the wrong side of
-    // the surface, which looked like the whole refraction had been rotated.
-    const texUv = vec2(sUv.x, float(1).sub(sUv.y)).toVar("glassTexUv");
-    const dir = N.xy.sub(flatN.xy).mul(2).add(N.xy).mul(-1).toVar("glassDir");
-    If(u.uGlassFusion.greaterThan(0.001), () => {
-      const g = vec2(9.0, 9.0).div(u.uResolution);
-      const fieldAt = (p: Vec2Node): FloatNode => u.uLayers.sample(p).r;
-      const grad = vec2(
-        fieldAt(texUv.add(vec2(g.x, 0))).sub(fieldAt(texUv.sub(vec2(g.x, 0)))),
-        // y runs the other way in the texture, so the difference is negated to stay a gradient in
-        // the same space as the normal it is blended with.
-        fieldAt(texUv.sub(vec2(0, g.y))).sub(fieldAt(texUv.add(vec2(0, g.y)))),
-      ).toVar("glassGrad");
-      If(dot(grad, grad).greaterThan(1.0e-8), () => {
-        dir.assign(mix(dir, normalize(grad), clamp(u.uGlassFusion, 0, 1)));
+      const sUv = ndc.toVar("glassSUv");
+      // The captures are sampled TOP-DOWN here while a clip-derived UV is y-up, so every texture
+      // coordinate and every offset that rides one has its y flipped. These are not two flips that
+      // cancel: getting it wrong does not mirror the image, it sends each sample to the wrong side of
+      // the surface, which looked like the whole refraction had been rotated.
+      const texUv = vec2(sUv.x, float(1).sub(sUv.y)).toVar("glassTexUv");
+      const dir = N.xy.sub(flatN.xy).mul(2).add(N.xy).mul(-1).toVar("glassDir");
+      If(u.uGlassFusion.greaterThan(0.001), () => {
+        const g = vec2(9.0, 9.0).div(u.uResolution);
+        const fieldAt = (p: Vec2Node): FloatNode => u.uLayers.sample(p).r;
+        const grad = vec2(
+          fieldAt(texUv.add(vec2(g.x, 0))).sub(fieldAt(texUv.sub(vec2(g.x, 0)))),
+          // y runs the other way in the texture, so the difference is negated to stay a gradient in
+          // the same space as the normal it is blended with.
+          fieldAt(texUv.sub(vec2(0, g.y))).sub(fieldAt(texUv.add(vec2(0, g.y)))),
+        ).toVar("glassGrad");
+        If(dot(grad, grad).greaterThan(1.0e-8), () => {
+          dir.assign(mix(dir, normalize(grad), clamp(u.uGlassFusion, 0, 1)));
+        });
       });
-    });
-    const offPx = dir
-      .mul(mix(rim, float(1), u.uGlassRipple.mul(0.25)))
-      .mul(u.uGlassStrength)
-      .toVar("glassOffPx");
-    const off = offPx.div(max(u.uResolution, vec2(1, 1))).toVar("glassOff");
-    const texOff = vec2(off.x, off.y.negate()).toVar("glassTexOff");
+      const offPx = dir
+        .mul(mix(rim, float(1), u.uGlassRipple.mul(0.25)))
+        .mul(u.uGlassStrength)
+        .toVar("glassOffPx");
+      const off = offPx.div(max(u.uResolution, vec2(1, 1))).toVar("glassOff");
+      const texOff = vec2(off.x, off.y.negate()).toVar("glassTexOff");
 
-    // Opaque capture: the sample IS the colour behind the glass, no alpha composite.
-    const backdropAt = (p: Vec2Node): Vec3Node => u.uBackdrop.sample(p).rgb;
+      // Opaque capture: the sample IS the colour behind the glass, no alpha composite.
+      const backdropAt = (p: Vec2Node): Vec3Node => u.uBackdrop.sample(p).rgb;
 
-    const uvR = texUv.add(texOff.mul(float(1).add(u.uGlassChroma.mul(0.2)))).toVar("glassUvR");
-    const uvG = texUv.add(texOff.mul(float(1).add(u.uGlassChroma.mul(0.1)))).toVar("glassUvG");
-    const uvB = texUv.add(texOff).toVar("glassUvB");
-    const col = vec3(backdropAt(uvR).r, backdropAt(uvG).g, backdropAt(uvB).b).toVar("glassCol");
+      const uvR = texUv.add(texOff.mul(float(1).add(u.uGlassChroma.mul(0.2)))).toVar("glassUvR");
+      const uvG = texUv.add(texOff.mul(float(1).add(u.uGlassChroma.mul(0.1)))).toVar("glassUvG");
+      const uvB = texUv.add(texOff).toVar("glassUvB");
+      const col = vec3(backdropAt(uvR).r, backdropAt(uvG).g, backdropAt(uvB).b).toVar("glassCol");
 
-    If(u.uGlassCaustic.greaterThan(0.001), () => {
-      // Re-evaluate the offset from NEIGHBOURING normals: a dFdx-derived normal is constant across
-      // each 2x2 quad, so differentiating it again yields exactly zero and the term does nothing.
-      const st = vec2(3.0, 3.0).div(u.uResolution);
-      const offsetAt = (p: Vec2Node): Vec2Node => {
-        const texel = u.uGlassNormals.sample(p);
-        const n = normalize(texel.xyz.mul(2).sub(1));
-        const r = pow(float(1).sub(tabs(dot(n, V))), max(u.uGlassRimPower, float(0.001)));
-        // Outside the glass the buffer is empty; an empty texel must contribute no offset.
-        return select(texel.a.lessThan(0.5), vec2(0, 0), n.xy.mul(-1).mul(r).mul(u.uGlassStrength));
-      };
-      const dOdx = offsetAt(texUv.add(vec2(st.x, 0)))
-        .sub(offsetAt(texUv.sub(vec2(st.x, 0))))
-        .div(6.0);
-      const dOdy = offsetAt(texUv.sub(vec2(0, st.y)))
-        .sub(offsetAt(texUv.add(vec2(0, st.y))))
-        .div(6.0);
-      const detJ = float(1).add(dOdx.x).mul(float(1).add(dOdy.y)).sub(dOdy.x.mul(dOdx.y));
-      const gain = clamp(float(1).div(max(tabs(detJ), float(0.12))), 0, 6);
-      col.mulAssign(mix(float(1), gain, clamp(u.uGlassCaustic, 0, 1)));
-    });
+      If(u.uGlassCaustic.greaterThan(0.001), () => {
+        // Re-evaluate the offset from NEIGHBOURING normals: a dFdx-derived normal is constant across
+        // each 2x2 quad, so differentiating it again yields exactly zero and the term does nothing.
+        const st = vec2(3.0, 3.0).div(u.uResolution);
+        const offsetAt = (p: Vec2Node): Vec2Node => {
+          const texel = u.uGlassNormals.sample(p);
+          const n = normalize(texel.xyz.mul(2).sub(1));
+          const r = pow(float(1).sub(tabs(dot(n, V))), max(u.uGlassRimPower, float(0.001)));
+          // Outside the glass the buffer is empty; an empty texel must contribute no offset.
+          return select(
+            texel.a.lessThan(0.5),
+            vec2(0, 0),
+            n.xy.mul(-1).mul(r).mul(u.uGlassStrength),
+          );
+        };
+        const dOdx = offsetAt(texUv.add(vec2(st.x, 0)))
+          .sub(offsetAt(texUv.sub(vec2(st.x, 0))))
+          .div(6.0);
+        const dOdy = offsetAt(texUv.sub(vec2(0, st.y)))
+          .sub(offsetAt(texUv.add(vec2(0, st.y))))
+          .div(6.0);
+        const detJ = float(1).add(dOdx.x).mul(float(1).add(dOdy.y)).sub(dOdy.x.mul(dOdx.y));
+        const gain = clamp(float(1).div(max(tabs(detJ), float(0.12))), 0, 6);
+        col.mulAssign(mix(float(1), gain, clamp(u.uGlassCaustic, 0, 1)));
+      });
 
-    If(u.uGlassFrost.greaterThan(0.001), () => {
-      const radius = u.uGlassFrost.mul(u.uGlassFrost).mul(46.0);
-      const r = radius.div(max(u.uResolution, vec2(1, 1)));
-      // The SAME hash the GLSL uses. A different per-pixel rotation is not "equivalent noise": the
-      // two backends then pick different sample sets and the frosted area disagrees everywhere at
-      // once, which is pure mae with no bias to point at it.
-      const p = ndc.mul(u.uResolution);
-      const rot = sin(dot(p, vec2(12.9898, 78.233)))
-        .mul(43758.5453)
-        .fract()
-        .mul(6.2831853);
-      const tap = (base: Vec2Node, i: number, chan: "r" | "g" | "b"): FloatNode => {
-        const t = (i + 0.5) / 11;
-        const a = rot.add(i * 2.399963);
-        const o = vec2(cos(a), sin(a)).mul(r).mul(Math.sqrt(t));
-        return backdropAt(base.add(o))[chan];
-      };
-      const acc = (base: Vec2Node, chan: "r" | "g" | "b"): FloatNode => {
-        let sum: FloatNode = tap(base, 0, chan);
-        for (let i = 1; i < 11; i++) sum = sum.add(tap(base, i, chan));
-        return sum.div(11);
-      };
-      col.assign(
-        mix(col, vec3(acc(uvR, "r"), acc(uvG, "g"), acc(uvB, "b")), clamp(u.uGlassFrost, 0, 1)),
+      // Gated on the radius in PIXELS, as the GLSL is: under half a pixel the taps average back to
+      // the sample they surround, and the default knob value sat there.
+      const frostRadius = u.uGlassFrost.mul(u.uGlassFrost).mul(46.0).toVar("glassFrostRadius");
+      If(frostRadius.greaterThan(0.5), () => {
+        const r = frostRadius.div(max(u.uResolution, vec2(1, 1)));
+        // The SAME hash the GLSL uses. A different per-pixel rotation is not "equivalent noise": the
+        // two backends then pick different sample sets and the frosted area disagrees everywhere at
+        // once, which is pure mae with no bias to point at it.
+        const p = ndc.mul(u.uResolution);
+        const rot = sin(dot(p, vec2(12.9898, 78.233)))
+          .mul(43758.5453)
+          .fract()
+          .mul(6.2831853);
+        // One RGB gather at the green offset — see the GLSL for why not one per channel.
+        const tap = (i: number): Vec3Node => {
+          const t = (i + 0.5) / 11;
+          const a = rot.add(i * 2.399963);
+          const o = vec2(cos(a), sin(a)).mul(r).mul(Math.sqrt(t));
+          return backdropAt(uvG.add(o));
+        };
+        let sum: Vec3Node = tap(0);
+        for (let i = 1; i < 11; i++) sum = sum.add(tap(i));
+        col.assign(mix(col, sum.div(11), clamp(u.uGlassFrost, 0, 1)));
+      });
+
+      // The material itself: the palette as transmitted light, absorbed over the sheet's thickness.
+      const layers = max(u.uLayers.sample(texUv).r.mul(8), float(1)).toVar("glassLayers");
+      const chord = float(2)
+        .mul(u.uGlassPath)
+        .mul(pow(ndv, 0.4))
+        .mul(float(1).add(u.uGlassLayerGain.mul(layers.sub(1))))
+        .toVar("glassChord");
+      const lit = applyColorGrade(u, waveBaseColor(u, vUv)).toVar("glassLit");
+      const hue = lit.div(max(max(lit.r, max(lit.g, lit.b)), float(0.001))).toVar("glassHue");
+      const sigma = u.uGlassDensity.mul(float(1).sub(hue.mul(0.9)));
+      const chordRGB = chord.mul(
+        vec3(float(1).add(u.uGlassChroma.mul(0.12)), 1.0, float(1).sub(u.uGlassChroma.mul(0.12))),
       );
-    });
+      col.mulAssign(
+        mix(vec3(1, 1, 1), exp(sigma.mul(chordRGB).mul(-1)), clamp(u.uGlassTint, 0, 1)),
+      );
 
-    // The material itself: the palette as transmitted light, absorbed over the sheet's thickness.
-    const layers = max(u.uLayers.sample(texUv).r.mul(8), float(1)).toVar("glassLayers");
-    const chord = float(2)
-      .mul(u.uGlassPath)
-      .mul(pow(ndv, 0.4))
-      .mul(float(1).add(u.uGlassLayerGain.mul(layers.sub(1))))
-      .toVar("glassChord");
-    const lit = applyColorGrade(u, waveBaseColor(u, vUv)).toVar("glassLit");
-    const hue = lit.div(max(max(lit.r, max(lit.g, lit.b)), float(0.001))).toVar("glassHue");
-    const sigma = u.uGlassDensity.mul(float(1).sub(hue.mul(0.9)));
-    const chordRGB = chord.mul(
-      vec3(float(1).add(u.uGlassChroma.mul(0.12)), 1.0, float(1).sub(u.uGlassChroma.mul(0.12))),
-    );
-    col.mulAssign(mix(vec3(1, 1, 1), exp(sigma.mul(chordRGB).mul(-1)), clamp(u.uGlassTint, 0, 1)));
+      // Thin film tints only what BOUNCES.
+      const s2 = float(1)
+        .sub(ndv.mul(ndv))
+        .div(max(u.uGlassIor.mul(u.uGlassIor), float(1.0e-4)));
+      const cosT = sqrt(max(float(1).sub(s2), float(0)));
+      const phase = vec3(650.0, 550.0, 440.0);
+      const film = mix(
+        vec3(1, 1, 1),
+        float(0.5).add(
+          cos(
+            float(6.2831853)
+              .mul(float(2).mul(u.uGlassIor).mul(u.uGlassFilmNm).mul(cosT))
+              .div(phase),
+          ).mul(0.5),
+        ),
+        clamp(u.uGlassIrid, 0, 1),
+      ).toVar("glassFilm");
 
-    // Thin film tints only what BOUNCES.
-    const s2 = float(1)
-      .sub(ndv.mul(ndv))
-      .div(max(u.uGlassIor.mul(u.uGlassIor), float(1.0e-4)));
-    const cosT = sqrt(max(float(1).sub(s2), float(0)));
-    const phase = vec3(650.0, 550.0, 440.0);
-    const film = mix(
-      vec3(1, 1, 1),
-      float(0.5).add(
-        cos(
-          float(6.2831853).mul(float(2).mul(u.uGlassIor).mul(u.uGlassFilmNm).mul(cosT)).div(phase),
-        ).mul(0.5),
-      ),
-      clamp(u.uGlassIrid, 0, 1),
-    ).toVar("glassFilm");
-
-    const f0 = pow(u.uGlassIor.sub(1).div(u.uGlassIor.add(1)), float(2));
-    const F = f0.add(
-      float(1)
-        .sub(f0)
-        .mul(pow(float(1).sub(ndv), float(5))),
-    );
-    col.assign(
-      mix(
-        col,
-        mix(u.uClearColor, vec3(1, 1, 1), 0.35).mul(film),
-        F.mul(float(0.18).add(u.uGlassIrid.mul(0.4))),
-      ),
-    );
-
-    // Rim, with a deliberately WIDE window — see the GLSL.
-    col.assign(
-      mix(
-        col,
-        film,
+      const f0 = pow(u.uGlassIor.sub(1).div(u.uGlassIor.add(1)), float(2));
+      const F = f0.add(
         float(1)
-          .sub(ndv)
-          .smoothstep(mix(float(0.62), float(0.42), u.uGlassIrid), float(1))
-          .mul(u.uGlassRim),
-      ),
-    );
-    col.mulAssign(float(1).sub(float(1).sub(ndv).smoothstep(0.62, 0.86).mul(0.1)));
+          .sub(f0)
+          .mul(pow(float(1).sub(ndv), float(5))),
+      );
+      col.assign(
+        mix(
+          col,
+          mix(u.uClearColor, vec3(1, 1, 1), 0.35).mul(film),
+          F.mul(float(0.18).add(u.uGlassIrid.mul(0.4))),
+        ),
+      );
 
-    // Two keys, wide lobe: one overhead light never reaches horizontal normals.
-    const KEY = normalize(vec3(-0.3, 0.86, 0.42));
-    const KEY_FILL = normalize(vec3(0.42, 0.16, 0.89));
-    // reflect(-V, N) = -V - 2*dot(-V,N)*N. Spelled out because there is no reflect() helper here;
-    // negating the whole expression, as this first did, points the mirror direction backwards and
-    // puts the highlight on the wrong face.
-    const mirror = V.mul(-1)
-      .sub(N.mul(dot(V.mul(-1), N).mul(2)))
-      .toVar("glassMirror");
-    const lobe = pow(max(dot(mirror, KEY), float(0)), float(40))
-      .add(pow(max(dot(mirror, KEY_FILL), float(0)), float(40)).mul(0.55))
-      .toVar("glassLobe");
-    const spec = lobe.add(rim.mul(0.25)).mul(u.uGlassSpec).toVar("glassSpec");
-    col.addAssign(lobe.mul(u.uGlassSpec).mul(0.35).mul(film));
+      // Rim, with a deliberately WIDE window — see the GLSL.
+      col.assign(
+        mix(
+          col,
+          film,
+          float(1)
+            .sub(ndv)
+            .smoothstep(mix(float(0.62), float(0.42), u.uGlassIrid), float(1))
+            .mul(u.uGlassRim),
+        ),
+      );
+      col.mulAssign(float(1).sub(float(1).sub(ndv).smoothstep(0.62, 0.86).mul(0.1)));
 
-    const luma = dot(col, vec3(0.299, 0.587, 0.114)).toVar("glassLuma");
-    const darkBlend = luma.smoothstep(0.25, 0.7);
-    col.assign(max(mix(col.add(spec), col.mul(float(1).sub(spec)), darkBlend), vec3(0, 0, 0)));
-    col.addAssign(float(0.5).sub(luma).mul(u.uGlassVibrancy));
+      // Two keys, wide lobe: one overhead light never reaches horizontal normals.
+      const KEY = normalize(vec3(-0.3, 0.86, 0.42));
+      const KEY_FILL = normalize(vec3(0.42, 0.16, 0.89));
+      // reflect(-V, N) = -V - 2*dot(-V,N)*N. Spelled out because there is no reflect() helper here;
+      // negating the whole expression, as this first did, points the mirror direction backwards and
+      // puts the highlight on the wrong face.
+      const mirror = V.mul(-1)
+        .sub(N.mul(dot(V.mul(-1), N).mul(2)))
+        .toVar("glassMirror");
+      const lobe = pow(max(dot(mirror, KEY), float(0)), float(40))
+        .add(pow(max(dot(mirror, KEY_FILL), float(0)), float(40)).mul(0.55))
+        .toVar("glassLobe");
+      const spec = lobe.add(rim.mul(0.25)).mul(u.uGlassSpec).toVar("glassSpec");
+      col.addAssign(lobe.mul(u.uGlassSpec).mul(0.35).mul(film));
 
-    const alpha = u.uOpacity.toVar("glassAlpha");
-    // The GLSL twin feathers the ribbon's own edges here. Leaving it out left a hard rim on this
-    // backend and a soft one on the other — a constant alpha bias across the whole silhouette.
-    If(u.uEdgeFeather.greaterThan(0), () => {
-      const e = min(min(vUv.x, float(1).sub(vUv.x)), min(vUv.y, float(1).sub(vUv.y)));
-      alpha.mulAssign(e.smoothstep(float(0), u.uEdgeFeather));
+      const luma = dot(col, vec3(0.299, 0.587, 0.114)).toVar("glassLuma");
+      const darkBlend = luma.smoothstep(0.25, 0.7);
+      col.assign(max(mix(col.add(spec), col.mul(float(1).sub(spec)), darkBlend), vec3(0, 0, 0)));
+      col.addAssign(float(0.5).sub(luma).mul(u.uGlassVibrancy));
+
+      // Opaque draw, so the feather (and opacity) fade toward the UNBENT backdrop rather than
+      // scaling the colour — see the GLSL twin for the dark line that scaling drew.
+      const fade = clamp(u.uOpacity, 0, 1).toVar("glassFade");
+      If(u.uEdgeFeather.greaterThan(0), () => {
+        const e = min(min(vUv.x, float(1).sub(vUv.x)), min(vUv.y, float(1).sub(vUv.y)));
+        fade.mulAssign(e.smoothstep(float(0), u.uEdgeFeather));
+      });
+      col.assign(mix(backdropAt(texUv), col, fade));
+      out.assign(vec4(clamp(col, 0, 1), 1.0));
     });
-    const shaded = vec4(clamp(col, 0, 1), clamp(alpha, 0, 1));
-    // No early return in TSL: the normal pass is selected at the end.
-    return select(u.uNormalPass.greaterThan(0.5), vec4(N.mul(0.5).add(0.5), 1.0), shaded);
+    return out;
+  })();
+}
+
+/** The glass layer-count companion: coverage only, on the wave's own vertex stage. */
+function buildGlassLayerFragment(u: WaveTslUniforms, flags: WaveMaterialFlags, ndc: Vec2Node) {
+  return Fn(() => {
+    if (flags.dissolve) Discard(dissolved(u, uv(), ndc));
+    return vec4(0.125, 0.125, 0.125, 1.0);
   })();
 }
 

@@ -295,7 +295,9 @@ export interface WaveConfig {
   /** Glass only: per-channel split of that bend (dispersion). Past ~1 it reads as an oil sheen. */
   glassChroma?: number;
   /** Glass only: 0 clear · 1 frosted. Blurs the backdrop AT the refracted position, so the frost
-   *  rides the bend rather than sitting flat under it. */
+   *  rides the bend rather than sitting flat under it. The scatter radius grows with the square of
+   *  this, and the taps are skipped while it is under half a pixel (below ~0.1), where they could
+   *  only average back to the sample they surround. */
   glassFrost?: number;
   /** Glass only: strength of the edge glint. It ADDS light over a dark backdrop and DARKENS over a
    *  bright one, which is what keeps a rim visible on white paper. */

@@ -1061,16 +1061,15 @@ void main(){
     col *= mix(1.0, gain, clamp(uGlassCaustic, 0.0, 1.0));
   }
 
-  if (uGlassFrost > 0.001) {
-    // Radius grows with the SQUARE of frost, the way a scattering lobe does: gentle at the low end
-    // where you want a hint of ground glass, and genuinely opaque by the top.
-    float radius = uGlassFrost * uGlassFrost * 46.0;
-    vec3 f = vec3(
-      frostSample(uvR, radius).r,
-      frostSample(uvG, radius).g,
-      frostSample(uvB, radius).b
-    );
-    col = mix(col, f, clamp(uGlassFrost, 0.0, 1.0));
+  // Radius grows with the SQUARE of frost, the way a scattering lobe does: gentle at the low end
+  // where you want a hint of ground glass, and genuinely opaque by the top. Gated on the radius in
+  // PIXELS, not on the knob: under half a pixel the eleven taps average back to the bilinear
+  // sample they surround, so the default 0.08 (0.29 px) was paying for a blur nobody could see.
+  float frostRadius = uGlassFrost * uGlassFrost * 46.0;
+  if (frostRadius > 0.5) {
+    // One RGB gather at the green offset. Gathering per channel tripled the taps for a dispersion
+    // the scatter itself washes out at any radius where the frost is visible at all.
+    col = mix(col, frostSample(uvG, frostRadius), clamp(uGlassFrost, 0.0, 1.0));
   }
 
   // ---- the material itself ----
@@ -1140,15 +1139,52 @@ void main(){
   // Vibrancy: pull the interior toward mid-grey — the haze that says "glass" rather than "hole".
   col += (0.5 - lumaV) * uGlassVibrancy;
 
-  float alpha = uOpacity;
+  // Glass draws OPAQUE, so alpha never reaches a blend: a soft edge has to fade toward the UNBENT
+  // backdrop instead. Scaling the colour by alpha, as the blended themes do under
+  // PREMULTIPLIED_ALPHA, faded the feather toward black and drew a hard dark line along every
+  // silhouette. Opacity folds into the same fade — for a sheet with nothing to blend against,
+  // "half opaque" can only mean "half as much bending".
+  float fade = clamp(uOpacity, 0.0, 1.0);
   if (uEdgeFeather > 0.0) {
     float e = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));
-    alpha *= smoothstep(0.0, uEdgeFeather, e);
+    fade *= smoothstep(0.0, uEdgeFeather, e);
   }
-  gl_FragColor = vec4(clamp(col, 0.0, 1.0), clamp(alpha, 0.0, 1.0));
-#ifdef PREMULTIPLIED_ALPHA
-  gl_FragColor.rgb *= gl_FragColor.a;
+  col = mix(backdropAt(sUv), col, fade);
+  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}
+`;
+
+// ---- Glass layer count ----
+// The companion program for the glass LAYER pass: the wave's own vertex stage, so every twist,
+// path and ripple lands exactly where the shaded frame puts it and both faces of the sheet count,
+// with a fragment that only says "one layer is here". Drawn additively with depth off into the
+// layer target, 1/8 per layer, so the channel saturates at eight folds — well past anything a
+// ribbon does to itself. A stock override material could not stand in: its vertex stage knows
+// nothing of the deformation and it culls back faces, so the count came out for the REST-POSE
+// plane (measured at a tenth of the real silhouette on the Liquid Glass preset).
+export const glassLayerFragmentShader = /* glsl */ `
+#define MAX_COLORS ${MAX_COLORS}
+#define MAX_MESH_POINTS ${MAX_MESH_POINTS}
+#define MAX_LIGHTS ${MAX_LIGHTS}
+
+${simplex2d}
+
+${colorUniforms}
+uniform vec2 uResolution;
+uniform float uTime;
+
+varying vec2 vUv;
+varying vec4 vClipPosition;
+
+#ifdef DISSOLVE
+${dissolveChunk}
 #endif
+
+void main(){
+#ifdef DISSOLVE
+  if (dissolved(vUv, vClipPosition.xy / max(vClipPosition.w, 1.0e-6) * 0.5 + 0.5)) discard;
+#endif
+  gl_FragColor = vec4(vec3(0.125), 1.0);
 }
 `;
 
