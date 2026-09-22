@@ -395,9 +395,6 @@ export class WaveRenderer {
    *  thickness is the cue that reads as VOLUME rather than as a tinted film — but glass draws
    *  opaque, so the nearest layer wins and the fold behind it is invisible without counting. */
   private layerTarget?: THREE.WebGLRenderTarget;
-  /** The glass surface normal in screen space — needed because a normal derived with dFdx is
-   *  constant across each 2x2 quad, so nothing downstream can differentiate it again. */
-  private normalTarget?: THREE.WebGLRenderTarget;
   private backgroundSig = "";
   private backgroundImage?: HTMLImageElement;
   private backgroundImageUrl = "";
@@ -692,8 +689,6 @@ export class WaveRenderer {
       uGlassLayerGain: { value: 0.6 },
       uGlassFusion: { value: 0 },
       uGlassCaustic: { value: 0.4 },
-      uGlassNormals: { value: null as THREE.Texture | null },
-      uNormalPass: { value: 0 },
       uViewAxis: { value: new THREE.Vector3(0, 0, 1) },
       uOpacity: { value: 1 },
       uSquared: { value: 1 }, // "squared" deep-colour mode: square the colour in-shader (see applyBlendMode)
@@ -825,6 +820,8 @@ export class WaveRenderer {
     }
     // Path: a wave with no centreline of its own compiles the program it always did.
     if (sc?.path && sc.path.length >= 2) defines.PATH = "";
+    // Glass reads an interpolated vertex normal; the other themes keep their per-triangle one.
+    if (sc?.theme === "glass") defines.VERTEX_NORMAL = "";
     // Radial fan: amount 0 is the identity mix, so it alone decides whether the block is compiled.
     // Not binding-driveable in v1 (not in WAVE_TARGET_NAMES), so no bindsRadial term is needed.
     if ((sc?.radialAmount ?? 0) !== 0) defines.RADIAL = "";
@@ -911,9 +908,12 @@ export class WaveRenderer {
    */
   protected createLayerMaterial(sc: WaveConfig, material: WaveMaterial): THREE.Material {
     const main = material as unknown as THREE.ShaderMaterial;
+    // Coverage needs no normal: skip the two extra shape evaluations per vertex.
+    const defines = { ...(main.defines ?? this.waveDefines(sc)) };
+    delete defines.VERTEX_NORMAL;
     return new THREE.ShaderMaterial({
       uniforms: main.uniforms,
-      defines: { ...(main.defines ?? this.waveDefines(sc)) },
+      defines,
       vertexShader,
       fragmentShader: glassLayerFragmentShader,
       transparent: true,
@@ -2251,42 +2251,6 @@ export class WaveRenderer {
     for (const w of swapped) w.mesh.material = w.material;
     for (const w of this.waves) w.material.uniforms.uLayers.value = this.layerTarget.texture;
 
-    // Normals, drawn by the glass program itself under uNormalPass so the buffer and the shaded
-    // frame cannot disagree about where the surface is.
-    const wantsCaustic = this.config.waves.some(
-      (sc) => sc?.theme === "glass" && (sc.glassCaustic ?? 0) > 0.001,
-    );
-    if (!wantsCaustic) {
-      for (const w of this.waves) w.material.uniforms.uGlassNormals.value = this.emptyTexture();
-      for (const o of hidden) o.visible = true;
-      restore();
-      return;
-    }
-    if (!this.normalTarget) {
-      // Half float: the caustic takes a second difference of what is stored here, and at 8 bits a
-      // one-level step in the normal is a third of a pixel of refraction offset — visible as noise
-      // in the gain on a flat sheet.
-      this.normalTarget = this.pinSampling(
-        new THREE.WebGLRenderTarget(size.x, size.y, {
-          stencilBuffer: false,
-          type: THREE.HalfFloatType,
-        }),
-      );
-    } else if (this.normalTarget.width !== size.x || this.normalTarget.height !== size.y) {
-      this.normalTarget.setSize(size.x, size.y);
-    }
-    for (const w of this.waves) {
-      w.material.uniforms.uGlassNormals.value = this.emptyTexture();
-      w.material.uniforms.uNormalPass.value = 1;
-    }
-    this.renderer.setRenderTarget(this.normalTarget);
-    this.renderer.setClearColor(0x000000, 0);
-    this.renderer.clear(true, true, false);
-    this.renderer.render(this.scene, this.camera);
-    for (const w of this.waves) {
-      w.material.uniforms.uNormalPass.value = 0;
-      w.material.uniforms.uGlassNormals.value = this.normalTarget.texture;
-    }
     for (const o of hidden) o.visible = true;
     restore();
   }
@@ -2304,8 +2268,6 @@ export class WaveRenderer {
     this.backdropTarget = undefined;
     this.layerTarget?.dispose();
     this.layerTarget = undefined;
-    this.normalTarget?.dispose();
-    this.normalTarget = undefined;
     this.empty?.dispose();
     this.empty = undefined;
   }

@@ -29,6 +29,7 @@ import { floatUniform, vec2Uniform } from "./tsl/types";
 function variantKey(f: WaveMaterialFlags): string {
   return [
     f.theme,
+    f.vertexNormal && "vnormal",
     f.loopMotion && "loop",
     f.detailOctave && "detail",
     f.helix && "helix",
@@ -157,6 +158,7 @@ export function withTslBackend<TBase extends typeof WaveRenderer>(Base: TBase): 
       const pointer = !!sc && wavePointerFxActive(this.config, sc);
       return {
         theme: sc?.theme === "wireframe" ? "wireframe" : sc?.theme === "glass" ? "glass" : "solid",
+        vertexNormal: sc?.theme === "glass",
         loopMotion: (this.config.loopSeconds ?? 0) > 0,
         detailOctave: (sc?.detailAmount ?? 0) !== 0 || bindsDetail,
         helix: (sc?.helixRadius ?? 0) !== 0 || (sc?.helixRoll ?? 0) !== 0 || bindsHelix,
@@ -254,7 +256,7 @@ export function withTslBackend<TBase extends typeof WaveRenderer>(Base: TBase): 
     /** The layer-count companion as a node material: same uniform registry, same flags. */
     protected override createLayerMaterial(sc: WaveConfig, material: WaveMaterial): THREE.Material {
       const { tsl } = (material as TslMaterial).userData;
-      return buildWaveMaterial(tsl, { ...this.flagsFor(sc), layerPass: true });
+      return buildWaveMaterial(tsl, { ...this.flagsFor(sc), layerPass: true, vertexNormal: false });
     }
 
     protected override layerVariantKey(material: WaveMaterial): string {

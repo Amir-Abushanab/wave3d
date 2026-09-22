@@ -134,11 +134,32 @@ export class WaveGeometry {
 
     plane.computeVertexNormals();
 
+    // Each vertex's grid neighbours, baked as attributes: the next column (across the width) and
+    // the next row (along the length), each as its base position plus the SIGNED uv step to it in
+    // `w`. The vertex shader runs the same deformation on both and crosses the two tangents, which
+    // gives glass a normal that is exact for whatever the shape does and smooth across the mesh —
+    // the fragment's dFdx normal is constant per triangle, and a 120 px refraction turns every
+    // triangle edge into a seam. The last column and row step BACKWARD; the sign in `w` lets the
+    // shader flip that tangent so the normal keeps its orientation. Read only under VERTEX_NORMAL.
+    const nU = new Float32Array(pos.count * 4);
+    const nV = new Float32Array(pos.count * 4);
+    for (let iy = 0; iy <= subY; iy++) {
+      for (let ix = 0; ix <= subX; ix++) {
+        const i = iy * cols + ix;
+        const iU = iy * cols + (ix < subX ? ix + 1 : ix - 1);
+        const iV = (iy < subY ? iy + 1 : iy - 1) * cols + ix;
+        nU.set([pos.getX(iU), pos.getY(iU), pos.getZ(iU), uv.getX(iU) - uv.getX(i)], i * 4);
+        nV.set([pos.getX(iV), pos.getY(iV), pos.getZ(iV), uv.getY(iV) - uv.getY(i)], i * 4);
+      }
+    }
+
     // Move the baked attributes onto our reusable geometry, then drop the temp.
     this.geometry.setIndex(plane.getIndex());
     this.geometry.setAttribute("position", plane.getAttribute("position"));
     this.geometry.setAttribute("uv", plane.getAttribute("uv"));
     this.geometry.setAttribute("normal", plane.getAttribute("normal"));
+    this.geometry.setAttribute("positionU", new THREE.BufferAttribute(nU, 4));
+    this.geometry.setAttribute("positionV", new THREE.BufferAttribute(nV, 4));
     this.geometry.computeBoundingSphere();
     plane.dispose();
   }

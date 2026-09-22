@@ -99,7 +99,6 @@ export function makeTslUniforms(drawingBufferSize: Vector2) {
     // renderer swaps in the real captures when a wave asks for the theme.
     uBackdrop: texture(makeFallbackPalette()),
     uLayers: texture(makeFallbackPalette()),
-    uGlassNormals: texture(makeFallbackPalette()),
     uGlassStrength: uniform(90),
     uGlassChroma: uniform(0.7),
     uGlassFrost: uniform(0.08),
@@ -119,7 +118,6 @@ export function makeTslUniforms(drawingBufferSize: Vector2) {
     uGlassLayerGain: uniform(0.6),
     uGlassFusion: uniform(0),
     uGlassCaustic: uniform(0.4),
-    uNormalPass: uniform(0),
     uViewAxis: uniform(new Vector3(0, 0, 1)),
     uUsePalette: uniform(1),
     uPaletteRaw: uniform(1),

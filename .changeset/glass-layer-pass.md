@@ -18,9 +18,23 @@ soft edge no longer draws a dark line.
   colour by an alpha no blend ever reads faded the feather toward black and drew a hard dark line
   along the silhouette. This was also the "unexplained" two-level darkening on the WebGPU backend:
   both glass parity cases now pass the thresholds with no allowance.
-- The TSL normal pass is a real branch instead of a `select()` that evaluated the whole shade; the
-  normal buffer is half float; the backdrop excludes waves by depth toward the camera (array order
-  breaks ties), so a wave moved behind a sheet stays visible through it; the passes restore the
-  clear colour; a wave switched to glass live leaves the transparent list.
+- **Glass gets a vertex-stage normal, and the normal pass is gone.** The geometry bakes each
+  vertex's two grid neighbours; the vertex shader runs the same deformation on them (pointer bump
+  included) and crosses the tangents, so the normal is exact and interpolates smoothly where the
+  fragment's `dFdx` normal was constant per triangle — a 120 px refraction turned every triangle
+  edge into a seam. The caustic is now the Jacobian of the offset from ±3 px finite differences of
+  that interpolated normal in the same pass, so the normal buffer, its render target and the third
+  geometry pass are gone. Bent images are coherent now; presets tuned against the old faceted
+  refraction (Liquid Glass) look smoother and blobbier than before.
+- **TSL: varyings created inside `positionNode` were never reaching the fragment.** The closure
+  runs when the vertex stage is _built_, after `buildWaveMaterial` has returned, so a varying
+  handed to the fragment builders by value was always `null` — the glass normal silently fell back
+  to the faceted one on WebGPU, and the pointer field's hue shift, lighten and strand thinning have
+  been missing on that backend since they were ported. Both are now read at build time, and a
+  missing varying throws instead of falling back.
+- The backdrop excludes waves by depth toward the camera (array order breaks ties), so a wave
+  moved behind a sheet stays visible through it; the passes restore the clear colour; a wave
+  switched to glass live leaves the transparent list.
 
-Liquid Glass at 1000×700: 2.1 → 1.4 ms/frame on WebGL, 1.1 → 0.8 on WebGPU.
+Liquid Glass at 1000×700: 2.1 → 1.4 ms/frame on WebGL, 1.1 → 0.7 on WebGPU. Parity: Liquid Glass
+mae 0.08, synthetic glass 0.23, both without an allowance.

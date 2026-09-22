@@ -539,6 +539,16 @@ varying vec3 vWorldPos;
 varying vec3 vViewDir;
 varying vec4 vClipPosition; // = gl_Position, for the wireframe theme's depth fade
 
+// Vertex normal (optional): the deformed surface's normal from finite differences of the SAME
+// deformation at two baked neighbours — exact for whatever the shape does, and smooth across the
+// mesh where the fragment's dFdx normal is constant per triangle. Glass reads it; behind
+// VERTEX_NORMAL so the other themes compile the exact same program.
+#ifdef VERTEX_NORMAL
+attribute vec4 positionU; // next vertex across the width: xyz = base position, w = signed uv.x step
+attribute vec4 positionV; // next vertex along the length, likewise (w = signed uv.y step)
+varying vec3 vNormal;     // world space, unit length; zero where the surface is degenerate
+#endif
+
 // Pointer field (optional, additive) — the shared chunk, gated so a wave with no interaction config
 // compiles the exact same program. The particle emitter interpolates the SAME chunk, so dust reacts
 // through one implementation of the footprint / falloff / displacement.
@@ -574,6 +584,13 @@ void main(){
   // matrices the pointer field reads below.
   WaveShape ws = waveShape(position, uv, t, loopOff);
   vec3 pos = ws.pos;
+#ifdef VERTEX_NORMAL
+  // The two neighbours through the SAME deformation (and the same pointer bump, below).
+  WaveShape wsU = waveShape(positionU.xyz, uv + vec2(positionU.w, 0.0), t, loopOff);
+  WaveShape wsV = waveShape(positionV.xyz, uv + vec2(0.0, positionV.w), t, loopOff);
+  vec3 posU = wsU.pos;
+  vec3 posV = wsV.pos;
+#endif
 
 #ifdef POINTER_FX
   // Pointer field: displace along the wave's own (post-twist) up-axis, weighted by a screen-space
@@ -593,6 +610,29 @@ void main(){
   // convention). Rotations are linear, so post-twist axis displacement equals pre-twist Y displacement.
   vec3 dispAxis = (((vec4(0.0, 1.0, 0.0, 0.0) * ws.rotA) * ws.rotB) * ws.rotC).xyz;
   pos += dispAxis * hit.disp;
+#ifdef VERTEX_NORMAL
+  // The neighbours ride the same bump, each from its own clip position and its own twist frame, so
+  // the normal follows the pointer's displacement rather than ignoring it.
+  vec4 clipU = mvp * vec4(posU, 1.0);
+  PointerHit hitU = pointerField(clipU.xy / max(clipU.w, 1.0e-6), mvp,
+                                 wsU.rotA, wsU.rotB, wsU.rotC, posU, t, loopOff);
+  posU += (((vec4(0.0, 1.0, 0.0, 0.0) * wsU.rotA) * wsU.rotB) * wsU.rotC).xyz * hitU.disp;
+  vec4 clipV = mvp * vec4(posV, 1.0);
+  PointerHit hitV = pointerField(clipV.xy / max(clipV.w, 1.0e-6), mvp,
+                                 wsV.rotA, wsV.rotB, wsV.rotC, posV, t, loopOff);
+  posV += (((vec4(0.0, 1.0, 0.0, 0.0) * wsV.rotA) * wsV.rotB) * wsV.rotC).xyz * hitV.disp;
+#endif
+#endif
+
+#ifdef VERTEX_NORMAL
+  {
+    // Tangents transform covariantly, so mat3(modelMatrix) is right for any scale — a normal would
+    // need its inverse transpose. sign(w) undoes the backward step the last row and column take.
+    vec3 tU = mat3(modelMatrix) * ((posU - pos) * sign(positionU.w));
+    vec3 tV = mat3(modelMatrix) * ((posV - pos) * sign(positionV.w));
+    vec3 n = cross(tU, tV);
+    vNormal = n / max(length(n), 1.0e-9);
+  }
 #endif
 
   // The scale / rotation / position transform lives on the mesh (modelMatrix), so the
@@ -867,8 +907,6 @@ uniform sampler2D uLayers;       // glass layers covering this pixel, 1/8 each
 uniform float uGlassLayerGain;
 uniform float uGlassFusion;      // droplet merge: bend along the MERGED silhouette, not each normal
 uniform float uGlassCaustic;
-uniform sampler2D uGlassNormals; // this wave's surface normal, screen space, from the normal pass
-uniform float uNormalPass;       // 1 while rendering that buffer: write the normal, shade nothing
 uniform vec3 uViewAxis;          // world-space axis from the surface TOWARD an orthographic camera
 uniform float uGlassRipple;      // liquid: how hard the travelling waves tilt the normal
 uniform float uGlassRippleScale; // waves per world unit
@@ -886,6 +924,9 @@ varying vec2 vUv;
 varying vec3 vWorldPos;
 varying vec3 vViewDir;
 varying vec4 vClipPosition;
+#ifdef VERTEX_NORMAL
+varying vec3 vNormal;
+#endif
 
 #ifdef DISSOLVE
 ${dissolveChunk}
@@ -954,17 +995,6 @@ float coverageField(vec2 uv){
   return f / 16.0;
 }
 
-// The same offset the shading path computes, but evaluated from the normal BUFFER at an arbitrary
-// screen position — which is what lets the caustic take a second difference of it.
-vec2 glassOffsetAt(vec2 uv){
-  vec4 texel = texture2D(uGlassNormals, uv);
-  if (texel.a < 0.5) return vec2(0.0);
-  vec3 n = normalize(texel.xyz * 2.0 - 1.0);
-  vec3 v = normalize(uViewAxis);
-  float r = pow(1.0 - abs(dot(n, v)), max(uGlassRimPower, 0.001));
-  return -n.xy * r * uGlassStrength;
-}
-
 // Frosting is SCATTER, not blur. Blurring one lookup smears whatever that single ray happened to
 // hit, which reads as a dirty window; spreading real samples over a cone is what loses the image
 // behind while keeping the light. Eleven samples on a golden-angle spiral, spread by sqrt(i/N) so
@@ -986,26 +1016,49 @@ vec3 frostSample(vec2 uv, float radiusPx){
   return acc / float(FROST_SAMPLES);
 }
 
+// The shading normal for a raw — interpolated, unnormalised — surface normal: unit length, faced
+// toward the viewer (the orientation the screen-derivative normal always had, so a thin sheet
+// bends the same way whichever face is in front), then rippled. A zero-length input faces the
+// camera and bends nothing. Shared by the shading path and the caustic's finite differences, so
+// the two can never disagree about the surface.
+vec3 glassShadingNormal(vec3 rawN, vec3 pos, vec3 V, out vec3 flatN){
+  float nLen = length(rawN);
+  vec3 N = nLen > 1.0e-6 ? rawN / nLen : V;
+  if (dot(N, V) < 0.0) N = -N;
+  flatN = N;
+  if (uGlassRipple > 0.001) N = rippleNormal(N, pos);
+  return N;
+}
+
+// The refraction offset, in pixels, of the surface at (rawN, pos) — before droplet fusion.
+vec2 glassOffset(vec3 rawN, vec3 pos, vec3 V){
+  vec3 flatN;
+  vec3 N = glassShadingNormal(rawN, pos, V, flatN);
+  float rim = pow(1.0 - abs(dot(N, V)), max(uGlassRimPower, 0.001));
+  // The ripple is fed into the OFFSET as well as the normal — see main().
+  vec2 dir = -(N.xy + (N.xy - flatN.xy) * 2.0);
+  return dir * mix(rim, 1.0, uGlassRipple * 0.25) * uGlassStrength;
+}
+
 void main(){
 #ifdef DISSOLVE
   if (dissolved(vUv, vClipPosition.xy / max(vClipPosition.w, 1.0e-6) * 0.5 + 0.5)) discard;
 #endif
-  vec3 N = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
   // ORTHOGRAPHIC camera: every ray is parallel, so the view direction is the camera's forward axis,
   // NOT a per-fragment vector to the eye. vViewDir (cameraPosition - world) is the perspective form
   // and under ortho it fans out across the frame — using it swings the rim band and the specular
   // across the ribbon as if the camera were inches away. Fed as a uniform rather than dug out of
   // viewMatrix, because the TSL twin cannot index a matrix node and the two must not diverge.
   vec3 V = normalize(uViewAxis);
-  vec3 flatN = N; // the geometric normal, kept so the ripple's CONTRIBUTION can be isolated below
-  if (uGlassRipple > 0.001) N = rippleNormal(N, vWorldPos);
-  // The normal pass writes the shading normal and stops. Same program, same deformation, so the
-  // buffer agrees with the shaded frame exactly — which a separate override material could not
-  // promise, since every twist and path lives in this program's vertex stage.
-  if (uNormalPass > 0.5) {
-    gl_FragColor = vec4(N * 0.5 + 0.5, 1.0);
-    return;
-  }
+#ifdef VERTEX_NORMAL
+  // The interpolated vertex normal: smooth across the mesh, where dFdx of the world position is
+  // constant per triangle and a 120 px refraction turned every triangle edge into a seam.
+  vec3 rawN = vNormal;
+#else
+  vec3 rawN = cross(dFdx(vWorldPos), dFdy(vWorldPos)); // per triangle: the caustic sees no curvature
+#endif
+  vec3 flatN; // the geometric normal, kept so the ripple's CONTRIBUTION can be isolated below
+  vec3 N = glassShadingNormal(rawN, vWorldPos, V, flatN);
   // The rim band, in 3D: 1 where the surface grazes the eye, 0 where it faces us. This is the same
   // curve the 2D work bakes as a rounded-rect inset, except it comes from the geometry, so it
   // follows every fold and twist without anything being authored.
@@ -1041,18 +1094,25 @@ void main(){
   // above 1 where it spreads. The derivatives are already free in a fragment shader, which is why
   // this needs no extra pass — it is the gather form of the usual light-space splat.
   if (uGlassCaustic > 0.001) {
-    // The offset has to be re-evaluated from NEIGHBOURING normals, not differentiated in place.
-    // N here comes from dFdx/dFdy of the world position, which is constant across each 2x2 quad, so
-    // its own derivative is identically zero: dFdx(offPx) returns 0, det J is exactly 1, and the
-    // caustic silently does nothing. Sampling the normal buffer a few pixels away is the only way
-    // to get a second difference out of a first-difference normal.
-    vec2 st = 3.0 / uResolution;
-    vec2 oR = glassOffsetAt(sUv + vec2(st.x, 0.0));
-    vec2 oL = glassOffsetAt(sUv - vec2(st.x, 0.0));
-    vec2 oU = glassOffsetAt(sUv + vec2(0.0, st.y));
-    vec2 oD = glassOffsetAt(sUv - vec2(0.0, st.y));
-    vec2 dOdx = (oR - oL) / (2.0 * 3.0);
-    vec2 dOdy = (oU - oD) / (2.0 * 3.0);
+    // One-pixel forward differences of the offset, re-evaluated at the neighbouring pixel's normal
+    // and position. Those come from dFdx of the INTERPOLATED normal (and of the position, for the
+    // ripple), which is linear across a triangle, so every backend and derivative mode agrees on
+    // it to the bit — where dFdx of the offset itself, a nonlinear function of the normal, is
+    // implementation-defined (coarse or fine) and split the two backends at every steep fold.
+    // It works at all because the normal is interpolated: derived from dFdx of the position it was
+    // constant per quad, its own derivative identically zero, and the caustic needed a separate
+    // normal buffer and a 3 px stencil to get a second difference out of a first-difference normal.
+    // A ±3 px central difference — the baseline the normal-buffer stencil had. The map's fold is a
+    // pole in 1/|det J|, and a one-pixel difference lands so close to it that rounding alone moved
+    // the bright band between the two backends; six pixels of baseline keep them on the same side.
+    vec3 dNx = dFdx(rawN) * 3.0;
+    vec3 dNy = dFdy(rawN) * 3.0;
+    vec3 dPx = dFdx(vWorldPos) * 3.0;
+    vec3 dPy = dFdy(vWorldPos) * 3.0;
+    vec2 dOdx = (glassOffset(rawN + dNx, vWorldPos + dPx, V)
+               - glassOffset(rawN - dNx, vWorldPos - dPx, V)) / 6.0;
+    vec2 dOdy = (glassOffset(rawN + dNy, vWorldPos + dPy, V)
+               - glassOffset(rawN - dNy, vWorldPos - dPy, V)) / 6.0;
     float detJ = (1.0 + dOdx.x) * (1.0 + dOdy.y) - dOdy.x * dOdx.y;
     // The floor matters: at a fold the map folds too, det passes through zero, and the true
     // brightness there is infinite. Real caustics are bounded by the width of the light source, so
