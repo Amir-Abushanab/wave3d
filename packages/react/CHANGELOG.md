@@ -1,5 +1,12 @@
 # @wave3d/react
 
+## 0.11.0
+
+### Patch Changes
+
+- Updated dependencies [[`daf59ce`](https://github.com/Amir-Abushanab/wave3d/commit/daf59ce6155f50a0aef5e3d45b6d379e7fe3d530), [`4c8a1ac`](https://github.com/Amir-Abushanab/wave3d/commit/4c8a1acd08818df5ff8a5f82c4021a811990b750), [`8fce3d3`](https://github.com/Amir-Abushanab/wave3d/commit/8fce3d38efccc5fb881378d882275171fb6462e1), [`2d93a06`](https://github.com/Amir-Abushanab/wave3d/commit/2d93a06cf281886b39ff6cabf1682110ec5638e5), [`40eb90d`](https://github.com/Amir-Abushanab/wave3d/commit/40eb90d6c1a0729db3932c264f3f1a19a83082d5), [`0d60f25`](https://github.com/Amir-Abushanab/wave3d/commit/0d60f25b59d2b0f2984d3999bac4f72782c6a619), [`28016aa`](https://github.com/Amir-Abushanab/wave3d/commit/28016aa11dee61288c3a5f34bf5a30f95b11c81a), [`8c221fc`](https://github.com/Amir-Abushanab/wave3d/commit/8c221fc8dfaa50c9f58ef54dbfbbc3de69edde71), [`efb4eb0`](https://github.com/Amir-Abushanab/wave3d/commit/efb4eb0c0f12c90630dd79715a21b8fea51676b5), [`7077a27`](https://github.com/Amir-Abushanab/wave3d/commit/7077a279a7624be2f52c38fbfbd676ceac7b3cee), [`b9ebf9f`](https://github.com/Amir-Abushanab/wave3d/commit/b9ebf9fd48f445d0b9ba4eb8519581dfe349f2e9)]:
+  - @wave3d/core@0.11.0
+
 ## 0.10.0
 
 ### Patch Changes
