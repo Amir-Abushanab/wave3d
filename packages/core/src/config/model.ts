@@ -54,6 +54,19 @@ export const CAMERA_FITS: readonly CameraFit[] = ["cover", "contain", "width", "
  *  a named built-in map (see PALETTE_MAPS). Any string is allowed for forward-compat. */
 export type PaletteSource = "hero" | "stops" | (string & {});
 
+/**
+ * One control point of a {@link WaveConfig.path}: where the ribbon's centre passes, how wide it is
+ * there, and how far its cross-section has rotated. `width` 1 is the ribbon's natural width; `twist`
+ * is in degrees. Both are optional and default to 1 / 0.
+ */
+export interface PathPoint {
+  x: number;
+  y: number;
+  z: number;
+  width?: number;
+  twist?: number;
+}
+
 /** A positionable light. `position` lives in the same 3D space as the wave. */
 export interface LightConfig {
   position: Vec3;
@@ -154,6 +167,8 @@ export function createDefaultMeshPoints(): MeshGradientPoint[] {
  * (normalizeWaveColour, randomize*) map 1:1.
  */
 export interface WaveConfig {
+  /** What to call this wave in the studio, if "Wave 3" is not enough. Absent ⇒ that numbering. */
+  name?: string;
   // Colour & gradient
   palette: ColorStop[];
   gradientType: GradientType;
@@ -192,7 +207,8 @@ export interface WaveConfig {
   edgeFade: number;
   /** Softness of the ribbon's two ENDS — it smoothsteps on uv.y, which is the length, not the
    *  long edges. 0.1 = the original hardcoded value; smaller = razor-crisp graphic ribbons,
-   *  larger = soft vapor. */
+   *  larger = soft vapor. Both themes honour it: on the wireframe it is what stops a sweep ending
+   *  at a flat end-cap that reads as a straight cut drawn across the strands. */
   edgeFeather: number;
   /** Depth tint (solid theme): fade far fragments toward depthTintColor for atmospheric
    *  separation in multi-wave stacks (0 = off). */
@@ -235,18 +251,147 @@ export interface WaveConfig {
   radialSpread?: number; // along-length → radius scale
   radialRadius?: number; // source / inner radius (world units, pre-scale)
   radialCenter?: number; // base angle, degrees
-  // Material ("solid" surface vs "wireframe" line shader)
-  theme?: "solid" | "wireframe";
+  /** Lift the fan out of its own plane as it spreads, turning the flat plume into a CONE — a
+   *  trumpet / morning-glory mouth whose combed strands run down the slant into the throat, which is
+   *  the one thing neither the twists nor the helix can reach (a helix carries the ribbon around an
+   *  axis, but its WIDTH never follows the slant). Measured as lift per ribbon-length of radius:
+   *  0 = the flat fan (the default, byte-identical), ~0.6 a wide mouth, ~1.4 a narrow horn.
+   *  Negative cones the other way. Inert unless `radialAmount` > 0. */
+  radialCone?: number;
+  /** Degrees of ANGLE the band gains along its own length. The fan's angle otherwise comes from uv.x
+   *  alone, so every arm runs straight out from the throat; radius already grows with uv.y, and
+   *  letting angle grow with it too is exactly what turns a straight arm into a SPIRAL one that
+   *  curves around the throat. 0 = straight (the default, byte-identical); 150 wraps most of a
+   *  half-turn. Negative spirals the other way. Inert unless `radialAmount` > 0. */
+  radialSwirl?: number;
+  /**
+   * PATH — the ribbon's centreline, as control points it is swept along. Absent ⇒ the straight
+   * centreline the folded geometry is born with (byte-identical: the shader block is not compiled).
+   *
+   * This is the shape control the others cannot substitute for. The twists rotate a ribbon whose
+   * centreline is fixed, the helix carries that fixed centreline around an axis, the radial fan
+   * splays it — so none of them can make a ribbon that changes direction more than once, crosses
+   * itself, or is wide here and narrow there. A path can, because it IS the centreline.
+   *
+   * Points are in the wave's LOCAL space, the same units the geometry uses: the un-pathed ribbon
+   * runs from x −200 to +200 along its length, so `straightPath()` reproduces it. They are swept by
+   * ARC LENGTH with a parallel-transported frame, which is what keeps the strand comb even however
+   * the points are dragged and stops the ribbon snapping through inflections.
+   *
+   * Per point, `width` scales the ribbon's width there (0.1 is a throat, 2 a flare — this is what a
+   * separate "pinch" knob would otherwise be) and `twist` rotates its cross-section in degrees.
+   * Both interpolate smoothly between points.
+   */
+  path?: PathPoint[];
+
+  // Material ("solid" surface · "wireframe" line shader · "glass" refracting sheet)
+  theme?: "solid" | "wireframe" | "glass";
+
+  // ---- glass theme ----
+  /** Glass only: how far the ribbon bends what is behind it, in PIXELS at the silhouette. The bend
+   *  is strongest where the surface turns away from the camera and falls to nothing face-on, which
+   *  is what gives a sheet its edge compression. 0 is a clear pane. */
+  glassStrength?: number;
+  /** Glass only: per-channel split of that bend (dispersion). Past ~1 it reads as an oil sheen. */
+  glassChroma?: number;
+  /** Glass only: 0 clear · 1 frosted. Blurs the backdrop AT the refracted position, so the frost
+   *  rides the bend rather than sitting flat under it. The scatter radius grows with the square of
+   *  this, and the taps are skipped while it is under half a pixel (below ~0.1), where they could
+   *  only average back to the sample they surround. */
+  glassFrost?: number;
+  /** Glass only: strength of the edge glint. It ADDS light over a dark backdrop and DARKENS over a
+   *  bright one, which is what keeps a rim visible on white paper. */
+  glassSpec?: number;
+  /** Glass only: how far the interior pulls toward mid-grey — legibility for anything read through
+   *  the sheet, and the haze that separates glass from a clear hole. */
+  glassVibrancy?: number;
+  /** Glass only: how much of the wave's own palette colour tints the glass (0 = colourless).
+   *  Deliberately LOW by default. Glass reads as glass because of what is behind it being bent, not
+   *  because the sheet carries colour — push this up and it stops looking like glass and starts
+   *  looking like a filled material that happens to be shiny. */
+  glassTint?: number;
+  /** Glass only: HALF the optical path at normal incidence — the sheet's thickness. With density it
+   *  sets how saturated the transmitted colour gets. This is what makes glass a material rather
+   *  than a window: the colour comes from the ribbon's own palette absorbed over its own thickness,
+   *  so it reads as glass with nothing behind it at all. */
+  glassPath?: number;
+  /** Glass only: absorption coefficient. High = deep, saturated glass; low = barely tinted. */
+  glassDensity?: number;
+  /** Glass only: edge whitening. The band is deliberately WIDE — a narrow one is thinner than a
+   *  pixel on a thin ribbon and the knob does nothing at all. */
+  glassRim?: number;
+  /** Glass only: thin-film iridescence on the reflection, rim and specular — never on the
+   *  transmission, which would read as dye rather than as a film. */
+  glassIrid?: number;
+  /** Glass only: optical film thickness in nm; 300–500 is the soap-bubble band. */
+  glassFilmNm?: number;
+  /** Glass only: index of refraction, used by the fresnel and the film. */
+  glassIor?: number;
+  /** Glass only: how much a fold over itself thickens the sheet. Glass draws opaque, so the layer
+   *  behind is otherwise invisible and a doubled-back ribbon looks exactly as thin as a single
+   *  sheet — this is the cue that reads as volume. 0 ignores overlap entirely. */
+  glassLayerGain?: number;
+  /** Glass only: DROPLET FUSION. Takes the refraction's direction from the gradient of the merged
+   *  silhouette rather than from each surface's own normal, so two sheets passing close read as one
+   *  blob of something viscous — in the neck between them the bend rotates smoothly from one rim to
+   *  the other instead of tearing between two centres. 0 is off and each sheet keeps its own. */
+  glassFusion?: number;
+  /** Glass only: CAUSTICS — brightness where the refraction map compresses and neighbouring rays
+   *  pile up, darkness where it spreads. Computed from the Jacobian of the sampling map, so it
+   *  costs no extra pass and lands exactly where the optics put it rather than being painted on.
+   *  Only visible where there is a backdrop to concentrate: a sheet over blank page has no light
+   *  to gather. */
+  glassCaustic?: number;
+  /** Glass only: LIQUID — how hard four travelling waves tilt the surface normal. Everything
+   *  downstream (dispersion, rim, specular) reads the rippled normal, so the shimmer stays coherent
+   *  instead of sitting on top as a separate layer. 0 is still glass, just not moving. */
+  glassRipple?: number;
+  /** Glass only: waves per world unit. */
+  glassRippleScale?: number;
+  /** Glass only: how fast they travel, rad/s. */
+  glassFlow?: number;
+  /** Glass only: falloff exponent of the rim band. Low = the whole sheet bends; high = only the
+   *  silhouette does, which is the crisp compression ring. */
+  glassRimPower?: number;
   lineAmount?: number;
   lineThickness?: number;
   lineDerivativePower?: number;
+  /** Wireframe only: how hard the strands recede INTO the page background with depth. 1 (the
+   *  default) is the original hardcoded fade — it gives a single ribbon its sense of depth, but on a
+   *  tightly-fitted near/far slab it washes out the whole back half of a deep or stacked
+   *  composition. 0 turns it off, so every strand holds full contrast wherever it sits: the flat,
+   *  graphic, poster look. */
+  lineDepthFade?: number;
+  /** Wireframe only: 0..1, how HARD the edge of each strand is. The stripe is a soft ramp by
+   *  default (0), which means {@link lineThickness} widens the strands by fading the gaps away with
+   *  them — the surface goes from pale hairlines to flat solid without passing through dense ink.
+   *  Raising this steepens the ramp about its midpoint, which splits the two controls apart:
+   *  `lineThickness` becomes the DUTY CYCLE (how much of each period is strand rather than gap) and
+   *  this becomes the edge. 0.9 with `lineThickness` ~1.5 is heavy ink with crisp gaps still
+   *  reading — the engraved / guilloché look. Default 0 (the original soft ramp). */
+  lineSharpness?: number;
+  /** Wireframe only: what sits between the strands. ABSENT = the page background, which makes the
+   *  wave a window onto the page (dark strands, paper showing through) — the theme as it has always
+   *  drawn. A colour makes the ribbon its own BODY: a dark gap colour under a bright palette is an
+   *  opaque striped surface, which is the other half of this theme's range and the one that reads as
+   *  a lit solid rather than a drawing. `"transparent"` (or an 8-digit hex with a low alpha) leaves
+   *  the gaps CLEAR instead, so stacked folds show through each other rather than occluding —
+   *  airier, but the near fold no longer hides the far one, which is what makes a stack read solid. */
+  lineGapColor?: string;
+  /** Wireframe only: 0..1, how much the strands are LIT. The line theme is otherwise unlit — a
+   *  strand's colour comes from its uv alone, so it holds one tone wherever the surface turns, which
+   *  is why a dense wireframe reads as a printed pattern instead of an object. Turn this up and the
+   *  same derivative normal and scene `lights` the solid theme uses shade it, AND each strand is
+   *  given a round cross-section, so a specular runs along one strand and not its neighbour. (Those
+   *  are one knob on purpose: shading a flat stripe barely reads — it is the round section that makes
+   *  a strand look like a filament.) Default 0. */
+  lineLight?: number;
   /** Wireframe RUNGS: a second line family carved at constant uv.y, so these run ACROSS the ribbon
    *  where `lineAmount`'s run along it — the two cross into a ladder. Frequency, like `lineAmount`
    *  (rungs ≈ amount / π). 0 = off, and the cross-wise path isn't compiled. */
   rungAmount?: number;
   /** Rung line width, in pixels (screen-space, so it holds at any zoom). */
   rungThickness?: number;
-  maxWidth?: number;
   // Transform (absolute — no shared base to offset from)
   position: Vec3;
   rotation: Vec3;
@@ -265,6 +410,55 @@ export interface WaveConfig {
   /** Optional per-wave particle / dust field emitted off THIS wave's deformed surface / edge.
    *  ABSENT ⇒ off (no THREE.Points for this wave, byte-identical). See {@link ParticlesConfig}. */
   particles?: ParticlesConfig;
+  /** Optional disintegration ("the snap"): a front that sweeps across the ribbon eating it away in
+   *  chunks, and — with a particle field — blowing those chunks off as dust. ABSENT ⇒ intact (no
+   *  DISSOLVE program, byte-identical). See {@link DissolveConfig}. */
+  dissolve?: DissolveConfig;
+}
+
+/** Which way a {@link DissolveConfig} front sweeps. `length` / `width` follow the RIBBON's own uv
+ *  axes, so the front travels with the sheet wherever the twist takes it; `screenX` / `screenY` are
+ *  a straight line on the CANVAS, so every wave in a stack crumbles against the same edge whatever
+ *  each one's orientation. */
+export type DissolveAxis = "length" | "width" | "screenX" | "screenY";
+export const DISSOLVE_AXES: readonly DissolveAxis[] = ["length", "width", "screenX", "screenY"];
+
+/**
+ * DISINTEGRATION — the "snap". A band sweeps across the ribbon in uv and everything behind it is
+ * eaten away chunk by chunk, so the surface CRUMBLES rather than fading: holes open in it, the holes
+ * merge, and the last fragments break off. Where the wave also has {@link ParticlesConfig}, `dust`
+ * pins that field to the same front, so the motes are the chunks that just left — the surface does
+ * not fade into an unrelated cloud, it becomes one.
+ *
+ * `amount` is the whole animation: 0 is intact and 1 is gone, whatever the band width, so binding it
+ * to `scroll` (or any other input — it is a {@link WaveInteractionTarget}) disintegrates the wave as
+ * the reader moves. Absent ⇒ the DISSOLVE shader path is never compiled.
+ */
+export interface DissolveConfig {
+  /** 0..1 — how far the front has swept. 0 = the ribbon is whole; 1 = every chunk is gone. */
+  amount: number;
+  /** Which way the front travels. `"length"` (uv.y, end to end — the default) and `"width"` (uv.x,
+   *  across the folded cross-section) ride the ribbon, so the front bends with it; mind the axes —
+   *  uv.y is the LENGTH (see the UV AXES note atop WaveGeometry). `"screenX"` / `"screenY"` sweep a
+   *  straight line across the CANVAS instead, which is what makes a multi-wave composition crumble
+   *  as ONE object: give every wave the same axis and amount and they share one edge. The crumb
+   *  pattern stays on the surface either way. */
+  axis?: DissolveAxis;
+  /** Sweep from the far end instead of the near one. */
+  reverse?: boolean;
+  /** Width of the crumbling band, in uv. 0.05 is a clean guillotine edge; 0.6 is a long ragged fray
+   *  where half the ribbon is mid-flight at once. Default 0.35. */
+  band?: number;
+  /** How finely the ribbon is diced — chunks across its WIDTH (they are kept square on the sheet,
+   *  so the length gets ~2.1× as many). Default 90; smaller = big slabs, larger = fine grit. */
+  scale?: number;
+  /** 0..1 — chunk character: 0 = organic torn tatters (smooth noise), 1 = hard quantized cells
+   *  (blocky pixel debris). Default 0.6. */
+  blocky?: number;
+  /** 0..1 — how strongly this wave's own dust is pinned to the front: 1 = each mote peels off
+   *  exactly where and when the surface under it crumbles and drifts on from there; 0 = the field
+   *  free-runs on `life` as it always has. Default 1. Inert without {@link WaveConfig.particles}. */
+  dust?: number;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -321,6 +515,10 @@ const WAVE_TARGET_NAMES = [
   "helixPhase",
   "helixTurns",
   "helixRadius",
+  "dissolveAmount",
+  "glassRipple",
+  "glassStrength",
+  "glassTint",
   "hueShift",
   "gradientShift",
   "colorSaturation",
@@ -482,13 +680,14 @@ export interface TiltConfig {
 /** How each particle sprite is drawn (a per-field render style, not per-particle). All but
  *  "sprite" are drawn procedurally from `gl_PointCoord`; "sprite" samples {@link
  *  ParticlesConfig.spriteUrl} and falls back to "glitter" until that image has rasterized. */
-export type ParticleShape = "glitter" | "soft" | "ring" | "star" | "streak" | "sprite";
+export type ParticleShape = "glitter" | "soft" | "ring" | "star" | "streak" | "square" | "sprite";
 export const PARTICLE_SHAPES: readonly ParticleShape[] = [
   "glitter",
   "soft",
   "ring",
   "star",
   "streak",
+  "square",
   "sprite",
 ];
 
@@ -520,6 +719,14 @@ export interface ParticlesConfig {
   wander?: number;
   /** Sprite render style. Default "glitter" (the soft round additive disc). */
   shape?: ParticleShape;
+  /**
+   * How the sprites composite. `"additive"` (the default) ADDS light — glints, embers, sparks; it can
+   * only ever brighten, so additive dust is invisible on a white page and can never read as dark.
+   * `"normal"` alpha-blends them instead, which is what a dark mote on a light ground needs: soot,
+   * ash, ink, the blocky debris a {@link DissolveConfig} sheds across a pale background. Either way
+   * the field never writes depth, so it composites over the waves rather than occluding them.
+   */
+  blend?: "additive" | "normal";
   /**
    * Artwork for `shape: "sprite"` — an SVG (or raster) `data:` URI or URL, rasterized ONCE into a
    * square texture shared by every particle in the field, so the cost is one texture per field and
@@ -752,13 +959,17 @@ function defaultWave(): WaveConfig {
     radialSpread: 1,
     radialRadius: 40,
     radialCenter: 0,
+    radialCone: 0,
+    radialSwirl: 0,
     theme: "solid",
     lineAmount: 425, // wireframe-theme line params (defaults)
     lineThickness: 1,
     lineDerivativePower: 0.95,
+    lineDepthFade: 1,
+    lineSharpness: 0,
+    lineLight: 0,
     rungAmount: 0, // cross-wise rungs off
     rungThickness: 1,
-    maxWidth: 1232,
     // Hero mesh transform at FULL scale (the ortho camera frames in pixels).
     position: { x: -24.3, y: -56.4, z: -11.1 },
     rotation: { x: -9.14, y: -16.25, z: -161.32 },
@@ -1010,13 +1221,42 @@ export function normalizeWave(s: WaveConfig): void {
   if (!Number.isFinite(s.radialSpread)) s.radialSpread = 1;
   if (!Number.isFinite(s.radialRadius)) s.radialRadius = 40;
   if (!Number.isFinite(s.radialCenter)) s.radialCenter = 0;
+  if (!Number.isFinite(s.radialCone)) s.radialCone = 0;
+  if (!Number.isFinite(s.radialSwirl)) s.radialSwirl = 0;
   if (typeof s.theme !== "string") s.theme = "solid";
+  // Glass knobs are PRESENT-ONLY: a config without them is untouched, and the defaults below only
+  // apply once a wave opts into the theme.
+  if (s.theme === "glass") {
+    if (!Number.isFinite(s.glassStrength)) s.glassStrength = 90;
+    if (!Number.isFinite(s.glassChroma)) s.glassChroma = 0.7;
+    if (!Number.isFinite(s.glassFrost)) s.glassFrost = 0.08;
+    if (!Number.isFinite(s.glassSpec)) s.glassSpec = 1.2;
+    if (!Number.isFinite(s.glassVibrancy)) s.glassVibrancy = 0.05;
+    if (!Number.isFinite(s.glassTint)) s.glassTint = 0.12;
+    if (!Number.isFinite(s.glassRimPower)) s.glassRimPower = 1.2;
+    if (!Number.isFinite(s.glassRipple)) s.glassRipple = 0;
+    if (!Number.isFinite(s.glassRippleScale)) s.glassRippleScale = 0.012;
+    if (!Number.isFinite(s.glassFlow)) s.glassFlow = 0.9;
+    if (!Number.isFinite(s.glassPath)) s.glassPath = 0.45;
+    if (!Number.isFinite(s.glassDensity)) s.glassDensity = 1.2;
+    if (!Number.isFinite(s.glassRim)) s.glassRim = 0.5;
+    if (!Number.isFinite(s.glassIrid)) s.glassIrid = 0;
+    if (!Number.isFinite(s.glassFilmNm)) s.glassFilmNm = 380;
+    if (!Number.isFinite(s.glassIor)) s.glassIor = 1.45;
+    if (!Number.isFinite(s.glassLayerGain)) s.glassLayerGain = 0.6;
+    if (!Number.isFinite(s.glassFusion)) s.glassFusion = 0;
+    if (!Number.isFinite(s.glassCaustic)) s.glassCaustic = 0.4;
+  }
   if (!Number.isFinite(s.lineAmount)) s.lineAmount = 425;
   if (!Number.isFinite(s.lineThickness)) s.lineThickness = 1;
   if (!Number.isFinite(s.lineDerivativePower)) s.lineDerivativePower = 0.95;
+  if (!Number.isFinite(s.lineDepthFade)) s.lineDepthFade = 1;
+  if (!Number.isFinite(s.lineSharpness)) s.lineSharpness = 0;
+  // Absent is meaningful (= the page background), so this is repaired only when present and wrong.
+  if (s.lineGapColor !== undefined && typeof s.lineGapColor !== "string") delete s.lineGapColor;
+  if (!Number.isFinite(s.lineLight)) s.lineLight = 0;
   if (!Number.isFinite(s.rungAmount)) s.rungAmount = 0;
   if (!Number.isFinite(s.rungThickness)) s.rungThickness = 1;
-  if (!Number.isFinite(s.maxWidth)) s.maxWidth = 1232;
   if (!s.position) s.position = { x: 0, y: 0, z: 0 };
   if (!s.rotation) s.rotation = { x: 0, y: 0, z: 0 };
   if (!s.scale) s.scale = { x: 10, y: 10, z: 7 };
@@ -1026,6 +1266,14 @@ export function normalizeWave(s: WaveConfig): void {
   if (!Number.isFinite(s.seed)) s.seed = 0;
   if (s.interaction) normalizeWaveInteraction(s); // present-only; absence stays inert
   if (s.particles) normalizeParticles(s); // present-only; absence = no field for this wave
+  if (s.dissolve) normalizeDissolve(s); // present-only; absence = the ribbon is intact
+  // Present-only, like `path`: an empty or blank name is no name, not an empty title.
+  if (typeof s.name === "string") {
+    const named = s.name.trim().slice(0, 60);
+    if (named) s.name = named;
+    else delete s.name;
+  } else if (s.name !== undefined) delete s.name;
+  if (s.path) normalizePath(s); // present-only; absence = the straight centreline
 }
 
 /** Backfill scene-level defaults (background/camera/post/lights/quality/mirror). */
@@ -1230,10 +1478,49 @@ export function normalizeParticles(wave: WaveConfig): void {
   if (p.swirl !== undefined) p.swirl = num(p.swirl, 0);
   if (p.wander !== undefined) p.wander = num(p.wander, 0);
   if (p.shape !== undefined && !PARTICLE_SHAPES.includes(p.shape)) p.shape = "glitter";
+  if (p.blend !== undefined && p.blend !== "additive" && p.blend !== "normal") p.blend = "additive";
   // Untrusted configs (share links / imported JSON) reach here — keep the url a string, but do not
   // validate the scheme: the renderer only ever hands it to an <img>, which sandboxes SVG scripts.
   if (p.spriteUrl !== undefined && typeof p.spriteUrl !== "string") delete p.spriteUrl;
   if (p.pointerShove !== undefined) p.pointerShove = clampNumber(p.pointerShove, 0, 4, 1);
+}
+
+/** Clamp a present {@link WaveConfig.path}: drop anything that is not a finite point, and drop the
+ *  whole path if fewer than two survive (one point is not a centreline). Present-only, like the
+ *  particle and dissolve blocks — absence means "the straight ribbon". */
+export function normalizePath(wave: WaveConfig): void {
+  const p = wave.path;
+  if (!p) return;
+  if (!Array.isArray(p)) {
+    delete wave.path;
+    return;
+  }
+  const pts = p
+    .filter((q): q is PathPoint => !!q && typeof q === "object")
+    .map((q) => ({
+      x: num(q.x, 0),
+      y: num(q.y, 0),
+      z: num(q.z, 0),
+      width: q.width === undefined ? undefined : clampNumber(q.width, 0, 8, 1),
+      twist: q.twist === undefined ? undefined : num(q.twist, 0),
+    }))
+    .filter((q) => Number.isFinite(q.x) && Number.isFinite(q.y) && Number.isFinite(q.z));
+  if (pts.length < 2) delete wave.path;
+  else wave.path = pts;
+}
+
+/** Clamp a present {@link DissolveConfig} (present-only, like {@link normalizeParticles}: a wave
+ *  with no `dissolve` block is left exactly as it is). */
+export function normalizeDissolve(wave: WaveConfig): void {
+  const d = wave.dissolve;
+  if (!d) return;
+  d.amount = clampNumber(d.amount, 0, 1, 0);
+  if (d.axis !== undefined && !DISSOLVE_AXES.includes(d.axis)) d.axis = "length";
+  if (d.reverse !== undefined) d.reverse = !!d.reverse;
+  if (d.band !== undefined) d.band = clampNumber(d.band, 0.01, 1, 0.35);
+  if (d.scale !== undefined) d.scale = clampNumber(d.scale, 2, 600, 90);
+  if (d.blocky !== undefined) d.blocky = clampNumber(d.blocky, 0, 1, 0.6);
+  if (d.dust !== undefined) d.dust = clampNumber(d.dust, 0, 1, 1);
 }
 
 /** Normalize an ingested config to the wave model: backfill the scene + every wave, and drop in

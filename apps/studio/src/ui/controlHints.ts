@@ -116,7 +116,7 @@ const CONTROL_HINTS: Record<string, string> = {
 
   // --- Wave compositing ---
   blend:
-    "How this wave composites over what's behind it. 'Squared' multiplies the colour by itself for the deep hero look — the others read pastel.",
+    "How this wave composites over what's behind it. 'Squared' multiplies the colour by itself for the deep hero look — the others read pastel. Glass draws opaque and never reads it.",
   seed: "Phase offset so this wave's motion & noise differ from the other waves.",
 
   // --- Color & Gradient ---
@@ -136,14 +136,47 @@ const CONTROL_HINTS: Record<string, string> = {
 
   // --- Finish (material) ---
   material:
-    "Solid surface vs. wireframe line shader — two different fragment shaders, not a toggle on one. Switching swaps which controls below are shown, since most belong to only one of them.",
+    "Solid surface, wireframe strands or glass — three fragment shaders, not toggles on one. Switching swaps which controls below are shown; glass also greys out 'blend' and Noise Bands, which it never reads, and keeps the palette only as the hue of what it lets through.",
+
+  // --- Finish (glass) — each one glosses what the shader does with it ---
+  thickness:
+    "Half the optical path where the sheet faces you — how thick the glass is. With 'density' it sets how saturated the transmitted colour gets; the path lengthens as the surface turns away, so edges run deeper than the middle.",
+  density:
+    "Absorption per unit of thickness. High = deep, saturated glass; low = barely tinted. Every channel absorbs a little, so thickness darkens as well as tints — the part that reads as a solid volume.",
+  tint: "How much of this wave's palette colours the glass (0 = colourless). Low by default on purpose: glass reads as glass because what's BEHIND it gets bent, not because the sheet carries colour.",
+  "refraction px":
+    "Peak bend at the silhouette, in screen pixels — how far the backdrop is displaced where the sheet turns edge-on. Face-on it bends nothing. 0 is a clear pane.",
+  dispersion:
+    "Splits the bend per colour channel so edges fringe red/blue, and lengthens each channel's path through the body so a thick edge fringes even with nothing behind it. Past ~1 it reads as an oil sheen.",
+  frost:
+    "Scatters the backdrop over a small cone at the refracted spot, so the blur rides the bend instead of sitting flat under it. The radius grows with the square of this; under ~0.1 it is less than half a pixel and skipped entirely.",
+  rim: "Whitening of the edge band. The band is deliberately wide — the last few degrees before edge-on are thinner than a pixel on a ribbon, and a knob nothing responds to isn't subtle, it's broken.",
+  specular:
+    "Strength of the two fixed key lights' glints. Over a dark backdrop the glint adds light; over a bright one it darkens instead — which is what keeps a rim visible on white paper. (Scene lights are not read by glass.)",
+  "film nm":
+    "Optical thickness of the iridescent film, in nanometres. 300–500 is the soap-bubble band; thinner goes pastel, thicker cycles through the spectrum faster.",
+  ior: "Index of refraction — read by the fresnel (how much a grazing edge mirrors instead of transmitting) and by the film's phase. Water 1.33, glass 1.5, diamond 2.4.",
+  vibrancy:
+    "Pulls the interior toward mid-grey: the haze that says 'glass' rather than 'hole', and legibility for anything read through the sheet.",
+  "rim falloff":
+    "Exponent of the edge band. Low = the whole sheet bends and glows; high = only the last degrees before edge-on do, which is the crisp compression ring.",
+  "ripple scale":
+    "Ripple frequency in waves per world unit. The ribbon is 400 units long, so ~0.012 is one wavelength along it and 0.05 a fine chop. (Glass only.)",
+  flow: "How fast the ripples travel, in radians per second. Snapped to whole cycles when a loop period is set, so a seamless loop stays seamless.",
+  caustics:
+    "Brightness where the bend compresses the backdrop and neighbouring rays pile up, darkness where it spreads them — taken from the refraction map's own Jacobian, so it lands where the optics put it. Needs something behind the sheet to concentrate.",
+  "fold thickness":
+    "How much a fold over itself thickens the sheet. Glass draws opaque, so the layer behind is otherwise invisible and a doubled-back ribbon looks as thin as a single one — this is the cue that reads as volume. 0 ignores overlap.",
+  "droplet fusion":
+    "Two sheets passing close bend along their MERGED silhouette instead of each its own, so the neck between them flows like one viscous blob rather than tearing between two centres. 0 keeps every sheet's own bend.",
   "streak freq": "Density of the fine lengthwise streaks — higher = more, finer streaks.",
   "streak strength":
     "How strongly the lengthwise streaks show — their spacing is set by 'streak freq'.",
   texture: "Fine random speckle multiplied onto the surface (separate from post 'grain').",
   roundness: "Darkens the grazing edges so the flat ribbon reads as a rounded, solid form.",
   sheen: "A soft sheen lifted onto the flat, un-folded faces (varies with camera angle).",
-  iridescence: "Thin-film / holographic hue response that shifts with the viewing angle.",
+  iridescence:
+    "Thin-film / holographic hue response that shifts with the viewing angle. On glass it colours only the reflection, rim and specular — never the transmission, which would read as dye — and 'film nm' sets its band.",
   "crease light": "How strongly the wave's creases catch light — where the streaks and sheen sit.",
   "crease sharpness": "Concentrates the crease lighting into the sharpest folds.",
   "crease softness":
@@ -156,12 +189,11 @@ const CONTROL_HINTS: Record<string, string> = {
   "line count":
     "How many strands the ribbon is carved into. They run lengthwise, so this counts them ACROSS the width.",
   "line thickness":
-    "Base strand width, before 'line falloff' and 'max width' thicken it where the ribbon folds away.",
+    "Base strand width. With 'line falloff' above 0 the ribbon's foreshortening thickens it where the surface turns away; at 0 this IS the duty cycle — the fraction of each gap that is strand — which is what you want when the wave is framed close.",
   "rung count":
     "A second family of lines carved ACROSS the ribbon, crossing the lengthwise strands into a ladder. Roughly count ÷ π rungs. 0 = off, and the cross-wise path isn't even compiled.",
   "rung thickness": "Rung line width in pixels — screen-space, so it holds at any zoom.",
   "line falloff": "How sharply wireframe lines thicken where the ribbon folds away.",
-  "max width": "Master scale for the fold-driven line thickening (wireframe).",
 
   // --- Noise Bands ---
   // The names are the reverse of what they suggest: the bounds gate on uv, where uv.x wraps the
@@ -209,6 +241,16 @@ const CONTROL_HINTS: Record<string, string> = {
   roll: "Rolls the ribbon's own cross-section as it advances, as a fraction of 'turns' (1 = exactly in step, a rigid twisted ribbon). It throws the two long edges onto opposite sides of the axis, so a SINGLE wave becomes a ladder with a strand on each edge — add 'rung count' for the rungs between them. 0 = off.",
   "phase °":
     "Where along the turn the ribbon starts. This is the knob that offsets a second wave onto the other side of the same helix (set it to 180).",
+
+  // --- Path --- the centreline the ribbon is swept along. Both buttons carry the same gesture,
+  // because the panel is not where a path is shaped: the canvas is.
+  "Add a path":
+    "Gives this wave a centreline you can bend. The path starts as the straight line the ribbon already runs along, so nothing moves until you move it — then DRAG THE RIBBON ITSELF and it pushes around like putty, with the push fading out along the length so only the part under the cursor follows. Shift-drag narrows the push. You can also double-click the ribbon on the canvas to start.",
+  "Edit path (or double-click it)":
+    "Shape this wave's centreline on the canvas: drag the RIBBON to push it around (shift-drag for a tighter push), double-click the ribbon to add a control point, double-click a point to remove it, Escape when you're done. A path is what lets a ribbon change direction more than once, cross itself, or be wide here and narrow there — the twists and the helix can only bend a centreline that stays put.",
+
+  "Clear path":
+    "Drops the centreline and puts the ribbon back on the straight one the geometry is born with. The shape you sculpted is gone — undo brings it back.",
 
   // --- Camera ---
   "rig minimap": "Corner minimap showing the wave, camera and lights in 3-D.",
@@ -267,6 +309,9 @@ const FOLDER_HINTS: Record<string, string> = {
   // Hover → "smoothing" is this wave's cursor-follow lag, not a reaction's input smoothing.
   "Hover smoothing":
     "How quickly THIS wave's swell trails the cursor — larger lags more. Give stacked strands different values for a parallax drag.",
+  // Finish → "ripple" is the glass LIQUID, not a click ripple.
+  "Finish ripple":
+    "Liquid: four travelling waves tilt the surface normal, and everything downstream — the bend, the rim, the specular, the caustics — reads the tilted normal, so the shimmer stays one thing rather than a layer on top. 0 is still glass, just not moving.",
 };
 
 const SEP = " ";

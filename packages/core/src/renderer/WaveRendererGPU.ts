@@ -29,14 +29,21 @@ import { floatUniform, vec2Uniform } from "./tsl/types";
 function variantKey(f: WaveMaterialFlags): string {
   return [
     f.theme,
+    f.vertexNormal && "vnormal",
     f.loopMotion && "loop",
     f.detailOctave && "detail",
     f.helix && "helix",
     f.twistMotion && "twist",
     f.radial && "radial",
+    f.path && "path",
     f.depthTint && "depthTint",
     f.edgeFeather && "edgeFeather",
     f.rungs && "rungs",
+    f.lineSharp && "lineSharp",
+    f.lineClearGaps && "clearGaps",
+    f.lineLight && "lineLight",
+    f.premultiplied && "premul",
+    f.dissolve && "dissolve",
     f.pointerFx && "pointer",
     f.pointerRipples && "ripples",
     f.webgpuClipZ && "gpuz",
@@ -146,17 +153,31 @@ export function withTslBackend<TBase extends typeof WaveRenderer>(Base: TBase): 
         sc?.interaction?.bindings?.some((b) => b.target === "detailAmount") ?? false;
       const bindsHelix =
         sc?.interaction?.bindings?.some((b) => b.target.startsWith("helix")) ?? false;
+      const bindsDissolve =
+        sc?.interaction?.bindings?.some((b) => b.target === "dissolveAmount") ?? false;
       const pointer = !!sc && wavePointerFxActive(this.config, sc);
       return {
-        theme: sc?.theme === "wireframe" ? "wireframe" : "solid",
+        theme: sc?.theme === "wireframe" ? "wireframe" : sc?.theme === "glass" ? "glass" : "solid",
+        vertexNormal: sc?.theme === "glass",
         loopMotion: (this.config.loopSeconds ?? 0) > 0,
         detailOctave: (sc?.detailAmount ?? 0) !== 0 || bindsDetail,
         helix: (sc?.helixRadius ?? 0) !== 0 || (sc?.helixRoll ?? 0) !== 0 || bindsHelix,
         twistMotion: !!sc?.twistMotion,
         radial: (sc?.radialAmount ?? 0) !== 0,
+        path: !!sc?.path && sc.path.length >= 2,
         depthTint: (sc?.depthTint ?? 0) > 0,
         edgeFeather: (sc?.edgeFeather ?? 0.1) !== 0.1,
         rungs: sc?.theme === "wireframe" && (sc.rungAmount ?? 0) > 0,
+        lineSharp: sc?.theme === "wireframe" && (sc.lineSharpness ?? 0) > 0,
+        // The same rule applyBlendMode uses to set material.premultipliedAlpha, so the graph and
+        // the blend factors can never disagree about which convention the output is in.
+        premultiplied: ((m) => m === "squared" || m === "multiply")(sc?.blendMode ?? "squared"),
+        lineClearGaps:
+          sc?.theme === "wireframe" &&
+          !!sc.lineGapColor &&
+          (sc.lineGapColor === "transparent" || /^#[0-9a-f]{8}$/i.test(sc.lineGapColor)),
+        lineLight: sc?.theme === "wireframe" && (sc.lineLight ?? 0) > 0,
+        dissolve: !!sc?.dissolve && ((sc.dissolve.amount ?? 0) > 0 || bindsDissolve),
         pointerFx: pointer,
         pointerRipples: pointer && waveRipplesActive(this.config, sc as WaveConfig),
         webgpuClipZ: this.webgpuClipZ,
@@ -186,8 +207,10 @@ export function withTslBackend<TBase extends typeof WaveRenderer>(Base: TBase): 
             helix: f.helix,
             twistMotion: f.twistMotion,
             radial: f.radial,
+            path: f.path,
             pointerFx: f.pointerFx,
             pointerRipples: f.pointerRipples,
+            dissolve: f.dissolve,
           },
         },
         onReady,
@@ -228,6 +251,16 @@ export function withTslBackend<TBase extends typeof WaveRenderer>(Base: TBase): 
       wave.material = rebuilt;
       current.dispose();
       return false; // the mesh already points at a fresh material; nothing to recompile in place
+    }
+
+    /** The layer-count companion as a node material: same uniform registry, same flags. */
+    protected override createLayerMaterial(sc: WaveConfig, material: WaveMaterial): THREE.Material {
+      const { tsl } = (material as TslMaterial).userData;
+      return buildWaveMaterial(tsl, { ...this.flagsFor(sc), layerPass: true, vertexNormal: false });
+    }
+
+    protected override layerVariantKey(material: WaveMaterial): string {
+      return (material as TslMaterial).userData.variant;
     }
 
     // ---- Post chain --------------------------------------------------------------------------
@@ -299,6 +332,9 @@ export function withTslBackend<TBase extends typeof WaveRenderer>(Base: TBase): 
       for (const wave of this.waves) {
         (wave.material as TslMaterial).userData.tsl.packed.sync();
       }
+      // Same glass captures the WebGL path takes, and for the same reason — the backdrop, the layer
+      // count and the normals all have to exist before the shaded frame reads them.
+      this.renderGlassPasses();
       this.syncPostUniforms();
       this.ensurePost().render();
     }

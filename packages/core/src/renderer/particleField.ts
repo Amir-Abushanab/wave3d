@@ -65,6 +65,7 @@ export const SHAPE_INDEX: Record<string, number> = {
   ring: 2,
   star: 3,
   streak: 4,
+  square: 5,
 };
 
 /** The owning wave's shape uniforms mirrored onto the particle material so the dust rides the same
@@ -84,12 +85,24 @@ const SHAPE_UNIFORMS = [
   "uHelixTurns",
   "uHelixRadius",
   "uHelixRoll",
+  "uPathTex",
   "uHelixPhase",
   "uRadialAmount",
   "uRadialArc",
   "uRadialSpread",
   "uRadialRadius",
   "uRadialCenter",
+  "uRadialCone",
+  "uRadialSwirl",
+  // Dissolve: the front the ribbon is crumbling along, plus how hard this field is pinned to it.
+  // Mirrored like everything else here, so the dust leaves exactly where the surface goes.
+  "uDissolveAmount",
+  "uDissolveBand",
+  "uDissolveScale",
+  "uDissolveBlocky",
+  "uDissolveAxis",
+  "uDissolveReverse",
+  "uDissolveDust",
 ] as const;
 
 /** The owning wave's POINTER-FIELD uniforms, mirrored the same way so the dust reads the exact
@@ -274,12 +287,22 @@ export class ParticleField {
         uHelixTurns: { value: 0 },
         uHelixRadius: { value: 0 },
         uHelixRoll: { value: 0 },
+        uPathTex: { value: null as THREE.Texture | null },
         uHelixPhase: { value: 0 },
         uRadialAmount: { value: 0 },
         uRadialArc: { value: 0 },
         uRadialSpread: { value: 0 },
         uRadialRadius: { value: 0 },
         uRadialCenter: { value: 0 },
+        uRadialCone: { value: 0 },
+        uRadialSwirl: { value: 0 },
+        uDissolveAmount: { value: 0 },
+        uDissolveBand: { value: 0.35 },
+        uDissolveScale: { value: 90 },
+        uDissolveBlocky: { value: 0.6 },
+        uDissolveAxis: { value: 0 },
+        uDissolveReverse: { value: 0 },
+        uDissolveDust: { value: 1 },
         uShedModel: { value: new THREE.Matrix4() },
         uShedSpeed: { value: 0 },
         uShedSeed: { value: 0 },
@@ -348,6 +371,10 @@ export class ParticleField {
     u.uSwirl.value = cfg.swirl ?? 0;
     u.uWander.value = cfg.wander ?? 0;
     u.uShape.value = SHAPE_INDEX[cfg.shape ?? "glitter"] ?? 0;
+    // Additive can only brighten, so a dark mote on a pale page needs plain alpha compositing
+    // instead. Assigning the same value is free; three only re-resolves state when it changes.
+    const blend = cfg.blend === "normal" ? THREE.NormalBlending : THREE.AdditiveBlending;
+    if (this.material.blending !== blend) this.material.blending = blend;
     u.uPartShove.value = cfg.pointerShove ?? 1;
     this.syncSprite(cfg.shape === "sprite" ? (cfg.spriteUrl ?? "") : "");
     setLinear(u.uColor.value as THREE.Vector3, cfg.color ?? DEFAULT_COLOR);
@@ -446,7 +473,11 @@ export class ParticleField {
     if (!from || !to) return;
     const dst = to.value;
     if (typeof from.value === "number" || Array.isArray(from.value)) to.value = from.value;
-    else if (dst && typeof (dst as { copy?: unknown }).copy === "function") {
+    // Textures (the path LUT) are shared BY REFERENCE, like the ripple arrays above: the wave owns
+    // the texture and rewrites it in place, so the dust rides the same centreline with no copy.
+    else if (from.value === null || (from.value as THREE.Texture | null)?.isTexture) {
+      to.value = from.value;
+    } else if (dst && typeof (dst as { copy?: unknown }).copy === "function") {
       (dst as THREE.Vector3).copy(from.value as THREE.Vector3);
     }
   }

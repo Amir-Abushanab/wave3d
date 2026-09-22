@@ -27,8 +27,13 @@ import {
   cross,
   dot,
   normalize,
+  fract,
+  select,
+  floor,
+  min,
 } from "three/tsl";
 import { RIBBON_Z_CENTER } from "../WaveGeometry";
+import { PATH_ROWS, PATH_SAMPLES } from "../wavePath";
 import { simplexNoise } from "./noise";
 import type { FloatNode, Vec2Node, Vec3Node } from "./types";
 import type { WaveTslUniforms } from "./uniforms";
@@ -129,9 +134,14 @@ export function applyRadial(
   spread: FloatNode,
   radius: FloatNode,
   center: FloatNode,
+  cone: FloatNode,
+  swirl: FloatNode,
 ): Vec3Node {
+  // Swirl: the angle advances along the band as well as across it, so the arm curves around the
+  // throat into a spiral rather than running straight out from it.
   const rAng = radians(center)
     .add(clamp(uv.x, 0, 1).sub(0.5).mul(radians(arc)))
+    .add(uv.y.mul(radians(swirl)))
     .toVar("rAng");
   const rRho = radius.add(uv.y.mul(400.0).mul(spread)); // 400 = native ribbon length
   const rEr = vec3(cos(rAng), sin(rAng), 0.0); // radial dir, in local X-Y (the screen plane)
@@ -139,7 +149,9 @@ export function applyRadial(
   const fanned = rEr
     .mul(rRho)
     .add(rEt.mul(pos.z.sub(RIBBON_Z_CENTER)).mul(0.5))
-    .add(vec3(0.0, 0.0, pos.y));
+    // Cone: lift the fan out of its own plane as it spreads, so the flat plume becomes a TRUMPET
+    // whose combed strands run down the slant into the throat. 0 is the flat fan.
+    .add(vec3(0.0, 0.0, pos.y.add(uv.y.mul(400.0).mul(cone))));
   return mix(pos, fanned, clamp(amount, 0, 1));
 }
 
@@ -150,6 +162,7 @@ export interface WaveShapeFlags {
   helix: boolean;
   twistMotion: boolean;
   radial: boolean;
+  path: boolean;
 }
 
 export interface WaveShapeResult {
@@ -223,17 +236,58 @@ export function waveShape(
   ];
   const twisted = applyTwist(applyTwist(applyTwist(pos, twists[0]), twists[1]), twists[2]).toVar();
 
-  if (!flags.radial) return { pos: twisted, twists };
-  return {
-    pos: applyRadial(
-      twisted,
-      uv,
-      u.uRadialAmount,
-      u.uRadialArc,
-      u.uRadialSpread,
-      u.uRadialRadius,
-      u.uRadialCenter,
-    ),
-    twists,
-  };
+  const fanned = flags.radial
+    ? applyRadial(
+        twisted,
+        uv,
+        u.uRadialAmount,
+        u.uRadialArc,
+        u.uRadialSpread,
+        u.uRadialRadius,
+        u.uRadialCenter,
+        u.uRadialCone,
+        u.uRadialSwirl,
+      )
+    : twisted;
+  // The path goes LAST, after the radial fan, exactly as in the GLSL. It used to run before the fan
+  // here, so a wave with both was a different shape on each backend — and no preset combined them,
+  // so parity never saw it.
+  return { pos: flags.path ? applyPath(fanned, u.uPathTex) : fanned, twists };
+}
+
+/**
+ * Sweep the deformed ribbon onto its authored centreline. The TSL twin of the GLSL `PATH` block —
+ * see that for the four details that make a straight path exactly the identity.
+ */
+/** V coordinate of a LUT row's texel centre. */
+const pathRow = (r: number): number => (r + 0.5) / PATH_ROWS;
+
+export function applyPath(pos: Vec3Node, tex: WaveTslUniforms["uPathTex"]): Vec3Node {
+  const at = (x: FloatNode, r: number) => tex.sample(vec2(x, pathRow(r))).level(float(0));
+  const sRaw = pos.x.add(200.0).div(400.0).toVar();
+  // Closure is in the binormal row's alpha; it decides how s is addressed, so read it first.
+  const closed = at(float(0.5 / PATH_SAMPLES), 2)
+    .w.greaterThan(0.5)
+    .toVar();
+  const s = select(closed, fract(sRaw), clamp(sRaw, 0, 1)).toVar();
+  // Interpolate between neighbouring samples here, at full precision, from a NEAREST texture — see
+  // bakePathTexture for why hardware filtering of float32 is neither guaranteed nor exact.
+  const i = s.mul(PATH_SAMPLES - 1).toVar();
+  const i0 = floor(i).toVar();
+  const f = i.sub(i0).toVar();
+  const u0 = i0.add(0.5).div(PATH_SAMPLES).toVar();
+  const u1 = min(i0.add(1), PATH_SAMPLES - 1)
+    .add(0.5)
+    .div(PATH_SAMPLES)
+    .toVar();
+  const lerpRow = (r: number) => mix(at(u0, r), at(u1, r), f);
+  const pP = lerpRow(0).toVar();
+  const pNL = lerpRow(1).toVar(); // .w = the path's arc length
+  const pN = normalize(pNL.xyz).toVar();
+  const pB = normalize(lerpRow(2).xyz).toVar();
+  const past = select(closed, float(0), sRaw.sub(s).mul(pNL.w));
+  return pP.xyz
+    .add(cross(pN, pB).mul(past))
+    .add(pN.mul(pos.y))
+    .add(pB.mul(pos.z.sub(RIBBON_Z_CENTER).mul(pP.w)));
 }

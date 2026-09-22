@@ -8,6 +8,8 @@ import {
   vertexShader,
   fragmentShader,
   lineFragmentShader,
+  glassFragmentShader,
+  glassLayerFragmentShader,
   postVertexShader,
   postFragmentShader,
   ditherFragmentShader,
@@ -18,6 +20,7 @@ import {
   halftoneCmykFragmentShader,
 } from "./shaders";
 import { WaveGeometry } from "./WaveGeometry";
+import { bakePathTexture, writePathTexture } from "./wavePath";
 import { ParticleField, type ParticleFrame } from "./particleField";
 // Gates only — the interactivity RUNTIME (controller, applier tables, tilt sensor) is reached
 // through a dynamic import in loadInteraction(), so a scene that never interacts never fetches it.
@@ -56,9 +59,46 @@ import {
   MAX_NOISE_BANDS,
   ensureStudioConfig,
 } from "../config/model";
-import type { StudioConfig, WaveConfig, BlendMode, CameraFit } from "../config/model";
+import type { StudioConfig, WaveConfig, BlendMode, CameraFit, DissolveAxis } from "../config/model";
+
+/** Which fragment program a wave's theme wants. */
+function fragmentFor(sc: WaveConfig | undefined): string {
+  if (sc?.theme === "wireframe") return lineFragmentShader;
+  if (sc?.theme === "glass") return glassFragmentShader;
+  return fragmentShader;
+}
+
+/** How opaque a wave's between-strand colour is. Absent is the page background at full strength (the
+ *  theme as it always drew); `"transparent"` or an 8-digit hex carries its own alpha. */
+function gapAlpha(color: string | undefined): number {
+  if (!color) return 1;
+  if (color === "transparent") return 0;
+  if (/^#[0-9a-f]{8}$/i.test(color)) return parseInt(color.slice(7, 9), 16) / 255;
+  return 1;
+}
+
+/** The colour half of the same field — the alpha is stripped, and `"transparent"` has no colour of
+ *  its own, so it falls back to the page background it is standing in for. */
+function gapColorHex(color: string | undefined): string | undefined {
+  if (!color || color === "transparent") return undefined;
+  return /^#[0-9a-f]{8}$/i.test(color) ? color.slice(0, 7) : color;
+}
+
+/** Dissolve axis name → the float the shaders branch on (see dissolveChunk's dissolveCoord). */
+const DISSOLVE_AXIS_INDEX: Record<DissolveAxis, number> = {
+  length: 0,
+  width: 1,
+  screenX: 2,
+  screenY: 3,
+};
 
 const BASE_SEGMENTS = 220; // base segment count along the ribbon; denser = smoother (scaled down per wave — see get segments)
+/** The longest frame the clock will believe, in seconds. Anything past it is a STALL — frames
+ *  suspended with no `visibilitychange` to say so (an embedding webview that parks rAF, a debugger
+ *  pause, the machine asleep) — and replaying a stall is a fast-forward, not motion. A ceiling, not
+ *  a jitter clamp: recordings run on this same wall-clock loop, so a merely slow frame (a 4K export
+ *  at 10fps) must still advance by its real length or a `loopSeconds` export stops closing. */
+const MAX_FRAME_SECONDS = 1;
 
 /** Reference frame (world units) the orthographic camera fills at cameraZoom 1. The wave is
  *  framed by mapping this FRAME_W × FRAME_H rectangle (centred on cameraTarget) onto the canvas,
@@ -285,6 +325,14 @@ type Wave = {
   /** This wave's own particle / dust field — created when its `particles.count` first goes >0,
    *  disposed at 0 / absent (the WavePalette lifecycle pattern). Undefined = no dust for this wave. */
   particleField?: WaveParticleField;
+  /** The baked centreline LUT for this wave's `path` (absent when it has none). */
+  pathTexture?: THREE.DataTexture;
+  /** Signature of the points the LUT was baked from, so a drag only rewrites it when it changed. */
+  pathSig?: string;
+  /** Glass only: the layer-count companion (this wave's vertex stage + a coverage-only fragment),
+   *  built lazily by renderGlassPasses() and rebuilt when `layerKey` no longer matches. */
+  layerMaterial?: THREE.Material;
+  layerKey?: string;
 };
 
 // Parse scratch: refresh() converts ~25 hex colours per wave per call (i.e. per slider input),
@@ -341,6 +389,12 @@ export class WaveRenderer {
 
   // 2D palette textures (+ any palette videos) live per-wave — see WavePalette on each Wave.
   private backgroundTexture?: THREE.Texture;
+  /** The frame behind the glass waves — allocated only once a wave asks for the glass theme. */
+  private backdropTarget?: THREE.WebGLRenderTarget;
+  /** How many glass layers cover each pixel. A sheet that folds over itself is thicker there, and
+   *  thickness is the cue that reads as VOLUME rather than as a tinted film — but glass draws
+   *  opaque, so the nearest layer wins and the fold behind it is invisible without counting. */
+  private layerTarget?: THREE.WebGLRenderTarget;
   private backgroundSig = "";
   private backgroundImage?: HTMLImageElement;
   private backgroundImageUrl = "";
@@ -387,7 +441,12 @@ export class WaveRenderer {
   private started = false;
 
   private visible = true;
-  private pageVisible = true;
+  /** Read from the document, NOT assumed: the shell builds the renderer whenever the engine chunk
+   *  lands, which can be after the reader has left the tab. Assumed visible, that renderer marked
+   *  itself running with no frame to run on, and the `visibilitychange` that brought the reader back
+   *  found nothing to restart — so the delta baseline was never reset and the first frame was handed
+   *  the whole absence at once (see MAX_FRAME_SECONDS for the same stall without the event). */
+  private pageVisible = document.visibilityState === "visible";
   private reducedMotion = false;
   /** Intro ramp: eases animation time 0→1 over ~1s on load (when config.introRamp). */
   private introTimeRamp = 0;
@@ -606,6 +665,31 @@ export class WaveRenderer {
       uCreaseSoftness: { value: 1.0 },
       uEdgeFade: { value: 0.06 },
       uEdgeFeather: { value: 0.1 }, // ribbon-edge softness (read only under EDGE_FEATHER)
+      // Glass theme. uBackdrop is everything drawn BEHIND this wave; it is null on the backdrop
+      // pass itself, because binding a target as a texture while rendering into it is a
+      // framebuffer feedback loop and the frame is undefined.
+      uBackdrop: { value: null as THREE.Texture | null },
+      uGlassStrength: { value: 90 },
+      uGlassChroma: { value: 0.7 },
+      uGlassFrost: { value: 0.08 },
+      uGlassSpec: { value: 1.2 },
+      uGlassVibrancy: { value: 0.05 },
+      uGlassTint: { value: 0.12 },
+      uGlassRimPower: { value: 1.2 },
+      uGlassRipple: { value: 0 },
+      uGlassRippleScale: { value: 0.012 },
+      uGlassFlow: { value: 0.9 },
+      uGlassPath: { value: 0.45 },
+      uGlassDensity: { value: 1.2 },
+      uGlassRim: { value: 0.5 },
+      uGlassIrid: { value: 0 },
+      uGlassFilmNm: { value: 380 },
+      uGlassIor: { value: 1.45 },
+      uLayers: { value: null as THREE.Texture | null },
+      uGlassLayerGain: { value: 0.6 },
+      uGlassFusion: { value: 0 },
+      uGlassCaustic: { value: 0.4 },
+      uViewAxis: { value: new THREE.Vector3(0, 0, 1) },
       uOpacity: { value: 1 },
       uSquared: { value: 1 }, // "squared" deep-colour mode: square the colour in-shader (see applyBlendMode)
       // Seed from the CURRENT drawing buffer, not (1,1): resize() is the only other writer, so a wave
@@ -626,7 +710,10 @@ export class WaveRenderer {
       uLineAmount: { value: 425 },
       uLineThickness: { value: 1 },
       uLineDerivativePower: { value: 0.95 },
-      uMaxWidth: { value: 1232 },
+      uLineDepthFade: { value: 1 },
+      uLineSharpness: { value: 0 },
+      uLineGapOpacity: { value: 1 },
+      uLineLight: { value: 0 },
       uClearColor: { value: new THREE.Vector3(1, 1, 1) },
       // Interaction / pointer field. ALWAYS present in JS (read only under POINTER_FX /
       // POINTER_RIPPLES); three uploads them only when the compiled program declares them, so their
@@ -638,6 +725,9 @@ export class WaveRenderer {
       uHelixRadius: { value: 0 },
       uHelixRoll: { value: 0 },
       uHelixPhase: { value: 0 },
+      // The path LUT (read only under PATH). The texture itself is per wave and swapped in by
+      // syncPathTexture; null until a wave actually has a path.
+      uPathTex: { value: null as THREE.Texture | null },
       // Radial fan (vertex, under RADIAL). Always present JS-side; three uploads them only when the
       // compiled program declares them, so a non-radial wave is untouched (precedent: uDetailAmount).
       uRadialAmount: { value: 0 },
@@ -645,8 +735,21 @@ export class WaveRenderer {
       uRadialSpread: { value: 1 },
       uRadialRadius: { value: 40 },
       uRadialCenter: { value: 0 },
+      uRadialCone: { value: 0 },
+      uRadialSwirl: { value: 0 },
       uRungAmount: { value: 0 },
       uRungThickness: { value: 1 },
+      // Dissolve (both fragment shaders, under DISSOLVE). Always present JS-side; three uploads
+      // them only when the compiled program declares them (precedent: uDetailAmount).
+      uDissolveAmount: { value: 0 },
+      uDissolveBand: { value: 0.35 },
+      uDissolveScale: { value: 90 },
+      uDissolveBlocky: { value: 0.6 },
+      uDissolveAxis: { value: 0 },
+      uDissolveReverse: { value: 0 },
+      // Read only by the particle emitter (mirrored there); the wave shaders never declare it, so
+      // three never uploads it to the wave program.
+      uDissolveDust: { value: 1 },
       uPointer: { value: new THREE.Vector2(0, 0) }, // smoothed pointer NDC
       uPointerActive: { value: 0 }, // presence ramp × per-wave influence
       uPointerRadius: { value: 0.6 }, // falloff radius in NDC-y (config radius × 2)
@@ -664,6 +767,33 @@ export class WaveRenderer {
       uRippleAge: { value: rippleAge },
       uRippleAmp: { value: rippleAmp },
     };
+  }
+
+  /** Reconcile a wave's baked path LUT with its config. The texture is rewritten in place when the
+   *  points change — which is what makes dragging a control point cheap, since the alternative is
+   *  rebuilding 80k vertices per frame — and disposed when a wave loses its path. */
+  private syncPathTexture(wave: Wave, sc: WaveConfig): void {
+    const pts = sc.path;
+    if (!pts || pts.length < 2) {
+      if (wave.pathTexture) {
+        wave.pathTexture.dispose();
+        wave.pathTexture = undefined;
+        wave.pathSig = undefined;
+      }
+      // Left as-is rather than nulled: on the TSL backend the node must always have a texture bound,
+      // and with no PATH in the variant nothing samples it either way.
+      return;
+    }
+    const sig = JSON.stringify(pts);
+    if (!wave.pathTexture) {
+      wave.pathTexture = bakePathTexture(pts);
+      wave.pathSig = sig;
+    } else if (sig !== wave.pathSig) {
+      writePathTexture(wave.pathTexture.image.data as Float32Array, pts);
+      wave.pathTexture.needsUpdate = true;
+      wave.pathSig = sig;
+    }
+    wave.material.uniforms.uPathTex.value = wave.pathTexture;
   }
 
   /** Vertex-shader #defines for a wave: TWIST_MOTION (per-wave animated twist wobble) and
@@ -688,12 +818,30 @@ export class WaveRenderer {
     if ((sc?.helixRadius ?? 0) !== 0 || (sc?.helixRoll ?? 0) !== 0 || bindsHelix) {
       defines.HELIX = "";
     }
+    // Path: a wave with no centreline of its own compiles the program it always did.
+    if (sc?.path && sc.path.length >= 2) defines.PATH = "";
+    // Glass reads an interpolated vertex normal; the other themes keep their per-triangle one.
+    if (sc?.theme === "glass") defines.VERTEX_NORMAL = "";
     // Radial fan: amount 0 is the identity mix, so it alone decides whether the block is compiled.
     // Not binding-driveable in v1 (not in WAVE_TARGET_NAMES), so no bindsRadial term is needed.
     if ((sc?.radialAmount ?? 0) !== 0) defines.RADIAL = "";
     // Rungs live in the wireframe fragment shader only; setting the define on a solid wave would
     // key a second, identical program for nothing.
     if (sc?.theme === "wireframe" && (sc.rungAmount ?? 0) > 0) defines.RUNGS = "";
+    // Stripe hardening, wireframe only and only when asked for: 0 is the soft ramp the theme has
+    // always drawn, and leaving the block uncompiled keeps that byte-identical.
+    if (sc?.theme === "wireframe" && (sc.lineSharpness ?? 0) > 0) defines.LINE_SHARP = "";
+    // Clear gaps, wireframe only: 1 is the opaque card the theme has always drawn, and leaving the
+    // block uncompiled keeps that byte-identical (it also keeps the discard out of the program).
+    if (sc?.theme === "wireframe" && gapAlpha(sc.lineGapColor) < 1) defines.LINE_CLEAR_GAPS = "";
+    // Lighting, wireframe only and only when asked for: 0 is the flat theme, and leaving the block
+    // uncompiled keeps that byte-identical (it also keeps the light uniforms out of the program).
+    if (sc?.theme === "wireframe" && (sc.lineLight ?? 0) > 0) defines.LINE_LIGHT = "";
+    // Dissolve: a `dissolveAmount` binding counts too — driving the front up from an authored 0
+    // has to have somewhere to land (as with detailAmount / helix above).
+    const bindsDissolve =
+      sc?.interaction?.bindings?.some((b) => b.target === "dissolveAmount") ?? false;
+    if (sc?.dissolve && ((sc.dissolve.amount ?? 0) > 0 || bindsDissolve)) defines.DISSOLVE = "";
     // Pointer field (per wave, config-only, so input never triggers a recompile). Ripples nest inside.
     if (sc && wavePointerFxActive(this.config, sc)) {
       defines.POINTER_FX = "";
@@ -738,12 +886,55 @@ export class WaveRenderer {
       vertexShader,
       // solid theme = surfaceColor shader; wireframe theme = thin-line shader.
       // Swapped live in refresh() when the wave's theme changes.
-      fragmentShader: sc?.theme === "wireframe" ? lineFragmentShader : fragmentShader,
-      transparent: true,
+      fragmentShader: fragmentFor(sc),
+      // Glass draws OPAQUE with depth write on: the see-through is sampled from the backdrop, not
+      // blended. That is what keeps overlapping sheets robust — no sorting, no order dependence.
+      transparent: sc?.theme !== "glass",
       depthTest: true,
       depthWrite: true,
       side: THREE.DoubleSide,
     }) as unknown as WaveMaterial;
+  }
+
+  /**
+   * The glass LAYER-COUNT companion for one wave: the same vertex program on the same uniforms
+   * object (shared by reference, so every per-frame write reaches it), with a fragment that only
+   * marks coverage. Drawn additively with depth off, so every fold over a pixel adds up.
+   *
+   * A stock override material could not stand in for this: its vertex stage knows nothing of the
+   * deformation and it culls back faces, so the count came out for the rest-pose plane — measured
+   * at a tenth of the real silhouette on the Liquid Glass preset. The WebGPU subclass builds the
+   * node twin from the same flags.
+   */
+  protected createLayerMaterial(sc: WaveConfig, material: WaveMaterial): THREE.Material {
+    const main = material as unknown as THREE.ShaderMaterial;
+    // Coverage needs no normal: skip the two extra shape evaluations per vertex.
+    const defines = { ...(main.defines ?? this.waveDefines(sc)) };
+    delete defines.VERTEX_NORMAL;
+    return new THREE.ShaderMaterial({
+      uniforms: main.uniforms,
+      defines,
+      vertexShader,
+      fragmentShader: glassLayerFragmentShader,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthTest: false,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+  }
+
+  /** What the layer companion was built against; when this changes, it is rebuilt. */
+  protected layerVariantKey(material: WaveMaterial): string {
+    const defines = (material as unknown as THREE.ShaderMaterial).defines ?? {};
+    return Object.keys(defines).sort().join(",");
+  }
+
+  private dropLayerMaterial(wave: Wave): void {
+    if (!wave.layerMaterial) return;
+    wave.layerMaterial.dispose();
+    wave.layerMaterial = undefined;
+    wave.layerKey = undefined;
   }
 
   /**
@@ -765,11 +956,15 @@ export class WaveRenderer {
     }
     // Swap the fragment shader when this wave's theme changes: solid surfaceColor <->
     // wireframe thin-line. Three recompiles the program on needsUpdate.
-    const wantFrag = sc.theme === "wireframe" ? lineFragmentShader : fragmentShader;
+    const wantFrag = fragmentFor(sc);
     if (material.fragmentShader !== wantFrag) {
       material.fragmentShader = wantFrag;
       changed = true;
     }
+    // Glass draws opaque; the other themes blend. Kept in step here so a wave switched to glass
+    // LIVE leaves the transparent list too — the constructor alone only covered a fresh renderer.
+    // Not a program define, so it needs no recompile.
+    material.transparent = sc.theme !== "glass";
     return changed;
   }
 
@@ -816,6 +1011,7 @@ export class WaveRenderer {
     for (const s of this.waves) {
       this.group.remove(s.mesh);
       s.material.dispose();
+      s.layerMaterial?.dispose();
       s.geometry.dispose();
       s.palette.dispose();
       if (s.particleField) {
@@ -839,6 +1035,7 @@ export class WaveRenderer {
       if (!s) break;
       this.group.remove(s.mesh);
       s.material.dispose();
+      s.layerMaterial?.dispose();
       s.geometry.dispose();
       s.palette.dispose();
       // Also drop this wave's particle field, or its THREE.Points lingers in the scene and sheds stray
@@ -930,10 +1127,30 @@ export class WaveRenderer {
       u.uLineAmount.value = sc.lineAmount ?? 425;
       u.uLineThickness.value = sc.lineThickness ?? 1;
       u.uLineDerivativePower.value = sc.lineDerivativePower ?? 0.95;
+      u.uLineDepthFade.value = sc.lineDepthFade ?? 1;
+      u.uLineSharpness.value = sc.lineSharpness ?? 0;
+      // One authored field decides both what colour sits between the strands and how much of it
+      // shows: absent = the page background, "transparent" or an 8-digit hex = partly or fully clear.
+      u.uLineGapOpacity.value = gapAlpha(sc.lineGapColor);
+      u.uLineLight.value = sc.lineLight ?? 0;
+      // Clear-gap strands must not write DEPTH. They are thin transparent slivers layered many deep,
+      // and any two sheets that pass close to coplanar then decide who occludes whom by depth
+      // precision — which is arbitrary, differs between backends, and shows up as strands winking in
+      // and out along a rim. With the write off they simply composite in draw order, which is the
+      // wave order and therefore stable. Opaque gaps keep writing depth exactly as before.
+      const clearGaps = sc.theme === "wireframe" && gapAlpha(sc.lineGapColor) < 1;
+      const wantDepthWrite = !clearGaps;
+      if (wave.material.depthWrite !== wantDepthWrite) wave.material.depthWrite = wantDepthWrite;
       u.uRungAmount.value = sc.rungAmount ?? 0;
       u.uRungThickness.value = sc.rungThickness ?? 1;
-      u.uMaxWidth.value = sc.maxWidth ?? 1232;
-      hexToLinearVec3(this.config.background, u.uClearColor.value as THREE.Vector3);
+      // The between-strand colour. Defaults to the page background — a wireframe wave is then a
+      // window onto the page — but an explicit `lineGapColor` makes the ribbon its own BODY: dark
+      // gaps with bright strands combed over them, which is what an opaque striped surface looks
+      // like, rather than bright paper showing between dark lines.
+      hexToLinearVec3(
+        gapColorHex(sc.lineGapColor) ?? this.config.background,
+        u.uClearColor.value as THREE.Vector3,
+      );
       u.uFiberCount.value = sc.fiberCount;
       u.uFiberStrength.value = sc.fiberStrength;
       u.uTexture.value = sc.texture;
@@ -947,6 +1164,41 @@ export class WaveRenderer {
       hexToLinearVec3(sc.depthTintColor ?? "#0a2540", u.uDepthTintColor.value as THREE.Vector3);
       u.uEdgeFade.value = sc.edgeFade;
       u.uEdgeFeather.value = sc.edgeFeather ?? 0.1;
+      if (sc.theme === "glass") {
+        // The page behind a transparent scene — what a glass sample composites over.
+        hexToLinearVec3(this.config.background, u.uClearColor.value as THREE.Vector3);
+        u.uGlassStrength.value = sc.glassStrength ?? 90;
+        u.uGlassChroma.value = sc.glassChroma ?? 0.7;
+        u.uGlassFrost.value = sc.glassFrost ?? 0.08;
+        u.uGlassSpec.value = sc.glassSpec ?? 1.2;
+        u.uGlassVibrancy.value = sc.glassVibrancy ?? 0.05;
+        u.uGlassTint.value = sc.glassTint ?? 0.12;
+        u.uGlassRimPower.value = sc.glassRimPower ?? 1.2;
+        u.uGlassRipple.value = sc.glassRipple ?? 0;
+        u.uGlassRippleScale.value = sc.glassRippleScale ?? 0.012;
+        // Snap the ripple to a whole number of cycles over loopSeconds, the same convention every
+        // other animated frequency here follows — otherwise a seamless loop visibly jumps where the
+        // water does not come back to where it started.
+        {
+          const flow = sc.glassFlow ?? 0.9;
+          const loop = this.config.loopSeconds ?? 0;
+          u.uGlassFlow.value =
+            loop > 0 && flow !== 0
+              ? (Math.max(1, Math.round((Math.abs(flow) * loop) / (Math.PI * 2))) * (Math.PI * 2)) /
+                loop /
+                (flow < 0 ? -1 : 1)
+              : flow;
+        }
+        u.uGlassPath.value = sc.glassPath ?? 0.45;
+        u.uGlassDensity.value = sc.glassDensity ?? 1.2;
+        u.uGlassRim.value = sc.glassRim ?? 0.5;
+        u.uGlassIrid.value = sc.glassIrid ?? 0;
+        u.uGlassFilmNm.value = sc.glassFilmNm ?? 380;
+        u.uGlassIor.value = sc.glassIor ?? 1.45;
+        u.uGlassLayerGain.value = sc.glassLayerGain ?? 0.6;
+        u.uGlassFusion.value = sc.glassFusion ?? 0;
+        u.uGlassCaustic.value = sc.glassCaustic ?? 0.4;
+      }
       // Lights + ambient are scene-level (shared by every wave).
       const lights = this.config.lights ?? [];
       u.uAmbient.value = this.config.ambient ?? 0.45;
@@ -996,12 +1248,23 @@ export class WaveRenderer {
       u.uHelixTurns.value = sc.helixTurns ?? 0;
       u.uHelixRadius.value = sc.helixRadius ?? 0;
       u.uHelixRoll.value = sc.helixRoll ?? 0;
+      this.syncPathTexture(wave, sc);
       u.uHelixPhase.value = sc.helixPhase ?? 0;
       u.uRadialAmount.value = sc.radialAmount ?? 0;
       u.uRadialArc.value = sc.radialArc ?? 160;
       u.uRadialSpread.value = sc.radialSpread ?? 1;
       u.uRadialRadius.value = sc.radialRadius ?? 40;
       u.uRadialCenter.value = sc.radialCenter ?? 0;
+      u.uRadialCone.value = sc.radialCone ?? 0;
+      u.uRadialSwirl.value = sc.radialSwirl ?? 0;
+      const dis = sc.dissolve;
+      u.uDissolveAmount.value = dis?.amount ?? 0;
+      u.uDissolveBand.value = dis?.band ?? 0.35;
+      u.uDissolveScale.value = dis?.scale ?? 90;
+      u.uDissolveBlocky.value = dis?.blocky ?? 0.6;
+      u.uDissolveAxis.value = DISSOLVE_AXIS_INDEX[dis?.axis ?? "length"] ?? 0;
+      u.uDissolveReverse.value = dis?.reverse ? 1 : 0;
+      u.uDissolveDust.value = dis?.dust ?? 1;
       // Mesh transform — each wave's ABSOLUTE scale / rotation / position, applied via
       // modelMatrix using THREE's Euler XYZ order so the on-screen orientation matches the
       // authored view.
@@ -1777,7 +2040,7 @@ export class WaveRenderer {
   private loop = (): void => {
     if (!this.running) return;
     this.timer.update();
-    const dt = this.timer.getDelta();
+    const dt = Math.min(this.timer.getDelta(), MAX_FRAME_SECONDS);
     this.time += dt;
     this.interaction?.update(dt); // advance smoothed input by the SAME delta (no time-model change)
     if (this.introTimeRamp < 1) this.introTimeRamp = Math.min(1, this.introTimeRamp + 0.016); // ~1s to full at 60fps
@@ -1815,7 +2078,181 @@ export class WaveRenderer {
 
   /** Draw the composed frame. WebGL runs the EffectComposer; WebGPU runs a node post chain. */
   protected renderComposed(): void {
+    this.renderGlassPasses();
     this.composer.render();
+  }
+
+  /** Capture what sits BEHIND the glass waves, so they have something to bend.
+   *
+   *  Glass is drawn opaque and fakes its see-through by sampling this texture, which is why
+   *  overlapping sheets need no sorting. The pass is skipped entirely when no wave asks for it, so
+   *  a scene without glass renders exactly as before.
+   *
+   *  The texture MUST be unbound while we render into it: binding a target as a texture while it is
+   *  the render target is a framebuffer feedback loop, and the frame is undefined. */
+  /** The world axis from a surface toward the camera. Constant under an orthographic projection,
+   *  which is exactly why it is a uniform rather than something the shader derives per fragment. */
+  private pushViewAxis(): void {
+    const fwd = this.camera.getWorldDirection(this.viewAxisTmp).multiplyScalar(-1);
+    for (const w of this.waves) {
+      (w.material.uniforms.uViewAxis.value as THREE.Vector3).copy(fwd);
+    }
+  }
+
+  private viewAxisTmp = new THREE.Vector3();
+  private empty?: THREE.DataTexture;
+  private backdropClear = new THREE.Color();
+  private prevClear = new THREE.Color();
+  private depthTmp = new THREE.Vector3();
+  private sizeTmp = new THREE.Vector2();
+
+  /** Pin a capture's sampling so both backends read it the same way. Left to their defaults the
+   *  two disagree about filtering and edge behaviour, and a glass sheet samples FAR from the
+   *  fragment — one offset per channel — so the disagreement shows up as a red/blue bias with green
+   *  untouched, which looks like a dispersion bug and is not one. */
+  private pinSampling(t: THREE.WebGLRenderTarget): THREE.WebGLRenderTarget {
+    t.texture.minFilter = THREE.LinearFilter;
+    t.texture.magFilter = THREE.LinearFilter;
+    t.texture.wrapS = THREE.ClampToEdgeWrapping;
+    t.texture.wrapT = THREE.ClampToEdgeWrapping;
+    t.texture.generateMipmaps = false;
+    return t;
+  }
+
+  /** A 1x1 transparent texture, used wherever a sampler must be BOUND but must contribute nothing. */
+  private emptyTexture(): THREE.DataTexture {
+    if (!this.empty) {
+      this.empty = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1);
+      this.empty.needsUpdate = true;
+    }
+    return this.empty;
+  }
+
+  protected renderGlassPasses(): void {
+    this.pushViewAxis();
+    const glassIdx: number[] = [];
+    for (let i = 0; i < this.waves.length; i++) {
+      const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
+      if (sc?.theme === "glass") glassIdx.push(i);
+    }
+    if (glassIdx.length === 0) {
+      if (this.backdropTarget)
+        for (const w of this.waves) w.material.uniforms.uBackdrop.value = null;
+      for (const w of this.waves) this.dropLayerMaterial(w);
+      return;
+    }
+
+    // What stays OUT of the backdrop: the glass itself, and any wave in front of a glass sheet — a
+    // sheet must not refract what sits on top of it. "In front" is depth toward the camera, with
+    // array order breaking ties: the studio stacks equal-depth waves by array order, and a wave
+    // moved behind the sheet on z has to stay visible THROUGH it rather than vanish (the opaque
+    // sheet depth-occludes it, so the backdrop is the only place it can show).
+    this.scene.updateMatrixWorld();
+    const axis = this.viewAxisTmp; // toward the camera, from pushViewAxis()
+    const depthOf = (i: number) => this.waves[i].mesh.getWorldPosition(this.depthTmp).dot(axis);
+    const glassDepth = glassIdx.map(depthOf);
+    const excluded: THREE.Mesh[] = [];
+    for (let i = 0; i < this.waves.length; i++) {
+      const d = depthOf(i);
+      const inFront = glassIdx.some((g, k) => {
+        const dd = d - glassDepth[k];
+        return dd > 1e-3 || (Math.abs(dd) <= 1e-3 && i > g);
+      });
+      if (glassIdx.includes(i) || inFront) excluded.push(this.waves[i].mesh);
+    }
+
+    const size = this.renderer.getDrawingBufferSize(this.sizeTmp);
+    if (!this.backdropTarget) {
+      this.backdropTarget = this.pinSampling(
+        new THREE.WebGLRenderTarget(size.x, size.y, { depthBuffer: true, stencilBuffer: false }),
+      );
+    } else if (this.backdropTarget.width !== size.x || this.backdropTarget.height !== size.y) {
+      this.backdropTarget.setSize(size.x, size.y);
+    }
+    // The passes below change the renderer's clear colour and the scene background; both are
+    // global state the main frame relies on, so they are put back exactly as found.
+    const prevTarget = this.renderer.getRenderTarget();
+    const prevClearAlpha = this.renderer.getClearAlpha();
+    this.renderer.getClearColor(this.prevClear);
+    const prevBg = this.scene.background;
+    const restore = () => {
+      this.renderer.setRenderTarget(prevTarget);
+      this.renderer.setClearColor(this.prevClear, prevClearAlpha);
+      this.scene.background = prevBg;
+    };
+
+    // Unbind with a 1x1 rather than null: a TSL texture node cannot hold null, and binding a target
+    // as a texture while rendering into it is a framebuffer feedback loop either way.
+    for (const w of this.waves) w.material.uniforms.uBackdrop.value = this.emptyTexture();
+    for (const m of excluded) m.visible = false;
+    this.renderer.setRenderTarget(this.backdropTarget);
+    // Clear to the PAGE colour, opaque, rather than to transparent black. A transparent capture
+    // forces every sample to composite over a fallback by its own alpha, and the two backends do
+    // not agree on what alpha a render target hands back — the parity case showed the same window
+    // washed on one and vivid on the other. An opaque capture takes alpha out of the question, and
+    // it is also what is actually behind the glass: a transparent scene is showing the page.
+    // setClearColor is called with the target BOUND, because three encodes the colour for whatever
+    // is bound at the time.
+    this.backdropClear.set(this.config.background || "#ffffff");
+    this.renderer.setClearColor(this.backdropClear, 1);
+    this.renderer.clear(true, true, false);
+    this.renderer.render(this.scene, this.camera);
+    for (const m of excluded) m.visible = true;
+    for (const w of this.waves) w.material.uniforms.uBackdrop.value = this.backdropTarget.texture;
+
+    // The two captures below want ONLY the glass sheets: no page, no other waves, no dust — a
+    // particle sprite in the normal buffer decodes as a surface normal and bends the caustic
+    // around it.
+    const hidden: THREE.Object3D[] = [];
+    const hide = (o: THREE.Object3D | undefined) => {
+      if (o && o.visible) {
+        o.visible = false;
+        hidden.push(o);
+      }
+    };
+    for (let i = 0; i < this.waves.length; i++) {
+      if (!glassIdx.includes(i)) hide(this.waves[i].mesh);
+      hide(this.waves[i].particleField?.object);
+    }
+    this.scene.background = null;
+
+    // Layer count: each glass wave drawn by its COMPANION program — the same vertex stage, so the
+    // count follows every twist and fold, and both faces — additively with depth off, 1/8 per
+    // layer, so the channel saturates at eight folds, well past anything a ribbon does to itself.
+    if (!this.layerTarget) {
+      this.layerTarget = this.pinSampling(
+        new THREE.WebGLRenderTarget(size.x, size.y, { depthBuffer: false, stencilBuffer: false }),
+      );
+    } else if (this.layerTarget.width !== size.x || this.layerTarget.height !== size.y) {
+      this.layerTarget.setSize(size.x, size.y);
+    }
+    for (const w of this.waves) w.material.uniforms.uLayers.value = this.emptyTexture();
+    const swapped: Wave[] = [];
+    for (let i = 0; i < this.waves.length; i++) {
+      const w = this.waves[i];
+      if (!glassIdx.includes(i)) {
+        this.dropLayerMaterial(w); // left the theme: no stale companion
+        continue;
+      }
+      const sc = this.config.waves[i] ?? this.config.waves[this.config.waves.length - 1];
+      const key = this.layerVariantKey(w.material);
+      if (w.layerMaterial && w.layerKey !== key) this.dropLayerMaterial(w);
+      if (!w.layerMaterial) {
+        w.layerMaterial = this.createLayerMaterial(sc, w.material);
+        w.layerKey = key;
+      }
+      w.mesh.material = w.layerMaterial;
+      swapped.push(w);
+    }
+    this.renderer.setRenderTarget(this.layerTarget);
+    this.renderer.setClearColor(0x000000, 0);
+    this.renderer.clear(true, false, false);
+    this.renderer.render(this.scene, this.camera);
+    for (const w of swapped) w.mesh.material = w.material;
+    for (const w of this.waves) w.material.uniforms.uLayers.value = this.layerTarget.texture;
+
+    for (const o of hidden) o.visible = true;
+    restore();
   }
 
   /** Resize the post chain's render targets. */
@@ -1827,6 +2264,12 @@ export class WaveRenderer {
   /** Release the post chain's GPU resources. */
   protected disposePost(): void {
     this.composer.dispose();
+    this.backdropTarget?.dispose();
+    this.backdropTarget = undefined;
+    this.layerTarget?.dispose();
+    this.layerTarget = undefined;
+    this.empty?.dispose();
+    this.empty = undefined;
   }
 
   /** Render exactly one frame at the current time. */
@@ -1920,8 +2363,10 @@ export class WaveRenderer {
       "HELIX",
       "TWIST_MOTION",
       "RADIAL",
+      "PATH",
       "POINTER_FX",
       "POINTER_RIPPLES",
+      "DISSOLVE",
     ]) {
       if (k in all) out[k] = "";
     }
@@ -2412,9 +2857,11 @@ export class WaveRenderer {
     this.backgroundTexture?.dispose();
     for (const s of this.waves) {
       s.material.dispose();
+      s.layerMaterial?.dispose();
       s.geometry.dispose();
       s.palette.dispose();
       s.particleField?.dispose();
+      s.pathTexture?.dispose();
     }
     this.bloomPass?.dispose();
     this.ditherPass?.dispose();

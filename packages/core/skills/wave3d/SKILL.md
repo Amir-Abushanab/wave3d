@@ -109,8 +109,133 @@ a repeating helix:
 - `helixRoll` rolls the ribbon's own cross-section in step (1 = rigid twisted ribbon), swinging its
   two long edges onto opposite sides of the axis, so **one wave becomes a ladder whose edges are
   both strands**. Add `rungAmount` (wireframe theme) for the rungs between them.
+- `radialCone` (on the radial fan, not the helix) lifts the fan out of its own plane as it spreads,
+  turning the flat plume into a TRUMPET whose combed strands run down the slant into the throat. A
+  helix carries the ribbon around an axis but its WIDTH never follows the slant, so this is the only
+  route to a cone mouth.
+- `radialSwirl` (degrees) lets the fan's ANGLE advance along the band as well as across it. Radius
+  already grows with uv.y, so angle growing with it too is what curls a straight arm into a SPIRAL
+  one wrapping the throat. Narrow the `radialArc` and a few of these, posed a quarter-turn apart,
+  read as one vortex.
 - Both are off at 0, and the helix code path isn't compiled unless `helixRadius` or `helixRoll` is
   non-zero — a wave without one renders byte-identically to before.
+
+**Which shape control to reach for.** They overlap less than they look:
+
+| want                                                                  | use       | why not the other                                                                                                                                                      |
+| --------------------------------------------------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| a coil, a spring, a double helix                                      | `helix*`  | it carries the ribbon around an axis WITHOUT banking it, and it is animatable — `helixPhase` / `helixTurns` / `helixRadius` are binding targets, so scroll can spin it |
+| a fan, a plume, a trumpet                                             | `radial*` | it remaps the ribbon's WIDTH to an angle; a path only moves the centreline, so it can never splay a sheet into a sector                                                |
+| anything else: an S-curve, a knot, a ring, a throat, a shape you draw | `path`    | the others bend a centreline that stays put                                                                                                                            |
+
+A path SWEEPS with a transported frame, so it banks into its curves like a
+rollercoaster track; a helix TRANSLATES around an axis, so the ribbon keeps facing the same way. Same
+coil, different object — which is why both stay.
+
+**`path` — the ribbon's centreline, and the one shape control the others cannot substitute for.**
+Everything else deforms a ribbon whose centreline is fixed: the twists rotate it, the helix carries it
+around an axis, the radial fan splays it. So none of them can make a ribbon that changes direction
+more than once, crosses itself, or is wide here and narrow there. A path can, because it IS the
+centreline.
+
+```ts
+path: [
+  { x: -200, y: 0, z: -8 },
+  { x: 0, y: 120, z: 32, width: 0.3, twist: 45 }, // a throat, and a quarter turn of the section
+  { x: 200, y: 0, z: -8 },
+];
+```
+
+- Points are where the centreline goes, in the wave's LOCAL space. The un-pathed ribbon runs
+  x −200 → +200 along the plane z = −8 (the folded geometry's centre), so a straight path there —
+  `straightPath()` — reproduces any wave exactly, twists and all. Absent ⇒ that straight ribbon.
+- `width` per point is what a separate "pinch" knob would be, and `twist` (degrees) rotates the
+  cross-section. Both interpolate smoothly between points.
+- A path whose LAST point sits on its FIRST is a closed ring. That is the whole declaration — there
+  is no `closed` flag, because the points already say it.
+- `arcPath(turns)` builds one: `arcPath(1)` is a closed ring whose radius comes from the ribbon's own
+  length, `arcPath(0.35)` an open curve.
+- It is swept by ARC LENGTH with a parallel-transported frame, so the strand comb stays even wherever
+  the points are dragged and the ribbon never flips through an inflection.
+
+**In the studio, double-click a ribbon to shape it.** The primary gesture is dragging the RIBBON
+itself: it moves like putty, with the push falling off smoothly along the length so only the part you
+grabbed follows (hold Shift for a fingertip-tight push instead of a palm). The path densifies itself
+as you sculpt, so there is always something local to move. Control points are still there for
+precision — drag a handle, double-click a point to remove it, double-click the ribbon to insert one —
+and Escape leaves. The gestures are listed on a bar while the mode is on, and the cursor says what is
+under it (grab on the ribbon, pointer on a handle). The wave takes a straight path on entry, so nothing moves until you move it.
+
+**Disintegration (`WaveConfig.dissolve`).** A front sweeps across the wave and eats it away chunk by
+chunk, so the surface CRUMBLES rather than fading. Absent ⇒ intact and byte-identical.
+
+```ts
+dissolve: { amount: 0.3, axis: "screenX", reverse: true, band: 0.55, scale: 150, blocky: 0.75, dust: 1 }
+```
+
+- `amount` is the whole animation: 0 whole, 1 gone, whatever the `band` (fray width). It is a binding
+  target, so `{ source: "scroll", target: "dissolveAmount", to: 1 }` snaps the wave as the page moves.
+- `axis` `"length"` / `"width"` ride the ribbon's own uv; **`"screenX"` / `"screenY"` are a straight
+  line on the canvas**, which is what makes a multi-wave STACK crumble as one object — give every
+  wave the same axis and amount and they share one edge. `reverse` flips which end goes first.
+- `scale` sets how finely the sheet is diced and `blocky` the chunk character (0 organic tatters,
+  1 hard quantized cells).
+- `dust` pins the wave's own `particles` field to that same front: each mote is the chunk that just
+  left, so the dust and the holes are ONE event. Under a screen axis the debris also blows along the
+  sweep instead of radiating in every direction. Pair with `shape: "square"` and `blend: "normal"`
+  for hard dark debris — `blend` defaults to `"additive"`, which can only brighten and so is
+  invisible on a pale page.
+
+**Which way the stripes run is the biggest single decision.** `lineAmount` carves at constant uv.x, so
+each strand runs the ribbon's LENGTH; `rungAmount` carves at constant uv.y, so each crosses its WIDTH.
+On a twisting ribbon the two look nothing alike: along-stripes just follow the flow, while
+across-stripes ARE the twist made visible — they fan wide where the sheet faces the camera, pinch to a
+dense line where it turns edge-on, and sweep as nested arcs through a fold. For a striped-ribbon look,
+reach for rungs first and set `lineThickness: 0` to switch the lengthwise family off. `rungThickness`
+is in PIXELS, so it must come DOWN as `rungAmount` goes up or the strands merge into solid; and past
+~300-400 rungs the periods go sub-pixel in a small embed, where a pixel-width stripe stops being
+stable (it falls back to the strands' analytic duty cycle, which is a flat tone, not detail).
+
+**A wireframe strand is a MASK, not a material — unless you light it.** Its colour comes from its uv
+alone, so it holds one tone wherever the surface turns, which is why a dense wireframe reads as
+hatching however it is posed. `lineLight` (0..1) shades it with the same derivative normal and scene
+`lights` the solid theme uses, AND gives each strand a round cross-section so a specular travels along
+one strand and not its neighbour — which is what separates combed thread from print. One knob, not
+three: shading a flat stripe barely reads, so the rounding is not optional to it. Default 0.
+
+**`lineDerivativePower` decides whether a close-framed wave has any ink.** It scales strand thickness
+by the screen-space uv derivative, which is right for a ribbon seen whole (strands thicken where the
+surface turns away, which reads as light on a curve). But the bigger a sheet gets on screen the
+SMALLER its uv derivative, so framed close the strands thin to pale grey exactly where you want them
+black. Set it to 0 and `lineThickness` alone is the duty cycle, crisp at any zoom.
+
+**Wireframe ink (`theme: "wireframe"`).** The strand is a soft ramp by default, so `lineThickness`
+alone goes from pale hairlines to flat solid without passing through dense ink. `lineSharpness`
+(0..1) steepens it, which turns `lineThickness` into a DUTY CYCLE and gives engraved black strands
+with the background still showing between them; `lineDepthFade` (default 1) turns off the recede
+into the background colour, which a deep or stacked composition needs.
+
+**`lineGapColor` is the one to know about** — it decides what sits BETWEEN the strands, which is most
+of what a wireframe looks like. Absent, the gaps take the page background, so the wave is a window
+onto the page (dark strands, paper between) and, being opaque, the near fold HIDES the far one, which
+is what makes a stack read solid. Give it a dark colour and the ribbon becomes its own body: bright
+combed lines on a dark ground. Set it to `"transparent"` (or an 8-digit hex) and the gaps go clear, so
+stacked folds show through each other — airier, at the cost of that occlusion. Note that `lineAmount` counts strands across the whole of uv.x, which the
+radial fan maps to `radialArc`, so a narrow arc needs a proportionally SMALLER count or the strands
+go sub-pixel and average to grey. `edgeFeather` now applies to the wireframe too — without it a
+ribbon ends at a flat end-cap that reads as a straight cut across the strands.
+
+**Glass (`theme: "glass"`) is a lens over whatever is behind it — so put something there.** The
+sheet draws opaque and samples the frame behind it, bent along its own normal: over a flat page it is
+a silvered ribbon with a bright rim and nothing more; a gradient, an image or another wave behind it
+is what makes it read. The palette only sets the HUE of what gets through — `glassTint` (default
+0.12) and `glassDensity` decide how much — and `blendMode`, `lights`, `fiber*` and noise bands are
+not read at all. The knobs: `glassStrength` (bend at the silhouette, px), `glassChroma` (dispersion),
+`glassRim` / `glassRimPower`, `glassSpec`, `glassIrid` + `glassFilmNm`, `glassFrost` (scatter; under
+~0.1 it is sub-pixel and skipped), `glassCaustic`, `glassLayerGain` (a fold over itself thickens),
+`glassFusion` (two close sheets bend along one merged silhouette), and the liquid trio `glassRipple`
+/ `glassRippleScale` / `glassFlow`. `glassRipple`, `glassStrength` and `glassTint` are binding
+targets.
 
 **React flat props** are a shortcut mapped onto `waves[0]` and the scene:
 `palette` (`string[]` | `ColorStop[]`), `fiberCount`, `fiberStrength`, `sheen`, `iridescence`,
@@ -200,9 +325,10 @@ Only `blur` and `grain` are bindable from an interaction input; the others are a
 
 ## Presets
 
-14 built-in presets (`@wave3d/core/presets`): **Hero**, **Wave 2**, **Wave 3**, **Wave 4**,
-**Wireframe**, **Neon Dark Multistrand**, **Mesh Gradient**, **Solar Bloom**, **Holographic**,
-**Aurora**, **Palestine**, **Spain**, **Vaporwave Sunset**, **Kaleidoscope**.
+18 built-in presets (`@wave3d/core/presets`): **Hero**, **Wave 2**, **Wave 3**, **Wave 4**,
+**Wireframe**, **Neon Dark Multistrand**, **Mesh Gradient**, **Solar Bloom**, **Latte Ring**,
+**Particle Zoo**, **Holographic**, **Aurora**, **Palestine**, **Spain**, **Vaporwave Sunset**,
+**Corkscrew**, **Disintegration**, **Kaleidoscope**.
 
 - React: `preset="Hero"` (a **string** lazy-imports the presets chunk) or
   `preset={() => PRESETS["Hero"]()}` (a **function** is tree-shakeable — bundles only that preset).
@@ -227,7 +353,18 @@ The shell shows a poster immediately, then crossfades to the live wave.
   `@wave3d/vite/client` for React / `createWave`. Re-snapshots over HMR; `vite build` just uses the
   committed file.
 - **`onFallback(reason)`** fires when the shell keeps the poster instead of upgrading; reasons:
-  `"no-webgl" | "reduced-motion" | "save-data" | "context-lost" | "load-error"`.
+  `"no-webgl" | "software-renderer" | "reduced-motion" | "save-data" | "context-lost" |
+"load-error"`.
+- **`webgl="auto"` upgrades only onto a GPU.** A software rasteriser (SwiftShader, llvmpipe) keeps
+  the poster and reports `"software-renderer"` — it can run the wave, at roughly 2 fps with seconds
+  of blocked main thread, which is worse for the page than the still it already has. Use
+  `webgl="force"` if you want the live render anyway. `probeWebGL()` and `isSoftwareRenderer(gl)`
+  are exported for pages that need the same answer for their own reasons; note that an unreadable
+  renderer string counts as HARDWARE, because the extension is hidden under some privacy settings
+  and guessing "software" there downgrades people silently.
+- **`paused` does not decline the upgrade.** It stops FRAMES: the engine is still fetched, the
+  renderer still builds, ready still fires and the poster is still swapped for a static canvas.
+  `webgl="off"` is the one that keeps the poster and builds nothing.
 - **`onStateChange(state)`**: `"poster" → "loading" → "running"`, or `"fallback"`.
 
 ## Performance

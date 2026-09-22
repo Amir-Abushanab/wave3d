@@ -41,6 +41,7 @@ import {
   cross,
   normalize,
   smoothstep,
+  fwidth,
   uv,
   varying,
   instancedArray,
@@ -56,6 +57,7 @@ import { RIBBON_Z_CENTER } from "../WaveGeometry";
 import { simplexNoise } from "./noise";
 import { waveShape, applyTwist, type WaveShapeFlags } from "./waveShape";
 import { pointerField } from "./pointerField";
+import { dissolveCoord } from "./dissolve";
 import type { FloatNode, Vec2Node, Vec3Node } from "./types";
 import type { WaveTslUniforms } from "./uniforms";
 import type { ParticleTslUniforms } from "./particleUniforms";
@@ -67,6 +69,8 @@ export interface ParticleMaterialFlags extends WaveShapeFlags {
   pointerRipples: boolean;
   /** Bind user artwork instead of the procedural shapes. */
   sprite: boolean;
+  /** The owning wave's disintegration front: compiled only when it has one, as in the GLSL. */
+  dissolve: boolean;
 }
 
 export interface ParticleAttributeArrays {
@@ -75,8 +79,9 @@ export interface ParticleAttributeArrays {
   aUv: Float32Array;
 }
 
-/** Alpha for the procedural shapes, indexed by `uShape` (0 glitter, 1 soft, 2 ring, 3 star, 4 streak). */
-function shapeAlpha(shape: FloatNode, pc: Vec2Node, dir: Vec2Node): FloatNode {
+/** Alpha for the procedural shapes, indexed by `uShape`
+ *  (0 glitter, 1 soft, 2 ring, 3 star, 4 streak, 5 square). */
+function shapeAlpha(shape: FloatNode, pc: Vec2Node, dir: Vec2Node, seed: FloatNode): FloatNode {
   const d = length(pc).toVar("pcD");
   const glitter = smoothstep(0.5, 0.0, d);
   const soft = exp(d.mul(d).mul(-7.0)); // a diffuse gaussian blob (motes / pollen)
@@ -87,13 +92,47 @@ function shapeAlpha(shape: FloatNode, pc: Vec2Node, dir: Vec2Node): FloatNode {
   const along = dot(pc, dir); // streak: an elongated comet along the motion direction
   const perp = dot(pc, vec2(dir.y.negate(), dir.x));
   const streak = smoothstep(0.5, 0.0, length(vec2(along.mul(0.42), perp.mul(2.2))));
+  // square: a hard-edged chip of debris. Chebyshev distance instead of Euclidean, so the same cut
+  // makes a RECTANGLE, screen-aligned because the sprite already is. Each one takes its own extent,
+  // proportion and quarter-turn from three hashes of the seed — a field of identical squares reads
+  // as grain rather than debris — and the extent is squared for the heavy tail real rubble has.
+  const h1 = fract(sin(seed.mul(127.1)).mul(43758.5453));
+  const h2 = fract(sin(seed.mul(311.7)).mul(24634.6345));
+  const h3 = fract(sin(seed.mul(74.7)).mul(39158.5453));
+  const ext = mix(float(0.1), float(0.47), h1.mul(h1));
+  const asp = mix(float(0.38), float(1.0), h2);
+  const q = select(h3.greaterThan(0.5), vec2(pc.y, pc.x), pc).toVar("shardQ");
+  const m = max(tabs(q.x).div(asp), tabs(q.y)).toVar("shardM");
+  // Antialias over one pixel of the sprite quad, so a small chip keeps a clean edge and a big slab
+  // is not blurred by a fixed ramp sized for the small ones.
+  const w = max(fwidth(m), 1.0e-4);
+  const square = float(1).sub(smoothstep(ext.sub(w), ext.add(w), m));
   // Rounded to an integer index in the GLSL (`int(uShape + 0.5)`); expressed as a select chain here.
   const s = floor(shape.add(0.5)).toVar("shapeIdx");
   return select(
     s.equal(1),
     soft,
-    select(s.equal(2), ring, select(s.equal(3), star, select(s.equal(4), streak, glitter))),
+    select(
+      s.equal(2),
+      ring,
+      select(s.equal(3), star, select(s.equal(4), streak, select(s.equal(5), square, glitter))),
+    ),
   );
+}
+
+/**
+ * Debris is thrown along the sweep, AWAY from the part still standing: under a screen-axis front the
+ * whole cloud blows one way across the frame instead of radiating off the wave centre in every
+ * direction (which puts dust back over the half that has not crumbled yet). Only the screen axes
+ * have a direction to borrow; a uv front keeps radiating, which is what a ribbon fraying along its
+ * own length should do.
+ */
+function sweepDebris(wave: WaveTslUniforms, u: ParticleTslUniforms, outward: Vec3Node): Vec3Node {
+  const sweep = select(wave.uDissolveAxis.greaterThan(2.5), u.uUp, u.uRight).mul(
+    select(wave.uDissolveReverse.greaterThan(0.5), float(1), float(-1)),
+  );
+  const aimed = normalize(mix(outward, sweep, wave.uDissolveDust).add(vec3(1e-4)));
+  return select(wave.uDissolveAxis.greaterThan(1.5), aimed, outward) as unknown as Vec3Node;
 }
 
 /**
@@ -140,8 +179,44 @@ export function buildParticleMaterial(
     u.uTime.div(u.uLoopSeconds).mul(cyc),
     u.uTime.mul(u.uPartSpeed).div(max(u.uLife, 0.001)),
   );
-  const age = fract(rate.add(aSeed));
-  const fade = sin(age.mul(Math.PI)); // 0 at birth/death, 1 mid-life
+  let age: FloatNode = fract(rate.add(aSeed));
+  let fade: FloatNode = sin(age.mul(Math.PI)); // 0 at birth/death, 1 mid-life
+
+  // Pinned to the owning wave's dissolve front: a mote IS the chunk of surface that just left, so
+  // it does not exist until the front reaches its patch, then peels off and drifts on from there.
+  // `age` becomes its progress past the front rather than a free-running clock — which is what makes
+  // the dust and the holes in the ribbon one event instead of two effects that happen to overlap.
+  // Wrapped in an Fn because waveShape needs a stack for .toVar() / .assign().
+  const peel = flags.dissolve
+    ? Fn(() => {
+        const band = wave.uDissolveBand.max(1.0e-3).toVar("disBand");
+        const spawn = waveShape(
+          wave,
+          flags,
+          vec3(aUv.y.sub(0.5).mul(400.0), 0.0, RIBBON_Z_CENTER),
+          aUv,
+          ts,
+          loopOff,
+        );
+        const clip = cameraProjectionMatrix
+          .mul(cameraViewMatrix)
+          .mul(u.uShedModel)
+          .mul(vec4(spawn.pos, 1.0))
+          .toVar("disClip");
+        const ndc = clip.xy.div(max(clip.w, 1.0e-6)).mul(0.5).add(0.5);
+        // Stagger: nudge each mote's own front, and give it its own peel rate, so a band does not
+        // lift off as one flat sheet.
+        const c = dissolveCoord(wave, aUv, ndc).add(aRnd.x.sub(0.5).mul(band).mul(0.9));
+        const front = wave.uDissolveAmount.mul(float(1).add(band));
+        return clamp(front.sub(c).div(band.mul(aRnd.y.mul(1.2).add(0.4))), 0, 1);
+      })()
+    : null;
+  if (peel) {
+    // Visible from the moment the front takes it, then a long tail out as it travels.
+    const f = smoothstep(0.0, 0.06, peel).mul(float(1).sub(smoothstep(0.55, 1.0, peel)));
+    age = mix(age, peel, wave.uDissolveDust);
+    fade = mix(fade, f, wave.uDissolveDust);
+  }
 
   // Point size in LOGICAL pixels: three multiplies by the device pixel ratio itself, so the GLSL's
   // explicit uPixelRatio factor is deliberately absent here.
@@ -162,6 +237,7 @@ export function buildParticleMaterial(
     const ws = waveShape(wave, flags, base, aUv, ts, loopOff);
     const origin = u.uShedModel.mul(vec4(ws.pos, 1.0)).xyz.toVar("origin");
     const outward = normalize(origin.sub(u.uCenter).add(vec3(1e-4))).toVar("outward");
+    if (flags.dissolve) outward.assign(sweepDebris(wave, u, outward));
 
     const p = origin
       .add(outward.mul(age).mul(u.uDrift))
@@ -278,7 +354,8 @@ export function buildParticleMaterial(
       loopOff,
     );
     const spawnWorld = u.uShedModel.mul(vec4(spawn.pos, 1.0)).xyz;
-    return normalize(spawnWorld.sub(u.uCenter).add(vec3(1e-4)));
+    const out = normalize(spawnWorld.sub(u.uCenter).add(vec3(1e-4)));
+    return flags.dissolve ? sweepDebris(wave, u, out) : out;
   })();
 
   const tw = sin(age.mul(9.0).add(aSeed).mul(TAU)).mul(0.5).add(0.5); // loop-safe flicker
@@ -288,6 +365,8 @@ export function buildParticleMaterial(
     normalize(vec2(dot(outwardDir, u.uRight), dot(outwardDir, u.uUp)).add(vec2(1e-4))),
     "vDir",
   );
+  // This particle's seed, so the square sprite can cut its own shard from it (see shapeAlpha).
+  const vSeed = varying(aSeed, "vSeed");
 
   material.colorNode = Fn(() => {
     // gl_PointCoord's origin is the TOP-left with y running DOWN; the sprite quad's uv runs UP.
@@ -298,7 +377,7 @@ export function buildParticleMaterial(
       // exactly, coloured artwork multiplies it.
       return vec4(vColor.mul(tex.rgb), tex.a.mul(vAlpha));
     }
-    const a = shapeAlpha(u.uShape, pointCoord.sub(0.5), vDir).mul(vAlpha);
+    const a = shapeAlpha(u.uShape, pointCoord.sub(0.5), vDir, vSeed).mul(vAlpha);
     return vec4(vColor, a); // AdditiveBlending (src = SrcAlpha) -> adds vColor*a
   })();
 

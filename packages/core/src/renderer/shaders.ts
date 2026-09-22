@@ -1,5 +1,6 @@
 import { MAX_COLORS, MAX_LIGHTS, MAX_MESH_POINTS, MAX_NOISE_BANDS } from "../config/model";
 import { RIBBON_Z_CENTER } from "./WaveGeometry";
+import { PATH_ROWS, PATH_SAMPLES } from "./wavePath";
 
 /**
  * The wave shaders. Vertex: a flat plane is Y-displaced by simplex noise, then
@@ -216,6 +217,7 @@ WaveShape waveShape(vec3 position, vec2 uv, float t, vec2 loopOff){
 #endif
 #endif
 
+
 #ifdef HELIX
   // Helix — the periodic sweep the three twists (monotone falloffs) can't reach. Runs AFTER the
   // displacement (so the noise still samples undeformed pos) and BEFORE the twist (so they compose).
@@ -250,20 +252,74 @@ WaveShape waveShape(vec3 position, vec2 uv, float t, vec2 loopOff){
   pos = (vec4(pos, 1.0) * rotB).xyz;
   pos = (vec4(pos, 1.0) * rotC).xyz;
 
+
 #ifdef RADIAL
   // Radial fan: remap the ribbon to polar around the LOCAL origin so its LENGTH fans into a plume.
   // uv.x (folded WIDTH) → fan ANGLE across uRadialArc; uv.y (LENGTH) → RADIUS, so a constant-uv.x
   // combed fiber becomes a constant-angle radial spoke. mix(pos, fanned, 0) is identity → off is
   // byte-identical. (Placement is the wave's position transform — the fan has no separate pivot.)
   {
-    float rAng = radians(uRadialCenter) + (clamp(uv.x, 0.0, 1.0) - 0.5) * radians(uRadialArc);
+    // Swirl: let the ANGLE advance along the band as well as across it, so the arm curves around the
+    // throat into a spiral instead of running straight out from it. Radius already grows with uv.y,
+    // so angle gaining with uv.y too is exactly what makes a spiral — and it is the one thing a fan
+    // cannot do otherwise, since its angle comes from uv.x alone.
+    float rAng = radians(uRadialCenter) + (clamp(uv.x, 0.0, 1.0) - 0.5) * radians(uRadialArc)
+               + uv.y * radians(uRadialSwirl);
     float rRho = uRadialRadius + uv.y * 400.0 * uRadialSpread; // 400 = native ribbon length
     vec3 rEr = vec3(cos(rAng), sin(rAng), 0.0);                // radial dir, in local X–Y (screen plane)
     vec3 rEt = vec3(-sin(rAng), cos(rAng), 0.0);               // tangential
     vec3 fanned = rEr * rRho
                 + rEt * (pos.z - ${RIBBON_Z_CENTER.toFixed(1)}) * 0.5
-                + vec3(0.0, 0.0, pos.y);
+                // Cone: lift the fan out of its own plane as it spreads, so the flat plume becomes a
+                // TRUMPET whose combed strands run down the slant into the throat. 0 is the flat fan.
+                + vec3(0.0, 0.0, pos.y + uv.y * 400.0 * uRadialCone);
     pos = mix(pos, fanned, clamp(uRadialAmount, 0.0, 1.0));
+  }
+#endif
+
+#ifdef PATH
+  // PATH — sweep the ribbon along an authored centreline. Everything above deformed a ribbon whose
+  // centreline was the x-axis on the plane z = RIBBON_Z_CENTER; this carries that deformed
+  // cross-section onto a curve instead. It is the LAST stage, so it bends whatever the ribbon has
+  // already become — twists, helix, radial fan and all.
+  //
+  // A STRAIGHT path along the ribbon's own centreline is exactly the identity, which is what lets
+  // the studio give a wave a path the moment it is double-clicked without the wave moving. Four
+  // details hold that up, and each of them once broke it: the frame is right-handed (binormal +Z on
+  // a straight path — a mirrored one flips the handedness of every twist); the LUT is read at
+  // texel CENTRES and interpolated in-shader (reading it at s stretched the ribbon ~0.8%
+  // about its middle); an open path is
+  // EXTRAPOLATED past its ends along the end tangent rather than clamped (twists push vertices past
+  // ±200, and clamping collapsed them onto the last frame); and a closed one wraps.
+  //
+  // Position, frame and width come from a small LUT the CPU baked (see wavePath.ts) — the frame is
+  // parallel-transported, which cannot be done per vertex — and the two frame vectors are
+  // re-normalized because a linear interpolation between unit vectors is not one.
+  {
+    float pathSRaw = (pos.x + 200.0) / 400.0;
+    // Closure is in the binormal row's alpha; it decides how s is addressed, so read it first.
+    // texture2D, not texture2DLod: three rewrites GLSL1 to GLSL3 on WebGL2 by replacing the
+    // plain texture2D token, and the Lod spelling survives that rewrite as an undefined function.
+    bool pathClosed = texture2D(uPathTex, vec2(${(0.5 / PATH_SAMPLES).toFixed(8)}, ${(2.5 / PATH_ROWS).toFixed(7)})).w > 0.5;
+    float pathS = pathClosed ? fract(pathSRaw) : clamp(pathSRaw, 0.0, 1.0);
+    // Interpolate between the two neighbouring samples HERE, at full precision, reading each at its
+    // texel centre from a NEAREST texture. Hardware filtering of float32 is neither guaranteed (it
+    // needs an extension) nor exact (its weights may be quantized) — see bakePathTexture.
+    float pathI = pathS * ${(PATH_SAMPLES - 1).toFixed(1)};
+    float pathI0 = floor(pathI);
+    float pathF = pathI - pathI0;
+    float pathU0 = (pathI0 + 0.5) / ${PATH_SAMPLES.toFixed(1)};
+    float pathU1 = (min(pathI0 + 1.0, ${(PATH_SAMPLES - 1).toFixed(1)}) + 0.5) / ${PATH_SAMPLES.toFixed(1)};
+    vec4 pP = mix(texture2D(uPathTex, vec2(pathU0, ${(0.5 / PATH_ROWS).toFixed(7)})),
+                  texture2D(uPathTex, vec2(pathU1, ${(0.5 / PATH_ROWS).toFixed(7)})), pathF);
+    vec4 pNL = mix(texture2D(uPathTex, vec2(pathU0, ${(1.5 / PATH_ROWS).toFixed(7)})),
+                   texture2D(uPathTex, vec2(pathU1, ${(1.5 / PATH_ROWS).toFixed(7)})), pathF); // .w = arc length
+    vec3 pN = normalize(pNL.xyz);
+    vec3 pB = normalize(mix(texture2D(uPathTex, vec2(pathU0, ${(2.5 / PATH_ROWS).toFixed(7)})),
+                            texture2D(uPathTex, vec2(pathU1, ${(2.5 / PATH_ROWS).toFixed(7)})), pathF).xyz);
+    float pathPast = pathClosed ? 0.0 : (pathSRaw - pathS) * pNL.w;
+    pos = pP.xyz + cross(pN, pB) * pathPast + pN * pos.y
+        + pB * ((pos.z - ${RIBBON_Z_CENTER.toFixed(1)}) * pP.w);
   }
 #endif
 
@@ -273,6 +329,69 @@ WaveShape waveShape(vec3 position, vec2 uv, float t, vec2 loopOff){
   s.rotB = rotB;
   s.rotC = rotC;
   return s;
+}
+`;
+
+// ---------------------------------------------------------------------------------------------
+// DISSOLVE — the disintegration front. A band sweeps across the ribbon in uv and everything behind
+// it is eaten away, chunk by chunk, so the surface crumbles instead of fading. Shared verbatim by
+// the solid fragment shader, the wireframe fragment shader and the particle emitter (which reads
+// the same front to decide when each mote peels off), so the dust leaves exactly where the surface
+// goes. Everything sits behind `#ifdef DISSOLVE`, so a wave without one compiles the program it
+// always did.
+//
+// `front` is placed so that amount 0 leaves the whole ribbon and amount 1 takes all of it,
+// whatever the band width: the band starts entirely before the ribbon and ends entirely past it.
+// ---------------------------------------------------------------------------------------------
+const dissolveChunk = /* glsl */ `
+uniform float uDissolveAmount;   // 0..1 — how far the front has swept
+uniform float uDissolveBand;     // width of the crumbling band, in uv
+uniform float uDissolveScale;    // chunks across the ribbon's width
+uniform float uDissolveBlocky;   // 0 = organic noise blobs, 1 = hard quantized cells
+uniform float uDissolveAxis;     // 0 length (uv.y) · 1 width (uv.x) · 2 screen X · 3 screen Y
+uniform float uDissolveReverse;  // 1 = sweep from the far end instead
+
+// The sweep coordinate, 0 where the front starts and 1 where it ends. Two families:
+//   - the RIBBON's own axes (uv), so the front follows the sheet wherever the twist takes it;
+//   - SCREEN space (ndc, 0..1 across the frame), so the front is a straight line on the canvas and
+//     every wave in a stack disintegrates against the SAME edge no matter how each one is oriented.
+// The crumb pattern always stays in uv, so the chunks belong to the surface either way.
+float dissolveCoord(vec2 uv, vec2 ndc){
+  float c = uDissolveAxis < 0.5 ? uv.y
+          : uDissolveAxis < 1.5 ? uv.x
+          : uDissolveAxis < 2.5 ? ndc.x
+          : ndc.y;
+  return uDissolveReverse > 0.5 ? 1.0 - c : c;
+}
+
+// How far the front has passed a point: 0 ahead of it (intact), 1 fully behind it (gone).
+float dissolveProgress(float coord){
+  float band = max(uDissolveBand, 1.0e-3);
+  float front = uDissolveAmount * (1.0 + band); // 0 -> band sits entirely before the ribbon
+  return clamp((front - coord) / band, 0.0, 1.0);
+}
+
+// Per-chunk hash, cheap and stable: the same cell always returns the same value, so a chunk that
+// has crumbled stays crumbled as the front advances (it never flickers back).
+float dissolveHash(vec2 cell){
+  return fract(sin(dot(floor(cell), vec2(127.1, 311.7))) * 43758.5453);
+}
+
+// The erosion grain at a uv: 0 = the first thing to go, 1 = the last. Two octaves (coarse chunks
+// with finer grit inside them) blended between smooth simplex (organic tatters) and quantized
+// cells (hard blocky debris) by uDissolveBlocky. Cells are made square ON THE RIBBON — the sheet
+// is 400 long by ~188 wide, so uv.y is stretched by that ratio.
+float dissolveGrain(vec2 uv){
+  vec2 cell = vec2(uv.x, uv.y * 2.13) * uDissolveScale;
+  float coarse = mix(simplexNoise(cell) * 0.5 + 0.5, dissolveHash(cell), uDissolveBlocky);
+  float fine = mix(simplexNoise(cell * 3.7) * 0.5 + 0.5, dissolveHash(cell * 3.7), uDissolveBlocky);
+  return clamp(coarse * 0.72 + fine * 0.28, 0.0, 1.0);
+}
+
+// True where the surface has been eaten away. ndc is this fragment's 0..1 screen position (from
+// vClipPosition), read only by the screen-space axes.
+bool dissolved(vec2 uv, vec2 ndc){
+  return dissolveProgress(dissolveCoord(uv, ndc)) > dissolveGrain(uv);
 }
 `;
 
@@ -398,6 +517,11 @@ uniform float uHelixRoll;   // cross-section roll, as a fraction of the turns (1
 uniform float uHelixPhase;  // degrees
 #endif
 
+// Path (optional): the baked centreline LUT — row 0 position + width, row 1 normal, row 2 binormal.
+#ifdef PATH
+uniform sampler2D uPathTex;
+#endif
+
 // Radial fan (optional). Behind RADIAL so a wave without one compiles the exact same program (same
 // byte-identity contract as HELIX / POINTER_FX above).
 #ifdef RADIAL
@@ -406,12 +530,24 @@ uniform float uRadialArc;    // fan spread, degrees
 uniform float uRadialSpread; // length → radius scale
 uniform float uRadialRadius; // source / inner radius
 uniform float uRadialCenter; // base angle, degrees
+uniform float uRadialCone;   // lift per unit radius: 0 = a flat fan, >0 = a cone / trumpet
+uniform float uRadialSwirl;  // degrees of angle gained over the band's length: 0 = straight arms
 #endif
 
 varying vec2 vUv;
 varying vec3 vWorldPos;
 varying vec3 vViewDir;
 varying vec4 vClipPosition; // = gl_Position, for the wireframe theme's depth fade
+
+// Vertex normal (optional): the deformed surface's normal from finite differences of the SAME
+// deformation at two baked neighbours — exact for whatever the shape does, and smooth across the
+// mesh where the fragment's dFdx normal is constant per triangle. Glass reads it; behind
+// VERTEX_NORMAL so the other themes compile the exact same program.
+#ifdef VERTEX_NORMAL
+attribute vec4 positionU; // next vertex across the width: xyz = base position, w = signed uv.x step
+attribute vec4 positionV; // next vertex along the length, likewise (w = signed uv.y step)
+varying vec3 vNormal;     // world space, unit length; zero where the surface is degenerate
+#endif
 
 // Pointer field (optional, additive) — the shared chunk, gated so a wave with no interaction config
 // compiles the exact same program. The particle emitter interpolates the SAME chunk, so dust reacts
@@ -448,6 +584,13 @@ void main(){
   // matrices the pointer field reads below.
   WaveShape ws = waveShape(position, uv, t, loopOff);
   vec3 pos = ws.pos;
+#ifdef VERTEX_NORMAL
+  // The two neighbours through the SAME deformation (and the same pointer bump, below).
+  WaveShape wsU = waveShape(positionU.xyz, uv + vec2(positionU.w, 0.0), t, loopOff);
+  WaveShape wsV = waveShape(positionV.xyz, uv + vec2(0.0, positionV.w), t, loopOff);
+  vec3 posU = wsU.pos;
+  vec3 posV = wsV.pos;
+#endif
 
 #ifdef POINTER_FX
   // Pointer field: displace along the wave's own (post-twist) up-axis, weighted by a screen-space
@@ -467,6 +610,29 @@ void main(){
   // convention). Rotations are linear, so post-twist axis displacement equals pre-twist Y displacement.
   vec3 dispAxis = (((vec4(0.0, 1.0, 0.0, 0.0) * ws.rotA) * ws.rotB) * ws.rotC).xyz;
   pos += dispAxis * hit.disp;
+#ifdef VERTEX_NORMAL
+  // The neighbours ride the same bump, each from its own clip position and its own twist frame, so
+  // the normal follows the pointer's displacement rather than ignoring it.
+  vec4 clipU = mvp * vec4(posU, 1.0);
+  PointerHit hitU = pointerField(clipU.xy / max(clipU.w, 1.0e-6), mvp,
+                                 wsU.rotA, wsU.rotB, wsU.rotC, posU, t, loopOff);
+  posU += (((vec4(0.0, 1.0, 0.0, 0.0) * wsU.rotA) * wsU.rotB) * wsU.rotC).xyz * hitU.disp;
+  vec4 clipV = mvp * vec4(posV, 1.0);
+  PointerHit hitV = pointerField(clipV.xy / max(clipV.w, 1.0e-6), mvp,
+                                 wsV.rotA, wsV.rotB, wsV.rotC, posV, t, loopOff);
+  posV += (((vec4(0.0, 1.0, 0.0, 0.0) * wsV.rotA) * wsV.rotB) * wsV.rotC).xyz * hitV.disp;
+#endif
+#endif
+
+#ifdef VERTEX_NORMAL
+  {
+    // Tangents transform covariantly, so mat3(modelMatrix) is right for any scale — a normal would
+    // need its inverse transpose. sign(w) undoes the backward step the last row and column take.
+    vec3 tU = mat3(modelMatrix) * ((posU - pos) * sign(positionU.w));
+    vec3 tV = mat3(modelMatrix) * ((posV - pos) * sign(positionV.w));
+    vec3 n = cross(tU, tV);
+    vNormal = n / max(length(n), 1.0e-9);
+  }
 #endif
 
   // The scale / rotation / position transform lives on the mesh (modelMatrix), so the
@@ -535,6 +701,10 @@ float grainHash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758
 float parabola(float x, float k){ return pow(4.0 * x * (1.0 - x), k); }
 float mapLinear(float v, float a, float b, float c, float d){ return c + (v - a) * (d - c) / (b - a); }
 
+#ifdef DISSOLVE
+${dissolveChunk}
+#endif
+
 ${colorFns}
 
 // Striations: a subtle high-frequency simplex-noise grain ADDED to the
@@ -573,6 +743,10 @@ vec3 surfaceStreaks(vec2 uv, vec3 color, float crease){
 }
 
 void main(){
+#ifdef DISSOLVE
+  // The disintegration front: drop the chunks it has already eaten, before any shading work.
+  if (dissolved(vUv, vClipPosition.xy / max(vClipPosition.w, 1.0e-6) * 0.5 + 0.5)) discard;
+#endif
   // crease: a foreshortening / fold detector from the screen-space uv derivative.
   // It drives BOTH the roundness shading and where the streaks appear — this is what
   // gives the wave its thickness without any normal-based lighting.
@@ -689,6 +863,391 @@ void main(){
 }
 `;
 
+// ---- Glass theme: a refracting sheet ----
+// The ribbon stops being a coloured surface and becomes a LENS over whatever is behind it. The
+// backdrop (everything drawn before this wave) arrives as a texture and is sampled at an offset
+// that follows the surface's own normal, so the bend is strongest where the sheet turns away from
+// the camera and vanishes where it faces us — which is what compresses an edge and reads as
+// thickness. Three ingredients carry the look, all borrowed from 2D "liquid glass" work and
+// re-derived against a real normal instead of a baked rounded-rect map:
+//
+//   · dispersion — the three channels sample at slightly different offsets, so edges fringe.
+//   · adaptive specular — the glint ADDS over a dark backdrop and DARKENS over a bright one. A
+//     purely additive highlight disappears on white paper, which is most of this library's output.
+//   · vibrancy — a pull toward mid-grey inside the sheet, the haze that separates glass from a hole.
+//
+// Nothing here is time-varying: the LIQUID comes from the geometry, which is already moving, so the
+// refraction flows with the wave for free.
+export const glassFragmentShader = /* glsl */ `
+#define MAX_COLORS ${MAX_COLORS}
+#define MAX_MESH_POINTS ${MAX_MESH_POINTS}
+#define MAX_LIGHTS ${MAX_LIGHTS}
+#define PI 3.14159265359
+
+${simplex2d}
+
+${colorUniforms}
+uniform sampler2D uBackdrop;  // everything drawn behind this wave, in screen space
+uniform vec2 uResolution;
+uniform float uGlassStrength; // peak bend at the silhouette, in pixels
+uniform float uGlassChroma;
+uniform float uGlassFrost;
+uniform float uGlassSpec;
+uniform float uGlassVibrancy;
+uniform float uGlassTint;
+uniform float uGlassRimPower;
+uniform vec3 uClearColor;        // the page behind a transparent scene
+uniform float uGlassPath;        // HALF the optical path at normal incidence
+uniform float uGlassDensity;     // absorption coefficient
+uniform float uGlassRim;
+uniform float uGlassIrid;
+uniform float uGlassFilmNm;
+uniform float uGlassIor;
+uniform sampler2D uLayers;       // glass layers covering this pixel, 1/8 each
+uniform float uGlassLayerGain;
+uniform float uGlassFusion;      // droplet merge: bend along the MERGED silhouette, not each normal
+uniform float uGlassCaustic;
+uniform vec3 uViewAxis;          // world-space axis from the surface TOWARD an orthographic camera
+uniform float uGlassRipple;      // liquid: how hard the travelling waves tilt the normal
+uniform float uGlassRippleScale; // waves per world unit
+uniform float uGlassFlow;        // rad/s
+uniform float uTime;
+uniform float uAmbient;
+uniform int uNumLights;
+uniform vec3 uLightPos[MAX_LIGHTS];
+uniform vec3 uLightColor[MAX_LIGHTS];
+uniform float uLightIntensity[MAX_LIGHTS];
+uniform float uEdgeFeather;
+uniform float uEdgeFade;
+
+varying vec2 vUv;
+varying vec3 vWorldPos;
+varying vec3 vViewDir;
+varying vec4 vClipPosition;
+#ifdef VERTEX_NORMAL
+varying vec3 vNormal;
+#endif
+
+#ifdef DISSOLVE
+${dissolveChunk}
+#endif
+
+${colorFns}
+
+// LIQUID: four travelling trig waves added to the normal as a gradient. Trig rather than scrolled
+// noise on purpose — a scrolled texture drifts one way and reads as a conveyor belt, where crossing
+// waves interfere, which is what water does. The temporal frequencies are integer multiples of one
+// phase so a loop that closes for the motion closes for the water, and the four spatial vectors are
+// incommensurate so the pattern does not visibly repeat.
+vec3 rippleNormal(vec3 N, vec3 p){
+  float ph = uTime * uGlassFlow;
+  vec3 k1 = vec3( 1.00,  0.62,  0.31);
+  vec3 k2 = vec3(-0.54,  1.13,  0.47);
+  vec3 k3 = vec3( 0.36, -0.82,  1.07);
+  vec3 k4 = vec3(-1.18, -0.33,  0.72);
+  vec3 g = vec3(0.0);
+  g += k1 * cos(dot(p, k1) * uGlassRippleScale + ph);
+  g += k2 * cos(dot(p, k2) * uGlassRippleScale - ph * 2.0 + 1.7) * 0.65;
+  g += k3 * cos(dot(p, k3) * uGlassRippleScale + ph * 3.0 + 3.9) * 0.42;
+  g += k4 * cos(dot(p, k4) * uGlassRippleScale - ph + 2.6) * 0.55;
+  return normalize(N + g * uGlassRipple * 0.16);
+}
+
+// Thin-film interference, tinting only what BOUNCES — reflection, rim and specular. Colouring the
+// transmission too reads as dye rather than as a film on the surface.
+vec3 thinFilm(float ndv){
+  float s2 = (1.0 - ndv * ndv) / max(uGlassIor * uGlassIor, 1.0e-4);
+  float cosT = sqrt(max(1.0 - s2, 0.0));
+  vec3 phase = 6.2831853 * (2.0 * uGlassIor * uGlassFilmNm * cosT) / vec3(650.0, 550.0, 440.0);
+  return mix(vec3(1.0), 0.5 + 0.5 * cos(phase), clamp(uGlassIrid, 0.0, 1.0));
+}
+
+// One frosted tap set, taken AT the already-refracted position so the blur rides the bend instead
+// of sitting flat underneath it. Five taps is enough at these radii; more just costs fill.
+// The backdrop is captured OPAQUE, cleared to the page colour, so a sample is simply the colour
+// behind the glass. It used to be captured transparent and composited over the page here, which
+// left the result at the mercy of what alpha a render target hands back — and the two backends
+// disagree about that.
+vec3 backdropAt(vec2 uv){
+  return texture2D(uBackdrop, uv).rgb;
+}
+
+// Droplet fusion. Two sheets passing close should behave like one blob of something viscous rather
+// than two objects overlapping — and the trick that sells it is not the shape but the DIRECTION of
+// the bend: in the neck between them the surface normal has to rotate smoothly from one rim to the
+// other, or the refraction tears between two centres.
+//
+// The 2D original merges signed-distance fields with a smooth minimum and takes the direction from
+// the gradient of the merged field. There is no SDF here, but the layer-coverage buffer is the same
+// thing in screen space once it is smeared: blur it and two nearby silhouettes bridge, exactly as a
+// smooth minimum bridges two distance fields. Its gradient is then the merged normal, for free.
+float coverageField(vec2 uv){
+  vec2 r = 9.0 / uResolution;
+  float f = texture2D(uLayers, uv).r * 4.0;
+  f += texture2D(uLayers, uv + vec2(r.x, 0.0)).r * 2.0;
+  f += texture2D(uLayers, uv - vec2(r.x, 0.0)).r * 2.0;
+  f += texture2D(uLayers, uv + vec2(0.0, r.y)).r * 2.0;
+  f += texture2D(uLayers, uv - vec2(0.0, r.y)).r * 2.0;
+  f += texture2D(uLayers, uv + r).r;
+  f += texture2D(uLayers, uv - r).r;
+  f += texture2D(uLayers, uv + vec2(r.x, -r.y)).r;
+  f += texture2D(uLayers, uv + vec2(-r.x, r.y)).r;
+  return f / 16.0;
+}
+
+// Frosting is SCATTER, not blur. Blurring one lookup smears whatever that single ray happened to
+// hit, which reads as a dirty window; spreading real samples over a cone is what loses the image
+// behind while keeping the light. Eleven samples on a golden-angle spiral, spread by sqrt(i/N) so
+// they cover the disc evenly, rotated per PIXEL (hashed from the coordinate, not from time — a
+// time-varying rotation boils) so the pattern does not tile.
+#define FROST_SAMPLES 11
+float frostRotation(vec2 p){
+  return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
+}
+vec3 frostSample(vec2 uv, float radiusPx){
+  float rot = frostRotation(gl_FragCoord.xy);
+  vec2 r = radiusPx / uResolution;
+  vec3 acc = vec3(0.0);
+  for (int i = 0; i < FROST_SAMPLES; i++) {
+    float t = (float(i) + 0.5) / float(FROST_SAMPLES);
+    float a = rot + float(i) * 2.399963; // golden angle
+    acc += backdropAt(uv + vec2(cos(a), sin(a)) * r * sqrt(t));
+  }
+  return acc / float(FROST_SAMPLES);
+}
+
+// The shading normal for a raw — interpolated, unnormalised — surface normal: unit length, faced
+// toward the viewer (the orientation the screen-derivative normal always had, so a thin sheet
+// bends the same way whichever face is in front), then rippled. A zero-length input faces the
+// camera and bends nothing. Shared by the shading path and the caustic's finite differences, so
+// the two can never disagree about the surface.
+vec3 glassShadingNormal(vec3 rawN, vec3 pos, vec3 V, out vec3 flatN){
+  float nLen = length(rawN);
+  vec3 N = nLen > 1.0e-6 ? rawN / nLen : V;
+  if (dot(N, V) < 0.0) N = -N;
+  flatN = N;
+  if (uGlassRipple > 0.001) N = rippleNormal(N, pos);
+  return N;
+}
+
+// The refraction offset, in pixels, of the surface at (rawN, pos) — before droplet fusion.
+vec2 glassOffset(vec3 rawN, vec3 pos, vec3 V){
+  vec3 flatN;
+  vec3 N = glassShadingNormal(rawN, pos, V, flatN);
+  float rim = pow(1.0 - abs(dot(N, V)), max(uGlassRimPower, 0.001));
+  // The ripple is fed into the OFFSET as well as the normal — see main().
+  vec2 dir = -(N.xy + (N.xy - flatN.xy) * 2.0);
+  return dir * mix(rim, 1.0, uGlassRipple * 0.25) * uGlassStrength;
+}
+
+void main(){
+#ifdef DISSOLVE
+  if (dissolved(vUv, vClipPosition.xy / max(vClipPosition.w, 1.0e-6) * 0.5 + 0.5)) discard;
+#endif
+  // ORTHOGRAPHIC camera: every ray is parallel, so the view direction is the camera's forward axis,
+  // NOT a per-fragment vector to the eye. vViewDir (cameraPosition - world) is the perspective form
+  // and under ortho it fans out across the frame — using it swings the rim band and the specular
+  // across the ribbon as if the camera were inches away. Fed as a uniform rather than dug out of
+  // viewMatrix, because the TSL twin cannot index a matrix node and the two must not diverge.
+  vec3 V = normalize(uViewAxis);
+#ifdef VERTEX_NORMAL
+  // The interpolated vertex normal: smooth across the mesh, where dFdx of the world position is
+  // constant per triangle and a 120 px refraction turned every triangle edge into a seam.
+  vec3 rawN = vNormal;
+#else
+  vec3 rawN = cross(dFdx(vWorldPos), dFdy(vWorldPos)); // per triangle: the caustic sees no curvature
+#endif
+  vec3 flatN; // the geometric normal, kept so the ripple's CONTRIBUTION can be isolated below
+  vec3 N = glassShadingNormal(rawN, vWorldPos, V, flatN);
+  // The rim band, in 3D: 1 where the surface grazes the eye, 0 where it faces us. This is the same
+  // curve the 2D work bakes as a rounded-rect inset, except it comes from the geometry, so it
+  // follows every fold and twist without anything being authored.
+  float rim = pow(1.0 - abs(dot(N, V)), max(uGlassRimPower, 0.001));
+
+  vec2 sUv = gl_FragCoord.xy / max(uResolution, vec2(1.0));
+  // The ripple is fed into the OFFSET as well as the normal. Tilting a normal where the surface
+  // faces the camera barely changes N·V, so on a broad flat ribbon the ripple was nearly invisible
+  // and only showed on the twisting flanks; displacing there costs nothing and reads everywhere.
+  vec2 dir = -(N.xy + (N.xy - flatN.xy) * 2.0);
+  if (uGlassFusion > 0.001) {
+    // Gradient of the smeared coverage, by finite difference. Pointing INTO the merged shape is the
+    // same convention the geometric normal uses, so the two blend without flipping the bend.
+    vec2 g = 9.0 / uResolution;
+    vec2 grad = vec2(
+      coverageField(sUv + vec2(g.x, 0.0)) - coverageField(sUv - vec2(g.x, 0.0)),
+      coverageField(sUv + vec2(0.0, g.y)) - coverageField(sUv - vec2(0.0, g.y))
+    );
+    if (dot(grad, grad) > 1.0e-8) dir = mix(dir, normalize(grad), clamp(uGlassFusion, 0.0, 1.0));
+  }
+  vec2 offPx = dir * mix(rim, 1.0, uGlassRipple * 0.25) * uGlassStrength;
+  vec2 off = offPx / max(uResolution, vec2(1.0));
+
+  // Dispersion: the same bend at three slightly different scales, one per channel.
+  vec2 uvR = sUv + off * (1.0 + uGlassChroma * 0.2);
+  vec2 uvG = sUv + off * (1.0 + uGlassChroma * 0.1);
+  vec2 uvB = sUv + off;
+  vec3 col = vec3(backdropAt(uvR).r, backdropAt(uvG).g, backdropAt(uvB).b);
+  // CAUSTICS. A caustic is not a decal painted near the glass — it is what happens when the
+  // refraction map compresses, so neighbouring rays land on top of each other and energy piles up.
+  // The sampling map here is m(p) = p + offPx(p), so its Jacobian is the identity plus the offset's
+  // screen-space derivative, and brightness goes as 1/|det J|: below 1 where the map compresses,
+  // above 1 where it spreads. The derivatives are already free in a fragment shader, which is why
+  // this needs no extra pass — it is the gather form of the usual light-space splat.
+  if (uGlassCaustic > 0.001) {
+    // One-pixel forward differences of the offset, re-evaluated at the neighbouring pixel's normal
+    // and position. Those come from dFdx of the INTERPOLATED normal (and of the position, for the
+    // ripple), which is linear across a triangle, so every backend and derivative mode agrees on
+    // it to the bit — where dFdx of the offset itself, a nonlinear function of the normal, is
+    // implementation-defined (coarse or fine) and split the two backends at every steep fold.
+    // It works at all because the normal is interpolated: derived from dFdx of the position it was
+    // constant per quad, its own derivative identically zero, and the caustic needed a separate
+    // normal buffer and a 3 px stencil to get a second difference out of a first-difference normal.
+    // A ±3 px central difference — the baseline the normal-buffer stencil had. The map's fold is a
+    // pole in 1/|det J|, and a one-pixel difference lands so close to it that rounding alone moved
+    // the bright band between the two backends; six pixels of baseline keep them on the same side.
+    vec3 dNx = dFdx(rawN) * 3.0;
+    vec3 dNy = dFdy(rawN) * 3.0;
+    vec3 dPx = dFdx(vWorldPos) * 3.0;
+    vec3 dPy = dFdy(vWorldPos) * 3.0;
+    vec2 dOdx = (glassOffset(rawN + dNx, vWorldPos + dPx, V)
+               - glassOffset(rawN - dNx, vWorldPos - dPx, V)) / 6.0;
+    vec2 dOdy = (glassOffset(rawN + dNy, vWorldPos + dPy, V)
+               - glassOffset(rawN - dNy, vWorldPos - dPy, V)) / 6.0;
+    float detJ = (1.0 + dOdx.x) * (1.0 + dOdy.y) - dOdy.x * dOdx.y;
+    // The floor matters: at a fold the map folds too, det passes through zero, and the true
+    // brightness there is infinite. Real caustics are bounded by the width of the light source, so
+    // clamping is physical rather than a fudge — it is what stops a cusp blowing out to white.
+    float gain = clamp(1.0 / max(abs(detJ), 0.12), 0.0, 6.0);
+    col *= mix(1.0, gain, clamp(uGlassCaustic, 0.0, 1.0));
+  }
+
+  // Radius grows with the SQUARE of frost, the way a scattering lobe does: gentle at the low end
+  // where you want a hint of ground glass, and genuinely opaque by the top. Gated on the radius in
+  // PIXELS, not on the knob: under half a pixel the eleven taps average back to the bilinear
+  // sample they surround, so the default 0.08 (0.29 px) was paying for a blur nobody could see.
+  float frostRadius = uGlassFrost * uGlassFrost * 46.0;
+  if (frostRadius > 0.5) {
+    // One RGB gather at the green offset. Gathering per channel tripled the taps for a dispersion
+    // the scatter itself washes out at any radius where the frost is visible at all.
+    col = mix(col, frostSample(uvG, frostRadius), clamp(uGlassFrost, 0.0, 1.0));
+  }
+
+  // ---- the material itself ----
+  // This is what makes glass a MATERIAL and not a window. The ribbon's own palette is treated as
+  // transmitted light, absorbed over the sheet's own thickness: 2·path at normal incidence, longer
+  // as the surface turns away. A single-sided ribbon has no back face to measure against, so the
+  // chord is analytic. The result survives with nothing behind it — the page is simply what the
+  // colour is absorbed OUT of.
+  float ndv = clamp(abs(dot(N, V)), 0.02, 1.0);
+  vec3 lit = applyColorGrade(waveBaseColor(vUv));
+  // Thickness. The analytic term is the chord through one sheet; the layer count adds the folds
+  // stacked behind this fragment, which opaque drawing would otherwise throw away.
+  float layers = max(texture2D(uLayers, sUv).r * 8.0, 1.0);
+  float chord = 2.0 * uGlassPath * pow(ndv, 0.40) * (1.0 + uGlassLayerGain * (layers - 1.0));
+  float trans = 1.0 - exp(-uGlassDensity * chord);
+  // True per-channel Beer-Lambert. The palette is read as what the sheet LETS THROUGH, so its dark
+  // channels absorb and its bright ones pass: pink glass over cream paper stays pink instead of
+  // washing to cream. The alternative — normalising to the brightest channel and tinting — can only
+  // ever lighten, so deep glass came out as a pale film however far its thickness was pushed.
+  // The palette sets the HUE of what gets through; density sets how much is stopped. Every channel
+  // absorbs something (the 0.9 keeps the floor above zero), so thickness DARKENS as well as tints —
+  // which is the part that reads as a solid volume. Deriving absorption straight from the palette
+  // instead fails on this library's bright palettes: 1-lit is then near zero, nothing is absorbed,
+  // and thick glass comes out as pale as thin.
+  vec3 hue = lit / max(max(lit.r, max(lit.g, lit.b)), 0.001);
+  vec3 sigma = uGlassDensity * (1.0 - hue * 0.9);
+  // Dispersion in the BODY, not only in the backdrop lens: each channel travels a slightly
+  // different path, so a thick edge fringes even with nothing behind the sheet to bend. Without
+  // this, glassChroma did nothing at all on a standalone wave.
+  vec3 chordRGB = chord * (1.0 + vec3(uGlassChroma * 0.12, 0.0, -uGlassChroma * 0.12));
+  vec3 transmittance = exp(-sigma * chordRGB);
+  col = col * mix(vec3(1.0), transmittance, clamp(uGlassTint, 0.0, 1.0));
+
+  vec3 film = thinFilm(ndv);
+
+  // Fresnel: at a grazing angle the sheet stops transmitting and starts mirroring. With nothing to
+  // mirror it reflects the page, which is exactly what glass on paper does.
+  float f0 = pow((uGlassIor - 1.0) / (uGlassIor + 1.0), 2.0);
+  float F = f0 + (1.0 - f0) * pow(1.0 - ndv, 5.0);
+  // The reflection weight is deliberately LOW. Over a dark room the bounce is the only thing
+  // describing the solid and wants to dominate; over bright paper the same weight turns the whole
+  // sheet white and the colour we just absorbed is thrown away.
+  col = mix(col, mix(uClearColor, vec3(1.0), 0.35) * film, F * (0.18 + uGlassIrid * 0.4));
+
+  // Rim. The window is WIDE on purpose: a band that only covers the last few degrees before
+  // edge-on is thinner than a pixel on a ribbon, and a knob nothing responds to is not subtle, it
+  // is broken. A narrow darker band just inside gives the edge a lip rather than a glow.
+  col = mix(col, film, smoothstep(mix(0.62, 0.42, uGlassIrid), 1.0, 1.0 - ndv) * uGlassRim);
+  col *= 1.0 - smoothstep(0.62, 0.86, 1.0 - ndv) * 0.10;
+
+  // TWO keys, and a wide lobe. One overhead light never reaches a surface whose normals are all
+  // horizontal — a twisted ribbon has plenty of those — and no exponent fixes that, so a second,
+  // low key near the view axis fills them in.
+  vec3 KEY = normalize(vec3(-0.30, 0.86, 0.42));
+  vec3 KEY_FILL = normalize(vec3(0.42, 0.16, 0.89));
+  vec3 mirror = reflect(-V, N);
+  float lobe = pow(max(dot(mirror, KEY), 0.0), 40.0)
+             + 0.55 * pow(max(dot(mirror, KEY_FILL), 0.0), 40.0);
+  float spec = (lobe + rim * 0.25) * uGlassSpec;
+  col += lobe * uGlassSpec * 0.35 * film;
+
+  float lumaV = dot(col, vec3(0.299, 0.587, 0.114));
+  // Over a dark backdrop the glint adds; over a bright one it darkens. Without this the rim simply
+  // disappears on the warm paper most of these scenes use.
+  float darkBlend = smoothstep(0.25, 0.7, lumaV);
+  col = max(mix(col + spec, col * (1.0 - spec), darkBlend), 0.0);
+  // Vibrancy: pull the interior toward mid-grey — the haze that says "glass" rather than "hole".
+  col += (0.5 - lumaV) * uGlassVibrancy;
+
+  // Glass draws OPAQUE, so alpha never reaches a blend: a soft edge has to fade toward the UNBENT
+  // backdrop instead. Scaling the colour by alpha, as the blended themes do under
+  // PREMULTIPLIED_ALPHA, faded the feather toward black and drew a hard dark line along every
+  // silhouette. Opacity folds into the same fade — for a sheet with nothing to blend against,
+  // "half opaque" can only mean "half as much bending".
+  float fade = clamp(uOpacity, 0.0, 1.0);
+  if (uEdgeFeather > 0.0) {
+    float e = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));
+    fade *= smoothstep(0.0, uEdgeFeather, e);
+  }
+  col = mix(backdropAt(sUv), col, fade);
+  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}
+`;
+
+// ---- Glass layer count ----
+// The companion program for the glass LAYER pass: the wave's own vertex stage, so every twist,
+// path and ripple lands exactly where the shaded frame puts it and both faces of the sheet count,
+// with a fragment that only says "one layer is here". Drawn additively with depth off into the
+// layer target, 1/8 per layer, so the channel saturates at eight folds — well past anything a
+// ribbon does to itself. A stock override material could not stand in: its vertex stage knows
+// nothing of the deformation and it culls back faces, so the count came out for the REST-POSE
+// plane (measured at a tenth of the real silhouette on the Liquid Glass preset).
+export const glassLayerFragmentShader = /* glsl */ `
+#define MAX_COLORS ${MAX_COLORS}
+#define MAX_MESH_POINTS ${MAX_MESH_POINTS}
+#define MAX_LIGHTS ${MAX_LIGHTS}
+
+${simplex2d}
+
+${colorUniforms}
+uniform vec2 uResolution;
+uniform float uTime;
+
+varying vec2 vUv;
+varying vec4 vClipPosition;
+
+#ifdef DISSOLVE
+${dissolveChunk}
+#endif
+
+void main(){
+#ifdef DISSOLVE
+  if (dissolved(vUv, vClipPosition.xy / max(vClipPosition.w, 1.0e-6) * 0.5 + 0.5)) discard;
+#endif
+  gl_FragColor = vec4(vec3(0.125), 1.0);
+}
+`;
+
 // ---- Wireframe "thin-line" theme ----
 // The same wave geometry, but instead of a solid surface the colour is carved into fine
 // LENGTHWISE strands (abs(sin(uv.x * lineAmount)) — uv.x is the folded width, so lineAmount
@@ -698,6 +1257,7 @@ void main(){
 export const lineFragmentShader = /* glsl */ `
 #define MAX_COLORS ${MAX_COLORS}
 #define MAX_MESH_POINTS ${MAX_MESH_POINTS}
+#define MAX_LIGHTS ${MAX_LIGHTS}
 #define PI 3.14159265359
 
 ${simplex2d}
@@ -706,7 +1266,35 @@ ${colorUniforms}
 uniform float uLineAmount;          // default 425
 uniform float uLineThickness;       // default 1
 uniform float uLineDerivativePower; // default 0.95
-uniform float uMaxWidth;            // default 1232
+uniform float uLineDepthFade;       // 1 = the original hardcoded recede, 0 = flat/graphic
+// Lighting (optional). The line theme is otherwise UNLIT: a strand's colour comes from its uv alone,
+// so it is the same tone wherever the surface turns, which is what makes a dense wireframe read as a
+// printed pattern rather than as an object. This shades it with the same derivative normal, lights
+// and crease the solid theme uses, so a single strand brightens and darkens ALONG its own length as
+// the ribbon curves — which is the whole difference between a drawing and a lit form.
+#ifdef LINE_LIGHT
+uniform float uLineLight;      // 0 = flat (the theme as it was), 1 = fully shaded
+// Round section and glint are CONSTANTS, not knobs: shading a flat stripe barely reads, so lighting
+// and rounding only make sense together — one control, tuned once.
+#define LINE_ROUND 1.2
+#define LINE_GLINT 1.5
+uniform float uAmbient;
+uniform int uNumLights;
+uniform vec3 uLightPos[MAX_LIGHTS];
+uniform vec3 uLightColor[MAX_LIGHTS];
+uniform float uLightIntensity[MAX_LIGHTS];
+varying vec3 vWorldPos;
+varying vec3 vViewDir;
+#endif
+#ifdef EDGE_FEATHER
+uniform float uEdgeFeather;         // softness of the ribbon's two ENDS (shared with the solid theme)
+#endif
+#ifdef LINE_CLEAR_GAPS
+uniform float uLineGapOpacity;      // how much page colour the gaps between strands carry (0 = clear)
+#endif
+#ifdef LINE_SHARP
+uniform float uLineSharpness;       // 0..1 — steepen the stripe profile toward a hard duty cycle
+#endif
 // Cross-wise rungs (optional) — behind RUNGS so a wave without them compiles the same program.
 #ifdef RUNGS
 uniform float uRungAmount;    // frequency across the ribbon (rungs ≈ amount / π)
@@ -725,9 +1313,18 @@ varying float vPointerFall;    // falloff × presence, written by the vertex sha
 
 ${colorFns}
 
+#ifdef DISSOLVE
+${dissolveChunk}
+#endif
+
 void main(){
+#ifdef DISSOLVE
+  // The disintegration front: drop the chunks it has already eaten (see dissolveChunk).
+  if (dissolved(vUv, vClipPosition.xy / max(vClipPosition.w, 1.0e-6) * 0.5 + 0.5)) discard;
+#endif
   // Same 2D palette sample + colour ops as the solid theme.
   vec3 color = applyColorGrade(waveBaseColor(vUv));
+
 
 #ifdef POINTER_FX
   color = hueShift(color, radians(uPointerHue) * vPointerFall);
@@ -736,32 +1333,147 @@ void main(){
 
   // Carve into fine lengthwise strands; thickness from the screen-space uv derivative.
   vec2 dy = dFdy(vUv);
-  float lineThickness = uLineThickness * pow(abs(dy.x * uMaxWidth), uLineDerivativePower);
+  // 1232 is a fixed reference width, not a knob: the old uMaxWidth uniform only ever multiplied the
+  // derivative before the power, and pow(a*b, p) = pow(a, p)·pow(b, p) — so every value of it was
+  // reachable by scaling lineThickness instead. See normalizeWave, which migrates the old field.
+  float lineThickness = uLineThickness * pow(abs(dy.x * 1232.0), uLineDerivativePower);
 #ifdef POINTER_FX
   lineThickness *= clamp(1.0 - uPointerThin * vPointerFall, 0.0, 1.0); // wireframe: taper strands
 #endif
+  // Each stripe family's per-pixel RATE — how fast its |sin| argument moves — and the DUTY CYCLE it
+  // averages to, which is the fraction of a period that is strand. Both are needed below: once a
+  // period is finer than a pixel, sampling |sin| at one arbitrary point per period is meaningless
+  // (and is where two backends' derivative estimates diverge), so the coverage fades to the tone the
+  // strands actually average to. That is also what a compressed region should look like: a solid
+  // tone, not noise.
+  float lineRate = uLineAmount * fwidth(vUv.x);
+#ifdef LINE_LIGHT
+  {
+    // The same derivative normal the solid theme uses — the mesh is finely subdivided, so it is
+    // smooth enough to shade with. Flipped toward the camera because a ribbon is double-sided.
+    vec3 N = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
+    vec3 Vd = normalize(vViewDir);
+    if (dot(N, Vd) < 0.0) N = -N;
+    // ROUND STRANDS. Until here a strand is a MASK — a stripe painted on a flat sheet, with no
+    // cross-section of its own, which is why a dense wireframe reads as print however it is lit: a
+    // printed line has no side to catch a highlight. Bending the normal ACROSS each stripe turns
+    // every strand into a half-round filament, so the light runs along one and not its neighbour and
+    // the bundle reads as combed thread rather than as hatching.
+    //
+    // The across-vector is the world direction of increasing uv.x, recovered from the screen-space
+    // derivatives by least squares (the chain rule the other way round): it is the axis to tilt
+    // about, and it is what makes the shading follow the strands wherever the surface turns.
+    {
+      vec2 gu = vec2(dFdx(vUv.x), dFdy(vUv.x));
+      float gg = dot(gu, gu);
+      if (gg > 1.0e-12) {
+        vec3 across = (dFdx(vWorldPos) * gu.x + dFdy(vWorldPos) * gu.y) / gg;
+        across = normalize(across - N * dot(across, N)); // keep it in the surface
+        // Signed position across the strand: 0 at its crest, ±1 at its edges.
+        float sAcross = clamp(sin(vUv.x * uLineAmount) / max(lineThickness, 1.0e-4), -1.0, 1.0);
+        N = normalize(N + across * sAcross * LINE_ROUND);
+        if (dot(N, Vd) < 0.0) N = -N;
+      }
+    }
+    float facing = abs(dot(N, Vd));
+    // Base shading: grazing parts of the surface fall away toward shadow, the facing body keeps its
+    // colour. This alone is what makes a strand shade along its length.
+    vec3 lit = color * mix(0.08, 1.0, facing);
+    for (int i = 0; i < MAX_LIGHTS; i++) {
+      if (i >= uNumLights) break;
+      vec3 L = normalize(uLightPos[i] - vWorldPos);
+      vec3 lc = uLightColor[i] * uLightIntensity[i];
+      lit += color * max(dot(N, L), 0.0) * lc * 0.5;
+      // A tight specular, which on a combed surface is the glint that runs along one strand and not
+      // its neighbour — the thing that reads as filament rather than as print.
+      lit += pow(max(dot(N, normalize(L + Vd)), 0.0), 48.0) * lc * LINE_GLINT;
+    }
+    lit *= 0.55 + clamp(uAmbient, 0.0, 1.0);
+    color = mix(color, lit, clamp(uLineLight, 0.0, 1.0));
+  }
+#endif
+
   float a = abs(sin(vUv.x * uLineAmount));
   a = smoothstep(lineThickness, 0.0, a);
-
+  // NOTE there is deliberately no duty-cycle fallback for the LENGTHWISE family, though the rungs
+  // below have one. Its threshold is lineThickness, which is itself built from dFdy(vUv).x, so a
+  // fallback keyed on it would add a SECOND derivative for the two backends to disagree about —
+  // measured, it made cross-backend agreement worse, not better. The rungs' threshold is a plain
+  // pixel width, which is why the same trick works there.
+  float rungRate = 0.0;   // the cross-wise family's rate / duty; 0 unless rungs are compiled in
+  float dutyRung = 0.0;
 #ifdef RUNGS
   // Rungs: the same carve at constant uv.y instead of uv.x, so this family runs ACROSS the ribbon
   // where the one above runs along it — together they read as a ladder. Width comes from fwidth()
   // rather than the lengthwise term's dFdy(vUv).x, which is the derivative of the wrong axis for
   // this direction: |sin| climbs by ~uRungAmount·fwidth(vUv.y) per pixel, so scaling by that keeps
   // a rung uRungThickness pixels wide at any zoom or ribbon scale.
-  float rung = abs(sin(vUv.y * uRungAmount));
-  a = max(a, smoothstep(uRungThickness * uRungAmount * fwidth(vUv.y), 0.0, rung));
+  rungRate = uRungAmount * fwidth(vUv.y);
+  float rungT = uRungThickness * rungRate;
+  a = max(a, smoothstep(rungT, 0.0, abs(sin(vUv.y * uRungAmount))));
+  dutyRung = 0.63661977 * asin(clamp(rungT * 0.5, 0.0, 1.0));
 #endif
+
+#ifdef LINE_SHARP
+  // Harden the stripe: the value above is a SOFT ramp — |sin| feathered over the whole half-period — so
+  // raising uLineThickness widens the strands by fading the gaps out with them, and the surface goes
+  // from pale hairlines straight to flat solid without ever passing through dense ink. Steepening it
+  // about its own midpoint separates the two: uLineThickness becomes the DUTY CYCLE (where the ramp
+  // crosses 0.5) and this becomes the edge, so a wave can be 70% ink with crisp gaps still showing.
+  //
+  // Applied to the MERGED coverage, after the rungs have been folded in, so a cross-wise family
+  // reaches dense ink the same way a lengthwise one does. The floor is the ANALYTIC stripe rate
+  // rather than fwidth() of that merged value, whose derivative is undefined where the two families
+  // swap over.
+  float aaRate = 0.5 * max(lineRate, rungRate);
+  a = clamp((a - 0.5) / max(1.0 - uLineSharpness, aaRate * 1.4) + 0.5, 0.0, 1.0);
+#endif
+
+  // Sub-pixel rungs: fade to the tone those strands average to (see the note above for why only
+  // this family gets it).
+  a = mix(a, max(a, dutyRung), smoothstep(1.2, 3.0, rungRate));
 
   // Depth fade: the wave recedes into the background colour with depth. Watch the
   // argument order: clamp(0.0, 1.0, z*6) is a swapped-args trap — it clamps the
   // constant 0.0 into [1.0, z*6], i.e. min(1.0, z*6), which (with our ortho clip.z
   // range) collapses the whole wave to the background. The correct clamp(z*6, 0, 1)
   // gives the proper subtle far-end fade and thin-line look.
-  float depthFade = clamp(vClipPosition.z * 6.0, 0.0, 1.0);
-  color = mix(uClearColor, color, a * (1.0 - depthFade));
+  float depthFade = clamp(vClipPosition.z * 6.0, 0.0, 1.0) * uLineDepthFade;
+  float cov = a * (1.0 - depthFade);
+  // Soft ribbon ENDS, exactly as the solid theme fades them (on vUv.y, the length). Without this a
+  // wireframe ribbon stops dead: its end-cap is a flat cross-section that reads as a straight cut
+  // drawn across the strands, which is glaring the moment a ribbon curls back into frame. The 0.1
+  // default matches the solid theme's hardcoded value, so a wave that never set edgeFeather keeps
+  // its old ends — this only ever softens what was already an abrupt stop.
+#ifdef EDGE_FEATHER
+  cov *= smoothstep(0.0, uEdgeFeather, vUv.y) * (1.0 - smoothstep(1.0 - uEdgeFeather, 1.0, vUv.y));
+#else
+  cov *= smoothstep(0.0, 0.1, vUv.y) * (1.0 - smoothstep(0.9, 1.0, vUv.y));
+#endif
+#ifdef LINE_CLEAR_GAPS
+  // CLEAR GAPS. By default the gaps between strands are painted with the page colour, which makes a
+  // wireframe wave an opaque card: stack two and the front one's gaps hide the back one behind flat
+  // page colour instead of showing it. Here the gaps only carry that colour as far as
+  // uLineGapOpacity and are otherwise transparent, so the strands composite over whatever is really
+  // behind them — the next wave in the stack, a solid wave used as a dark backing, or the page.
+  //
+  // Straight alpha-over, unpremultiplied: the visible colour is the strand and the gap weighted by
+  // their coverages, divided back out by the total so the result is a colour rather than a
+  // premultiplied one (Three's own PREMULTIPLIED_ALPHA step below does that part).
+  float gapA = (1.0 - cov) * uLineGapOpacity;
+  float outA = cov + gapA;
+  // A fully clear gap must not reach the depth buffer, or it would occlude the wave behind it just
+  // as the opaque version did. Strand EDGES keep their partial alpha (and their depth), which is a
+  // pixel either side and exactly what antialiasing them is for.
+  if (outA <= 0.002) discard;
+  color = (color * cov + uClearColor * gapA) / outA;
+  if (uSquared > 0.5) color *= color; // deep "squared" look, now composited not replace-blended
+  gl_FragColor = vec4(color, uOpacity * outA);
+#else
+  color = mix(uClearColor, color, cov);
   if (uSquared > 0.5) color *= color; // deep "squared" look, now composited not replace-blended
   gl_FragColor = vec4(color, uOpacity);
+#endif
 #ifdef PREMULTIPLIED_ALPHA
   gl_FragColor.rgb *= gl_FragColor.a;
 #endif
@@ -1057,12 +1769,23 @@ uniform float uTwFreqX, uTwFreqY, uTwFreqZ, uTwPowX, uTwPowY, uTwPowZ;
 #ifdef HELIX
 uniform float uHelixTurns, uHelixRadius, uHelixRoll, uHelixPhase;
 #endif
+#ifdef PATH
+uniform sampler2D uPathTex;
+#endif
 #ifdef RADIAL
-uniform float uRadialAmount, uRadialArc, uRadialSpread, uRadialRadius, uRadialCenter;
+uniform float uRadialAmount, uRadialArc, uRadialSpread, uRadialRadius, uRadialCenter, uRadialCone, uRadialSwirl;
 #endif
 uniform mat4 uShedModel;              // the wave's matrixWorld (deformed LOCAL → world)
 uniform float uShedSpeed, uShedSeed;
 ${waveShapeChunk}
+
+// The owning wave's disintegration front, mirrored the same way, so a mote peels off exactly where
+// and when the surface under it crumbles. uDissolveDust is the particle-only knob (0 = ignore the
+// front and free-run on uLife, as a field with no dissolve always has).
+#ifdef DISSOLVE
+${dissolveChunk}
+uniform float uDissolveDust;
+#endif
 
 // The cursor. Same chunk the ribbon uses, mirrored onto this material in ParticleField.configure(),
 // and behind the same POINTER_FX gate — a wave with no hover field compiles the point program it
@@ -1074,7 +1797,8 @@ uniform float uPartShove; // how hard the cursor shoves dust that has already dr
 
 varying float vAlpha;
 varying vec3 vColor;
-varying vec2 vDir; // screen-space motion direction (for the streak sprite)
+varying vec2 vDir;  // screen-space motion direction (for the streak sprite)
+varying float vSeed; // this particle's seed (the square sprite cuts its own shard from it)
 
 const float TAU = 6.28318530718;
 
@@ -1103,6 +1827,36 @@ void main(){
   WaveShape ws = waveShape(base, aUv, ts, loopOff);
   vec3 origin = (uShedModel * vec4(ws.pos, 1.0)).xyz;
   vec3 outward = normalize(origin - uCenter + vec3(1e-4));
+  // (DISSOLVE may re-aim this below — see the debris sweep.)
+#ifdef DISSOLVE
+  // Pinned to the wave's dissolve front: this mote IS the chunk of surface that just left, so it
+  // does not exist until the front reaches its patch, then peels off and drifts on from there.
+  // age becomes its progress past the front rather than a free-running clock — which is what makes
+  // the dust and the holes in the ribbon one event instead of two effects that happen to overlap.
+  {
+    float band = max(uDissolveBand, 1.0e-3);
+    // Stagger: nudge each mote's own front, and give it its own peel rate, so a band does not lift
+    // off as one flat sheet.
+    vec4 dClip = projectionMatrix * viewMatrix * vec4(origin, 1.0);
+    vec2 dNdc = dClip.xy / max(dClip.w, 1.0e-6) * 0.5 + 0.5;
+    float c = dissolveCoord(aUv, dNdc) + (aRnd.x - 0.5) * band * 0.9;
+    float front = uDissolveAmount * (1.0 + band);
+    float peel = clamp((front - c) / (band * (0.4 + aRnd.y * 1.2)), 0.0, 1.0);
+    age = mix(age, peel, uDissolveDust);
+    // Visible from the moment the front takes it, then a long tail out as it travels.
+    float f = smoothstep(0.0, 0.06, peel) * (1.0 - smoothstep(0.55, 1.0, peel));
+    fade = mix(fade, f, uDissolveDust);
+    // Debris is thrown along the sweep, AWAY from the part still standing — under a screen-axis
+    // front the whole cloud blows one way across the frame instead of radiating off the wave centre
+    // in every direction (which puts dust back over the half that has not crumbled yet). Only the
+    // screen axes have a direction to borrow; a uv front keeps radiating, which is what a ribbon
+    // fraying along its own length should do.
+    if (uDissolveAxis > 1.5) {
+      vec3 sweep = (uDissolveAxis > 2.5 ? uUp : uRight) * (uDissolveReverse > 0.5 ? 1.0 : -1.0);
+      outward = normalize(mix(outward, sweep, uDissolveDust) + vec3(1e-4));
+    }
+  }
+#endif
 
 #ifdef POINTER_FX
   // WELD (applied below, once the mote's own motion is known). The ribbon displaces its surface by
@@ -1171,6 +1925,7 @@ void main(){
   vAlpha = fade * mix(1.0, tw, clamp(uTwinkle, 0.0, 1.0));
   vColor = mix(uColor, uColor2, aRnd.w); // two-tone dust: per-particle blend of the two colours
   vDir = normalize(vec2(dot(outward, uRight), dot(outward, uUp)) + vec2(1e-4)); // outward, in screen space
+  vSeed = aSeed;
   gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
   // Orthographic camera → point size is constant in device pixels (no perspective depth divide).
   float jitter = 1.0 + uSizeJitter * (aSeed - 0.5) * 2.0;
@@ -1180,10 +1935,11 @@ void main(){
 
 export const particleFragmentShader = /* glsl */ `
 precision highp float;
-uniform float uShape; // 0 glitter · 1 soft · 2 ring · 3 star · 4 streak
+uniform float uShape; // 0 glitter · 1 soft · 2 ring · 3 star · 4 streak · 5 square
 varying float vAlpha;
 varying vec3 vColor;
 varying vec2 vDir;
+varying float vSeed; // this particle's seed — the square sprite cuts its own shard from it
 // User artwork (shape "sprite"), behind a define so a field without one compiles the exact same
 // program — and so the sampler only exists once a texture is actually bound to it. ONE texture is
 // shared by every particle in the field; see ParticleField.loadSprite for the rasterization.
@@ -1218,6 +1974,23 @@ void main(){
     float along = dot(pc, vDir);
     float perp = dot(pc, vec2(-vDir.y, vDir.x));
     a = smoothstep(0.5, 0.0, length(vec2(along * 0.42, perp * 2.2)));
+  } else if (s == 5) {             // square: a hard-edged chip of debris
+    // A rectangle, not a disc: Chebyshev distance in place of Euclidean, screen-aligned because a
+    // point sprite already is. But a field of IDENTICAL squares reads as grain rather than debris,
+    // so each one cuts its own shard out of its quad — its own extent, proportion and quarter-turn,
+    // from three hashes of the particle seed. The extent is SQUARED, which gives the heavy tail real
+    // rubble has: mostly small chips with a few big slabs among them, rather than one uniform size.
+    float h1 = fract(sin(vSeed * 127.1) * 43758.5453);
+    float h2 = fract(sin(vSeed * 311.7) * 24634.6345);
+    float h3 = fract(sin(vSeed * 74.7) * 39158.5453);
+    float ext = mix(0.10, 0.47, h1 * h1);
+    float asp = mix(0.38, 1.0, h2);
+    vec2 q = h3 > 0.5 ? pc.yx : pc; // half the shards are bars the other way round
+    float m = max(abs(q.x) / asp, abs(q.y));
+    // Antialias over one pixel of the sprite quad, so a 3px chip has a clean edge and a 30px slab
+    // is not blurred by a fixed ramp sized for the small ones.
+    float w = max(fwidth(m), 1.0e-4);
+    a = 1.0 - smoothstep(ext - w, ext + w, m);
   } else {                         // glitter (0): the soft round additive disc
     a = smoothstep(0.5, 0.0, d);
   }

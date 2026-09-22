@@ -4,8 +4,9 @@ Guards the TSL/WebGPU port: every shipped preset and gallery config is rendered 
 backends and compared, so a shader that ports incorrectly fails loudly instead of shipping.
 
 ```sh
-pnpm --filter @wave3d/core parity          # render all 22 configs on both backends, compare
+pnpm --filter @wave3d/core parity          # render all 39 configs on both backends, compare
 pnpm --filter @wave3d/core parity --self   # render WebGL twice — checks the harness itself
+pnpm --filter @wave3d/core parity --path-identity  # a straight path must not move a pixel
 pnpm --filter @wave3d/core parity:serve    # open the harness by hand for debugging
 ```
 
@@ -13,6 +14,11 @@ Both renders happen in one page load, so GPU, driver, browser and config are ide
 backend is the only variable. Nothing binary is versioned — both renderers build from this source
 tree, so baselines are reproducible on demand (`--capture` writes PNGs into `refs/` when you do
 need to compare across machines).
+
+`--path-identity` renders every config with and without a straight `path` on each backend. That is
+what the studio does the moment a ribbon is double-clicked, and it must change nothing — whatever
+else shapes the wave. It is held to float noise (`mae` ≤ 0.01; measured ≤ 0.001), since both sides
+share a backend.
 
 ## Why perceptual, not digests
 
@@ -28,7 +34,12 @@ differently, and the noise functions diverge in the last ULP. So the gate is a p
 
 `maxDelta` is reported for triage but is deliberately **not** a gate: one pixel on a hard edge
 legitimately flips far under a different MSAA resolve. Measured on the WebGL renderer against
-itself, all 22 configs land at `mae = 0.00` with `maxDelta ≤ 12`, so the headroom above is real.
+itself, every config lands at `mae = 0.00` with `maxDelta ≤ 12`, so the headroom above is real.
+
+These are a CEILING, not a regression detector. Two injected bugs — WebGPU colour 1.5 % bright, and
+geometry scaled 1.004 — both pass green, the second while pushing `preset:Wireframe`'s `maxDelta`
+from 46 to 255. The suite catches a shader that is wrong, not one that has drifted; catching drift
+would need per-config baselines, which this does not have.
 
 Failures write `<config>.actual.png`, `.expected.png` and an 8×-amplified `.diff.png` into `out/`.
 
@@ -50,7 +61,7 @@ pnpm --filter @wave3d/core parity:math
 ```
 
 Verifies each ported shader function against the GLSL original directly, rather than waiting for a
-preset to look wrong — a mismatch in shared maths surfaces as 22 confusing preset failures instead
+preset to look wrong — a mismatch in shared maths surfaces as 39 confusing preset failures instead
 of one clear one. Covers the simplex noise (whole field plus point probes), `expStep`, and the
 three-axis twist. Both implementations are rendered to a 24-bit-encoded target and
 compared per sample; noise currently agrees at **max|Δ| = 0 over 65,536 samples**, i.e.
@@ -72,20 +83,27 @@ Two traps this check walked into, both worth knowing before writing another comp
 
 ## Current state of the port
 
-Every shipped preset and gallery config renders on both backends at `mae <= 4.79`, most under 1,
-with biases near zero. Five pass the strict interior thresholds outright.
+All 39 configs pass, 34 on the thresholds and 5 on a recorded per-config allowance (`ALLOW` in
+`run.mjs`). Everything on the thresholds sits at `mae <= 0.62`.
 
-The `synthetic:dust-*` cases sit higher (`mae` 2.8-12) on purpose: they are dense additive dust on a
-DARK background with no bloom, which is the most sensitive arrangement there is. That residual has a
-known, measured cause — see "Points versus sprites" below — and is not present at any preset's
-settings.
+It was 7 of 39 until two bugs were found, neither of which looked like a bug from the numbers: a
+custom `outputNode` never got premultiplied alpha (see the traps below — the largest single source
+of divergence in the suite, filed for months under "dense additive dust is just hard"), and
+`edgeMask` could not see a FEATHERED silhouette, so it charged each ribbon's soft rim to the shader.
+`preset:Hero` went from 1.24 % of interior pixels over 8 to 0.07 % on the mask fix alone.
 
-Two configs are worth naming:
+The 5 on an allowance — `Neon Dark Multistrand`, `Corkscrew`, `Kaleidoscope`, `Wave 3`,
+`Vaporwave Sunset` — are all ORDER-DEPENDENT TRANSPARENCY, and they are simply the configs that
+stack the most semi-transparent surface on itself. A wave is `transparent` with `depthWrite`, so
+wherever alpha < 1 the result depends on fragment order and on how the depth test resolves
+near-coplanar surfaces; neither is promised to match across two rasterisers. `edgeFeather` is what
+spreads this past the configs that set an opacity — it makes every ribbon's two ends transparent by
+default, and `--set waves.0.edgeFeather=0` takes `Corkscrew` from `mae` 1.16 to 0.18 and it passes.
 
-| config                  | interior >8 | why                                                                                                                                               |
-| ----------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Neon Dark Multistrand` | 22 %        | three wireframe layers at ~425 strands across the width put 72% of the frame on a strand boundary; the single-wave `Wireframe` preset is at 0.01% |
-| `synthetic:dust-stack`  | 74 %        | 60k additive motes on black with bloom — the adversarial case, deliberately                                                                       |
+There is no cheap fix. Forcing `depthWrite: false` everywhere makes `Neon Dark Multistrand` pass
+outright (`mae` 4.79 → 0.07) but removes the occlusion that makes a stack read as solid, and the
+disagreement just moves into blend order: the same change sends `Kaleidoscope` to 23.46. The real
+fix is order-independent transparency, which is not a port patch.
 
 `--no-post` renders both backends with every effect zeroed, which separates "the shader is wrong"
 from "the post chain is wrong" — two bugs that look identical in a whole-frame diff. `--set k=v`
@@ -94,7 +112,10 @@ from "the post chain is wrong" — two bugs that look identical in a whole-frame
 ## Points versus sprites
 
 WebGPU point primitives are fixed at one pixel, so the particle field is instanced sprites there and
-`THREE.Points` on WebGL. Those two rasterise differently, and it is measurable:
+`THREE.Points` on WebGL. Those two rasterise differently, and it is measurable — though for a long
+time this was blamed for far more than it causes. The `synthetic:dust-*` cases used to sit at `mae`
+2.8-12 with this table as the standing explanation; they now sit at 0.17-0.62, and nothing about the
+rasterisers changed. A plausible known cause is a comfortable place for a real bug to hide.
 
 | nominal size | WebGL point        | WebGPU sprite      |
 | ------------ | ------------------ | ------------------ |
@@ -106,8 +127,8 @@ WebGPU point primitives are fixed at one pixel, so the particle field is instanc
 out roughly 2 px narrower than asked for. So each mote covers about 1.5x more pixels on WebGPU and
 the dust reads slightly brighter. That is deliberately NOT compensated for: the correction would be
 a fudge tuned to one driver's point rasteriser, and it would be wrong wherever that driver behaves
-differently. It is invisible at every shipped preset's settings and shows up only in the synthetic
-stress cases.
+differently. With the premultiply fixed every dust case passes anyway, at an `interior >8` of
+0.1-0.3 %.
 
 ## What the shader-math check has confirmed
 
@@ -130,6 +151,13 @@ before trusting a comparison of your own:
   calls separately, and twice a new option was added to one and not the other — so it compared
   WebGL _with_ post against WebGPU _without_, and blamed the difference on the port. It now builds
   ONE options object and passes it to both, differing only in `backend`.
+- **A custom `outputNode` silently loses premultiplied alpha.** `setupOutput()` does call
+  `setupPremultipliedAlpha()` — on its own `basicOutput`, which it throws away the instant
+  `outputNode` is set. The material keeps the premultiplied BLEND FACTORS, so every partly
+  transparent pixel composites too bright; `blendMode` defaults to `"squared"`, which asks for those
+  factors, so this was every wave (`synthetic:dust-stack`: `mae` 12.18 → 0.17). A difference that
+  only shows where alpha < 1 always reads as a hard case rather than a bug, because the opaque bulk
+  of every frame keeps agreeing perfectly.
 - **Additive dust on a white background saturates and clips.** Nine particle cases passed while the
   TSL field was rendering _nothing at all_: both frames were blown out to the same white. The dust
   synthetics now use a dark background, which is what surfaced the real bug (a per-instance accessor

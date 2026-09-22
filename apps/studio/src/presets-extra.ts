@@ -50,9 +50,8 @@ export const PRESETS_EXTRA: Record<string, () => StudioConfig> = {
     w.fiberCount = 1;
     w.fiberStrength = 0.96;
     w.lineAmount = 1200;
-    w.lineThickness = 1.89;
+    w.lineThickness = 1.1818;
     w.lineDerivativePower = 0.41;
-    w.maxWidth = 392;
     w.blendMode = "additive";
     w.hueShift = 0;
     w.colorContrast = 1;

@@ -55,6 +55,12 @@ const UI_STATE_RECEIVERS = new Set([
   "gizmoProxy",
   "uiInputs",
   "uiParticles",
+  "uiDissolve",
+  "gapProxy", // the between-strand colour, which is absent on the wave until it is set
+  "nameProxy", // the wave's name, likewise absent until it is given one
+  // The glass knobs, absent on the wave until its theme opts in — the panel edits a seeded proxy
+  // and writes each field back on change, so a solid wave's JSON keeps none of them.
+  "glassProxy",
   "uiHover",
   "uiPress",
   "scrollPrev",

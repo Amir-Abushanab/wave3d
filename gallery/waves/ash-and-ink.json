@@ -1,0 +1,205 @@
+{
+  "title": "Ash & Ink",
+  "author": "Amir-Abushanab",
+  "config": {
+    "background": "#f7f6f1",
+    "transparentBackground": false,
+    "cameraPosition": {
+      "x": 0,
+      "y": 0,
+      "z": 5000
+    },
+    "cameraTarget": {
+      "x": -40,
+      "y": 120,
+      "z": 0
+    },
+    "cameraZoom": 0.75,
+    "cameraMinVisibleWidth": 0.7,
+    "grain": 0,
+    "blur": 0,
+    "ambient": 0.25,
+    "lights": [
+      {
+        "position": {
+          "x": 600,
+          "y": 900,
+          "z": 800
+        },
+        "color": "#ffffff",
+        "intensity": 2
+      }
+    ],
+    "waveCount": 1,
+    "waves": [
+      {
+        "palette": [
+          {
+            "color": "#cbb8f5",
+            "pos": 0
+          },
+          {
+            "color": "#7c55d8",
+            "pos": 0.03
+          },
+          {
+            "color": "#2a1750",
+            "pos": 0.075
+          },
+          {
+            "color": "#07050c",
+            "pos": 0.15
+          },
+          {
+            "color": "#07050c",
+            "pos": 0.85
+          },
+          {
+            "color": "#2a1750",
+            "pos": 0.925
+          },
+          {
+            "color": "#7c55d8",
+            "pos": 0.97
+          },
+          {
+            "color": "#cbb8f5",
+            "pos": 1
+          }
+        ],
+        "gradientShift": 0,
+        "usePaletteTexture": false,
+        "hueShift": 0,
+        "colorSaturation": 1,
+        "fiberStrength": 0,
+        "creaseLight": 1.98,
+        "creaseSharpness": 0.806,
+        "creaseSoftness": 0.834,
+        "displaceFrequency": {
+          "x": 0.003,
+          "y": 0.008
+        },
+        "displaceAmount": 60,
+        "twistFrequency": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "twistPower": {
+          "x": 4,
+          "y": 4,
+          "z": 4
+        },
+        "helixTurns": 1.5,
+        "helixRoll": 1,
+        "theme": "wireframe",
+        "lineAmount": 700,
+        "lineDerivativePower": 0,
+        "lineDepthFade": 0,
+        "lineSharpness": 0.96,
+        "lineLight": 0.8,
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": {
+          "x": 45,
+          "y": 25,
+          "z": 15
+        },
+        "scale": {
+          "x": 3.4,
+          "y": 3.4,
+          "z": 3.4
+        },
+        "blendMode": "normal",
+        "speed": 0.08,
+        "lineGapColor": "#0a0714",
+        "dissolve": {
+          "amount": 0.5,
+          "axis": "screenX",
+          "reverse": true,
+          "band": 0.22,
+          "scale": 38,
+          "blocky": 0.8,
+          "dust": 1
+        },
+        "interaction": {
+          "bindings": [
+            {
+              "source": "scroll",
+              "target": "dissolveAmount",
+              "to": 0.95,
+              "smoothing": 0.2
+            }
+          ]
+        },
+        "path": [
+          {
+            "x": -7.79634366503875e-15,
+            "y": 127.32395447351627,
+            "z": -8
+          },
+          {
+            "x": -45.015815807855304,
+            "y": 108.67779304461342,
+            "z": -8
+          },
+          {
+            "x": -63.66197723675813,
+            "y": 63.661977236758126,
+            "z": -8
+          },
+          {
+            "x": -45.0158158078553,
+            "y": 18.64616142890283,
+            "z": -8
+          },
+          {
+            "x": 0,
+            "y": 0,
+            "z": -8
+          },
+          {
+            "x": 45.0158158078553,
+            "y": 18.64616142890283,
+            "z": -8
+          },
+          {
+            "x": 63.66197723675813,
+            "y": 63.661977236758126,
+            "z": -8
+          },
+          {
+            "x": 45.015815807855304,
+            "y": 108.67779304461342,
+            "z": -8
+          },
+          {
+            "x": -7.79634366503875e-15,
+            "y": 127.32395447351627,
+            "z": -8
+          }
+        ],
+        "particles": {
+          "count": 9000,
+          "size": 18,
+          "seed": 11,
+          "sizeJitter": 1,
+          "color": "#0b0812",
+          "color2": "#1d1230",
+          "shape": "square",
+          "blend": "normal",
+          "edgeBias": 0,
+          "drift": 320,
+          "rise": 30,
+          "wander": 60,
+          "twinkle": 0,
+          "life": 6,
+          "speed": 1
+        }
+      }
+    ]
+  }
+}

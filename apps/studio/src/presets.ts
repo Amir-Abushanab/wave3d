@@ -26,4 +26,6 @@ export const PRESETS: Record<string, () => StudioConfig> = {
   "Vaporwave Sunset": CORE["Vaporwave Sunset"],
   Kaleidoscope: CORE["Kaleidoscope"],
   Corkscrew: CORE["Corkscrew"],
+  Disintegration: CORE["Disintegration"],
+  "Liquid Glass": CORE["Liquid Glass"],
 };

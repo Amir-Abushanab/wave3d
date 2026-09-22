@@ -184,6 +184,36 @@ describe("ensureStudioConfig repairs configs that used to break the panel", () =
     expect(w.radialAmount).toBe(0);
     expect(w.radialArc).toBe(160);
     expect(w.radialRadius).toBe(40);
+    expect(w.radialCone).toBe(0); // flat fan — the shape the mode had before the cone existed
+    expect(w.radialSwirl).toBe(0); // straight arms, not spiral ones
+    expect(w.path).toBeUndefined(); // no centreline of its own — the straight ribbon
+  });
+
+  it("keeps an authored path, and drops one too short to be a centreline", () => {
+    // Present-only, like particles and dissolve: the shader block is compiled off the path's
+    // existence, so a surviving path has to come back intact or the wave silently renders straight.
+    const kept = ensureStudioConfig(
+      hostile({
+        waves: [
+          {
+            path: [
+              { x: -200, y: 0, z: 0 },
+              { x: 0, y: 80, z: 40, width: 0.2, twist: 45 },
+              { x: 200, y: 0, z: 0 },
+            ],
+          },
+        ],
+      }),
+    ).waves[0];
+    expect(kept.path).toHaveLength(3);
+    expect(kept.path?.[1]).toEqual({ x: 0, y: 80, z: 40, width: 0.2, twist: 45 });
+    // One point is not a centreline, and neither is a list of junk.
+    expect(
+      ensureStudioConfig(hostile({ waves: [{ path: [{ x: 0, y: 0, z: 0 }] }] })).waves[0].path,
+    ).toBeUndefined();
+    expect(
+      ensureStudioConfig(hostile({ waves: [{ path: "nope" }] })).waves[0].path,
+    ).toBeUndefined();
   });
 
   it("leaves authored radial values alone", () => {
@@ -218,6 +248,75 @@ describe("ensureStudioConfig repairs configs that used to break the panel", () =
     expect(p?.bias).toBe(1); // clamped −1..1
     expect(p?.speed).toBe(8); // clamped 0..8
     assertBindableLeaves(p);
+  });
+
+  it("backfills the wireframe line fields to their inert values", () => {
+    // lineSharpness 0 is the soft stripe ramp the theme has always drawn and lineDepthFade 1 the
+    // original hardcoded recede, so a config written before either existed renders unchanged — and
+    // the renderer only compiles LINE_SHARP above 0, so a stray undefined would key a variant for
+    // nothing as well as breaking the panel binding.
+    const w = ensureStudioConfig(hostile({ waves: [{}] })).waves[0];
+    expect(w.lineSharpness).toBe(0);
+    expect(w.lineDepthFade).toBe(1);
+    expect(w.lineGapColor).toBeUndefined(); // gaps take the page background, as the theme always did
+    expect(w.lineLight).toBe(0); // unlit: a strand's colour is its uv alone, as the theme always was
+  });
+
+  it("leaves a wave's dissolve absent when absent, and clamps it when present", () => {
+    // Absent → stays absent: no DISSOLVE program for the wave, byte-identical (the particles /
+    // interaction contract).
+    const off = ensureStudioConfig(hostile({ waves: [{}] }));
+    expect(off.waves[0].dissolve).toBeUndefined();
+    // Present → repaired in place: out-of-range clamped, an unknown axis reset, bindable.
+    const on = ensureStudioConfig(
+      hostile({
+        waves: [
+          {
+            dissolve: {
+              amount: 5,
+              axis: "sideways",
+              band: 0,
+              scale: 9999,
+              blocky: -2,
+              dust: 4,
+              reverse: 1,
+            },
+          },
+        ],
+      }),
+    );
+    const d = on.waves[0].dissolve;
+    expect(d).toBeDefined();
+    expect(d?.amount).toBe(1); // clamped 0..1
+    expect(d?.axis).toBe("length"); // unknown axis falls back rather than reaching the shader
+    expect(d?.band).toBe(0.01); // clamped up to the floor — a 0-wide front would divide by zero
+    expect(d?.scale).toBe(600);
+    expect(d?.blocky).toBe(0);
+    expect(d?.dust).toBe(1);
+    expect(d?.reverse).toBe(true);
+    assertBindableLeaves(d);
+  });
+
+  it("keeps a screen-space dissolve axis, which is what makes a STACK crumble as one object", () => {
+    const c = ensureStudioConfig(
+      hostile({ waves: [{ dissolve: { amount: 0.4, axis: "screenX", reverse: true } }] }),
+    );
+    expect(c.waves[0].dissolve?.axis).toBe("screenX");
+    expect(c.waves[0].dissolve?.reverse).toBe(true);
+  });
+
+  it("keeps a dissolveAmount binding, so the front can be driven by scroll", () => {
+    const c = ensureStudioConfig(
+      hostile({
+        waves: [
+          {
+            dissolve: { amount: 0.3 },
+            interaction: { bindings: [{ source: "scroll", target: "dissolveAmount", to: 0.95 }] },
+          },
+        ],
+      }),
+    );
+    expect(c.waves[0].interaction?.bindings?.[0].target).toBe("dissolveAmount");
   });
 
   it("keeps tilt bindings and clamps the tilt block, without inventing one", () => {

@@ -52,6 +52,9 @@ export class ParticleFieldGPU {
   private disposed = false;
   /** The variant the current material was built for; a change rebuilds the graph. */
   private variant = "";
+  /** Compositing mode, kept here so a graph rebuild re-applies it (a fresh material defaults to
+   *  additive). See {@link ParticlesConfig.blend}. */
+  private blend: THREE.Blending = THREE.AdditiveBlending;
 
   constructor(
     private readonly host: ParticleHost,
@@ -93,6 +96,12 @@ export class ParticleFieldGPU {
     u.uWander.value = cfg.wander ?? 0;
     u.uShape.value = SHAPE_INDEX[cfg.shape ?? "glitter"] ?? 0;
     u.uPartShove.value = cfg.pointerShove ?? 1;
+    // Additive can only brighten, so a dark mote on a pale page needs plain alpha compositing.
+    if (this.material) {
+      this.material.blending =
+        cfg.blend === "normal" ? THREE.NormalBlending : THREE.AdditiveBlending;
+    }
+    this.blend = cfg.blend === "normal" ? THREE.NormalBlending : THREE.AdditiveBlending;
     setLinear(u.uColor.value, cfg.color ?? DEFAULT_COLOR);
     setLinear(u.uColor2.value, cfg.color2 ?? cfg.color ?? DEFAULT_COLOR);
     this.syncSprite(cfg.shape === "sprite" ? (cfg.spriteUrl ?? "") : "");
@@ -140,6 +149,7 @@ export class ParticleFieldGPU {
       flags,
       this.sprite ?? null,
     );
+    this.material.blending = this.blend;
     this.object.material = this.material as unknown as THREE.SpriteMaterial;
   }
 

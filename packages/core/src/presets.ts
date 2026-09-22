@@ -4,6 +4,7 @@
  * "Stripe *" display names) on top; see apps/studio/src/presets.ts.
  */
 import { createDefaultConfig, makeStops, makeWaveSpread } from "./config/model";
+import { arcPath } from "./renderer/wavePath";
 import type {
   NoiseBand,
   ParticlesConfig,
@@ -102,6 +103,30 @@ export const PARTICLE_PRESETS: Record<string, ParticlesConfig> = {
     twinkle: 0.3,
     life: 7,
   },
+};
+
+/** That preset's debris, alternating a coarse INK field with a fine violet one. Each is nearly
+ *  single-tone on purpose: a continuum between ink and lilac passes through mid-purple, which makes
+ *  a cloud read as haze instead of black-and-violet debris. */
+const snapDust = (i: number): ParticlesConfig => {
+  const ink = i % 2 === 0;
+  return {
+    count: ink ? 5000 : 3500,
+    size: ink ? 15.4 : 8.3,
+    seed: 11 + i * 7,
+    sizeJitter: 1,
+    color: ink ? "#0b0812" : "#9b79ec",
+    color2: ink ? "#1d1230" : "#c9b4f6",
+    shape: "square",
+    blend: "normal", // additive can only brighten; this debris has to read DARK on warm paper
+    edgeBias: 0, // the front decides which motes leave, not the rim
+    drift: ink ? 320 : 520,
+    rise: 30,
+    wander: 60,
+    twinkle: 0,
+    life: 6,
+    speed: 1,
+  };
 };
 
 /** Degrees → radians (for the Particle Zoo's per-wave rotation, authored in degrees). */
@@ -777,6 +802,204 @@ export const PRESETS: Record<string, () => StudioConfig> = {
     c.background = "#070914";
     c.backgroundMode = "color";
     c.transparentBackground = false;
+    return c;
+  },
+  /**
+   * DISINTEGRATION — the "snap". A combed ribbon looping over itself around an open eye, crumbling
+   * into blocky debris across a straight edge down the canvas.
+   *
+   * The form is `wrapAmount` and `helixRoll` TOGETHER, which is the combination worth knowing: wrap
+   * bends the ribbon's length into a loop, roll turns its cross-section as it travels, and a wide
+   * sheet doing both at once folds into broad lobes that cross in front of each other around a hole.
+   * Neither alone gets there — wrap alone is a clean band (a napkin ring), roll alone is a coil that
+   * stays on its axis.
+   *
+   * Two material choices carry the rest, and both are the opposite of what looks obvious:
+   *
+   *   - `lineDerivativePower: 0`. The wireframe normally scales strand thickness by the screen-space
+   *     uv derivative, which is right for a ribbon seen whole. Framed CLOSE it inverts: the bigger
+   *     the sheet is on screen the smaller its derivative, so the strands thin to pale grey exactly
+   *     where they should carry ink. At 0 the duty cycle is `lineThickness` alone, crisp at any zoom.
+   *   - `lineGapOpacity: 1` — OPAQUE gaps, the theme's default. Clear gaps let the folds layer
+   *     through each other, which sounds richer and reads as a transparent weave; opaque ones let
+   *     the near lobe HIDE the far one, which is what makes this read as a solid object. The black
+   *     masses then come for free: where the surface turns away the strands compress until the page
+   *     between them disappears.
+   *
+   * The second wave is the same ribbon at a third of the wrap and 5x the scale — the broad sweep the
+   * loop sits in. Both share one screen-space dissolve front with `dust: 1` pinning the debris to it,
+   * and scroll runs it to 0.95.
+   */
+  Disintegration: () => {
+    const c = PRESETS["Hero"]();
+    const base = c.waves[0];
+    base.theme = "wireframe";
+    // INK across the width with violet only on the narrow rims: a near-black striped surface that
+    // lights to violet at its near edges, not a violet sheet with dark edges.
+    base.usePaletteTexture = false;
+    base.palette = [
+      { color: "#cbb8f5", pos: 0 },
+      { color: "#7c55d8", pos: 0.03 },
+      { color: "#2a1750", pos: 0.075 },
+      { color: "#07050c", pos: 0.15 },
+      { color: "#07050c", pos: 0.85 },
+      { color: "#2a1750", pos: 0.925 },
+      { color: "#7c55d8", pos: 0.97 },
+      { color: "#cbb8f5", pos: 1 },
+    ];
+    base.gradientType = "linear";
+    base.gradientAngle = 90; // across uv.x, the folded width — so the ramp runs across the strands
+    base.gradientShift = 0;
+    base.hueShift = 0;
+    base.colorContrast = 1;
+    base.colorSaturation = 1;
+    base.fiberStrength = 0; // the strands ARE the texture here; streaks would only muddy them
+    base.lineAmount = 700;
+    base.lineThickness = 1; // with the derivative term off, this IS the duty cycle
+    base.lineDerivativePower = 0; // see above — the knob that decides whether there is ink at all
+    base.lineSharpness = 0.96;
+    base.lineDepthFade = 0; // full contrast at every depth; the default is tuned for a single ribbon
+    // The between-strand gaps are the sheet's BODY, not the page. Left at the default they take the
+    // page background, and warm paper showing between the strands keeps the whole thing reading
+    // pale however black the ink is — an explicit near-black gap is what makes it deep. Still
+    // opaque, so the near lobe hides the far one and a stack of folds reads as one solid object
+    // rather than a transparent weave.
+    base.lineGapColor = "#0a0714";
+    // Lit, round strands. A stripe is otherwise a MASK — no cross-section, so no highlight can run
+    // along one and the bundle reads as hatching however dense it gets. These two give each strand a
+    // crest and flanks and shade it as the surface turns, which is the difference between a drawing
+    // of a combed surface and a combed surface.
+    base.lineLight = 0.8;
+    base.rungAmount = 0;
+    base.edgeFeather = 0.1;
+    base.blendMode = "normal";
+    base.opacity = 1;
+    base.radialAmount = 0;
+    // A broad swell so the lobes undulate instead of reading as machined tube.
+    base.displaceAmount = 60;
+    base.displaceFrequency = { x: 0.003, y: 0.008 };
+    base.twistFrequency = { x: 0, y: 0, z: 0 };
+    base.twistPower = { x: 4, y: 4, z: 4 };
+    base.helixRadius = 0;
+    base.helixRoll = 1; // roll without radius: the sheet turns through itself rather than coiling away
+    base.helixPhase = 0;
+    base.speed = 0.08;
+    base.position = { x: 0, y: 0, z: 0 };
+    base.dissolve = {
+      // HALF gone in the still frame: the preset is named for the front, so it should arrive with
+      // the sheet already half debris rather than barely nicked.
+      amount: 0.5,
+      axis: "screenX", // on the CANVAS, so the front is an edge of the frame however the sheet is posed
+      reverse: true, // eat in from the RIGHT, leaving the standing fold on the left
+      band: 0.22,
+      scale: 38,
+      blocky: 0.8,
+      dust: 1, // each mote is the chunk of surface that just left
+    };
+    // Scroll takes the front the rest of the way. `from` is omitted, so at scroll 0 the sheet sits at
+    // its authored 0.26 and the still frame is what a reader sees before they move.
+    base.interaction = {
+      bindings: [{ source: "scroll", target: "dissolveAmount", to: 0.95, smoothing: 0.2 }],
+    };
+
+    // ONE sheet: a closed circular PATH with one and a half turns of roll, so it folds into lobes
+    // that cross in front of each other around an open eye. The path is what makes the ribbon come
+    // back on itself at all — and every point of it is draggable in the studio.
+    const loop = structuredClone(base);
+    loop.seed = 0;
+    loop.path = arcPath(1);
+    loop.helixTurns = 1.5;
+    loop.scale = { x: 3.4, y: 3.4, z: 3.4 };
+    loop.rotation = { x: 45, y: 25, z: 15 };
+    loop.particles = snapDust(0); // the INK debris: dark motes, not the violet ones
+    // Half a sheet's worth of surface has to go somewhere, and this is now the only emitter in the
+    // preset — the second wave that carried its own field is gone.
+    loop.particles.count = 9000;
+    loop.particles.size = 18;
+
+    c.waves = [loop];
+    c.waveCount = 1;
+
+    c.background = "#f7f6f1"; // warm paper
+    c.backgroundMode = "color";
+    c.transparentBackground = false;
+    c.grain = 0;
+    c.blur = 0;
+    // One key light, up and to the right of the camera: the strand shading needs somewhere for the
+    // glint to come from, and a single source keeps it readable as one direction of light.
+    c.ambient = 0.25;
+    c.lights = [{ position: { x: 600, y: 900, z: 800 }, color: "#ffffff", intensity: 2 }];
+    c.cameraDistance = 5001;
+    c.cameraPosition = { x: 0, y: 0, z: 5000 };
+    // Centred on what is LEFT of the fold plus the debris it sheds. The old -170 balanced a second,
+    // much wider sheet that sat behind this one; with that gone the same target pushed the
+    // composition off to the right, and y rises to sit the standing half against the frame.
+    c.cameraTarget = { x: -40, y: 120, z: 0 };
+    c.cameraZoom = 0.75;
+    // The front is a SCREEN edge, so a narrow phone cropping to a quarter of the authored width
+    // would put it somewhere else entirely on the composition. Holding 70% of that width on screen
+    // keeps the fold and its debris in the same relationship.
+    c.cameraMinVisibleWidth = 0.7;
+    return c;
+  },
+  /**
+   * ONE sheet of glass, lit entirely by what is behind it.
+   *
+   * Glass has no colour of its own here — tint is almost off. The colour is a dark field with a few
+   * saturated lamps in it, and the sheet bends and films that: the same trick materials3d's rod
+   * preset uses, where a warm-to-magenta plate behind the glass is what you are actually looking at.
+   * A mesh gradient is that plate, so the pools stay separated instead of averaging to one wash.
+   *
+   * Thin-film iridescence is pushed hard, because it tints only what BOUNCES — the reflection, the
+   * rim and the specular — so the sheet shifts hue along its edges while what you see THROUGH it
+   * stays the colour of the lamp behind. That split is what reads as oil-on-glass rather than as a
+   * coloured object.
+   */
+  "Liquid Glass": () => {
+    const c = PRESETS["Hero"]();
+    const glass = c.waves[0];
+
+    glass.theme = "glass";
+    glass.glassRipple = 0.9;
+    glass.glassRippleScale = 0.02;
+    glass.glassFlow = 0.7;
+    glass.glassStrength = 120; // well past the default: there is a lot behind it worth displacing
+    glass.glassChroma = 1.1;
+    glass.glassTint = 0.08; // almost none — the colour belongs to the backdrop, not the sheet
+    glass.glassIrid = 0.85;
+    glass.glassFilmNm = 420; // the soap-bubble band
+    glass.glassSpec = 1.5;
+    glass.edgeFeather = 0.16;
+    glass.scale = { x: 8, y: 7, z: 4 };
+    glass.position = { x: 430, y: -300, z: 60 };
+
+    c.waves = [glass];
+    c.waveCount = 1;
+
+    // The lamps. Dark everywhere else on purpose: pools of colour in a dark field read as GLOW,
+    // where the same colours spread evenly just look like a bright poster and the glass stops
+    // standing out from them at all.
+    c.backgroundMode = "gradient";
+    c.backgroundGradientType = "mesh";
+    c.backgroundGradientSource = "stops";
+    c.transparentBackground = false;
+    c.background = "#04060f";
+    c.backgroundMeshSoftness = 0.7;
+    c.backgroundMeshPoints = [
+      { color: "#ff2d95", x: 0.74, y: 0.2, influence: 0.45 },
+      { color: "#7b5bff", x: 0.4, y: 0.46, influence: 0.45 },
+      { color: "#22d3ee", x: 0.62, y: 0.8, influence: 0.4 },
+      { color: "#ff8a3d", x: 0.92, y: 0.58, influence: 0.32 },
+      { color: "#04060f", x: 0.06, y: 0.12, influence: 1 },
+      { color: "#04060f", x: 0.1, y: 0.92, influence: 1 },
+      { color: "#04060f", x: 0.95, y: 0.95, influence: 0.9 },
+    ];
+    c.grain = 0;
+    // No bloom. At 0.25 it was invisible next to the same frame without it and it more than doubled
+    // the cross-backend difference on its own, because the two bloom passes already disagree.
+    c.bloomStrength = 0;
+    c.cameraZoom = 0.45;
+    c.cameraTarget = { x: -40, y: -220, z: 0 };
     return c;
   },
   Kaleidoscope: () => {

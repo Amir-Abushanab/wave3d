@@ -29,8 +29,40 @@ const OUT = resolve(HERE, "out");
 // carry the decision and maxDelta is reported for triage only.
 const THRESHOLDS = { mae: 2.0, interiorOver8: 1.0, interiorOver24: 0.25 };
 
+/**
+ * Configs the port does not reach THRESHOLDS on: five order-dependent transparency cases; the README
+ * says why, and why there is no cheap fix.
+ *
+ * The two glass cases used to sit here too, over a uniform two-level darkening on the node backend
+ * that nothing in the material explained. It was the edge feather: glass draws OPAQUE, and the
+ * premultiplied output scaled the colour by an alpha no blend ever read — differently on the two
+ * backends. With the feather fading toward the backdrop instead, both pass the thresholds outright.
+ *
+ * Ceilings ~25% above measured, so a driver change does not rewrite the file. Per-config on purpose:
+ * one global threshold loose enough for the worst of them would let a real regression through on the
+ * other 37.
+ */
+const ALLOW = {
+  "preset:Neon Dark Multistrand": { mae: 6.0, interiorOver8: 19.0, interiorOver24: 8.5 },
+  "preset:Corkscrew": { mae: 1.5, interiorOver8: 8.0, interiorOver24: 5.0 },
+  "preset:Kaleidoscope": { mae: 1.0, interiorOver8: 3.0, interiorOver24: 2.0 },
+  "preset:Wave 3": { mae: 1.0, interiorOver8: 3.0, interiorOver24: 2.0 },
+  "preset:Vaporwave Sunset": { mae: 0.6, interiorOver8: 1.5, interiorOver24: 0.5 },
+};
+
 const args = process.argv.slice(2);
-const MODE = args.includes("--capture") ? "capture" : args.includes("--self") ? "self" : "compare";
+const MODE = args.includes("--capture")
+  ? "capture"
+  : args.includes("--self")
+    ? "self"
+    : args.includes("--path-identity")
+      ? "path-identity"
+      : "compare";
+// A straight path is the identity: adding one to a wave must not move a pixel, on either backend.
+// Same backend on both sides, so this is held far tighter than the cross-backend thresholds. The
+// exact mapping measures mae ≤ 0.001 across every config; relying on hardware filtering of the LUT
+// measured 0.05–0.09, and each mapping bug the check was built to catch measured 1–51.
+const IDENTITY = { mae: 0.01, interiorOver8: 0.002, interiorOver24: 0.001 };
 const ONLY = args.find((a) => a.startsWith("--only="))?.slice(7);
 // Synthetic pointer configs get a pinned cursor so the interaction path is actually exercised.
 const FIXED_POINTER = { x: 0.18, y: -0.12, radius: 0.6, vx: 0.4, vy: 0.15 };
@@ -113,6 +145,39 @@ async function main() {
         continue;
       }
 
+      if (MODE === "path-identity") {
+        for (const be of ["webgl", "webgpu"]) {
+          const plain = await page.evaluate(renderWith, [name, { noPost: NO_POST }, be]);
+          const pathed = await page.evaluate(renderWith, [
+            name,
+            { noPost: NO_POST, pathIdentity: true },
+            be,
+          ]);
+          const d = await page.evaluate(([a, b]) => window.waveParity.diff(a, b), [plain, pathed]);
+          const ok =
+            d.mae <= IDENTITY.mae &&
+            d.interiorOver8 <= IDENTITY.interiorOver8 &&
+            d.interiorOver24 <= IDENTITY.interiorOver24;
+          rows.push({
+            name: `${name} [${be}]`,
+            status: ok ? "pass" : "FAIL",
+            ...d,
+            diffPng: undefined,
+          });
+          console.log(
+            `  ${ok ? "pass  " : "FAIL  "}  ${`${name} [${be}]`.padEnd(42)} mae=${d.mae.toFixed(3)} ` +
+              `interior>8=${d.interiorOver8.toFixed(3)}% >24=${d.interiorOver24.toFixed(3)}% max=${d.maxDelta}`,
+          );
+          if (!ok) {
+            const f = `${slug(name)}-${be}-identity`;
+            await writeFile(resolve(OUT, `${f}.plain.png`), dataUrlToBuffer(plain));
+            await writeFile(resolve(OUT, `${f}.pathed.png`), dataUrlToBuffer(pathed));
+            await writeFile(resolve(OUT, `${f}.diff.png`), dataUrlToBuffer(d.diffPng));
+          }
+        }
+        continue;
+      }
+
       // Both renders happen in this page load: same GPU, same driver, same config object shape.
       const backend = MODE === "self" ? "webgl" : "webgpu";
       // ONE options object for both sides, differing only in `backend`. Maintaining two call sites
@@ -129,13 +194,25 @@ async function main() {
       const actual = await page.evaluate(renderWith, [name, opts, backend]);
 
       const d = await page.evaluate(([a, b]) => window.waveParity.diff(a, b), [expected, actual]);
-      const pass =
-        d.mae <= THRESHOLDS.mae &&
-        d.interiorOver8 <= THRESHOLDS.interiorOver8 &&
-        d.interiorOver24 <= THRESHOLDS.interiorOver24;
-      rows.push({ name, status: pass ? "pass" : "FAIL", ...d, diffPng: undefined });
+      const within = (t) =>
+        d.mae <= t.mae &&
+        d.interiorOver8 <= t.interiorOver8 &&
+        d.interiorOver24 <= t.interiorOver24;
+      // "allow" is reported distinctly from "pass" so a known divergence can never read as clean.
+      // Not in --self, and not under --no-post/--set: those render something else, so an allowance
+      // recorded for the shipped config would be passing a number it was never measured against.
+      const allowance =
+        MODE === "self" || NO_POST || Object.keys(OVERRIDES).length ? undefined : ALLOW[name];
+      const pass = within(THRESHOLDS) || (!!allowance && within(allowance));
+      const allowed = pass && !within(THRESHOLDS);
+      rows.push({
+        name,
+        status: pass ? (allowed ? "allow" : "pass") : "FAIL",
+        ...d,
+        diffPng: undefined,
+      });
       console.log(
-        `  ${pass ? "pass  " : "FAIL  "}  ${name.padEnd(34)} mae=${d.mae.toFixed(2)} ` +
+        `  ${allowed ? "allow " : pass ? "pass  " : "FAIL  "}  ${name.padEnd(34)} mae=${d.mae.toFixed(2)} ` +
           `interior>8=${d.interiorOver8.toFixed(2)}% >24=${d.interiorOver24.toFixed(2)}% ` +
           `(edge ${d.pctEdge.toFixed(1)}%, bias ${d.interiorBias.map((v) => v.toFixed(2)).join("/")}, max=${d.maxDelta})`,
       );
@@ -160,8 +237,11 @@ async function main() {
     resolve(MODE === "capture" ? REFS : OUT, "report.json"),
     JSON.stringify({ mode: MODE, thresholds: THRESHOLDS, rows }, null, 2),
   );
+  const allowed = rows.filter((r) => r.status === "allow").length;
   console.log(
-    `\n${rows.length - failed.length}/${rows.length} ok${failed.length ? ` — ${failed.length} need attention (see parity/out/)` : ""}`,
+    `\n${rows.length - failed.length}/${rows.length} ok` +
+      (allowed ? ` (${allowed} within a recorded allowance, not the thresholds)` : "") +
+      (failed.length ? ` — ${failed.length} need attention (see parity/out/)` : ""),
   );
   if (pageErrors.length) console.log(`page errors:\n  ${pageErrors.slice(0, 5).join("\n  ")}`);
   process.exit(failed.length ? 1 : 0);

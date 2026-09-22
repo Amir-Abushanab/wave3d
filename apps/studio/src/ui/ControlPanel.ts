@@ -3,6 +3,7 @@ import waveStudioLogoUrl from "../assets/favicon.png?inline";
 import principleStashMarkUrl from "../assets/principle-stash.svg?inline";
 import { injectStyleOnce } from "../util/dom";
 import { flashButtonSuccess, flashButtonError } from "./buttonFeedback";
+import { showPathHints, showWaveHints } from "./PathHintBar";
 import { roundTo } from "../util/math";
 import {
   resizeWaves,
@@ -19,6 +20,7 @@ import {
   MAX_WAVES,
 } from "@wave3d/core";
 import type {
+  DissolveAxis,
   ParticleShape,
   StudioConfig,
   WaveConfig,
@@ -41,7 +43,7 @@ import {
   randomizePostFx,
   randomizeWave,
 } from "@wave3d/core/studio";
-import type { StudioWaveRenderer } from "@wave3d/core/studio";
+import type { GizmoMode, StudioWaveRenderer } from "@wave3d/core/studio";
 import { PALETTE_MAPS, buildPaletteCanvas, paletteMapCanvas } from "@wave3d/core/renderer";
 import { buildHeroPaletteCanvas } from "@wave3d/core/renderer";
 import { PARTICLE_PRESETS } from "@wave3d/core/presets";
@@ -273,6 +275,7 @@ const IX_WAVE_TARGETS: Record<string, WaveInteractionTarget> = {
   "Helix phase": "helixPhase",
   "Helix turns": "helixTurns",
   "Helix radius": "helixRadius",
+  "Dissolve amount": "dissolveAmount",
   "Hue shift": "hueShift",
   "Gradient shift": "gradientShift",
   Saturation: "colorSaturation",
@@ -310,6 +313,7 @@ const IX_TARGET_DEFAULT_TO: Record<string, number> = {
   helixPhase: 360, // a full turn — scroll→phase spins the coil exactly once
   helixTurns: 6, // 0..12
   helixRadius: 200, // ±300
+  dissolveAmount: 1, // 0..1 — sweep the front all the way through, so the wave fully disintegrates
   hueShift: 180, // ±180°
   gradientShift: 0.6, // 0..0.6
   colorSaturation: 2, // 0..2
@@ -400,6 +404,13 @@ export class ControlPanel {
    *  panel rebuild (e.g. on wave-count change) doesn't reset them. */
   private foldState: Record<string, boolean> = {};
   private folders: Array<{ title: string; api: FolderApi }> = [];
+  /** Each wave's folder, by index, so selecting a wave in the viewport can reveal its config.
+   *  Rebuilt with the pane — a rebuild replaces every element, so stale nodes must not linger. */
+  private waveFolders = new Map<number, { self: FolderApi; parent: FolderApi }>();
+  /** The wave the viewport has selected, kept across rebuilds: a rebuild throws the folders away,
+   *  and the highlight has to survive it or selecting a wave that triggers one (path mode does)
+   *  would flash and vanish. */
+  private focusedWave: number | null = null;
   /** Guards the camera two-way sync: refresh() re-emits 'change' for updated bindings, and
    *  without the guard orbiting writes camera state -> refresh re-fires the slider's change ->
    *  the camera moves again -> a feedback loop that makes the view jump. */
@@ -428,7 +439,21 @@ export class ControlPanel {
   ) {
     if (hooks.defaultPreset) this.selectedPreset = hooks.defaultPreset;
     this.buildSafely();
+    window.addEventListener("keydown", this.onKeyDown);
   }
+
+  /** Delete / Backspace removes the SELECTED wave — the one a double-click focused, which is the
+   *  same wave the panel has scrolled to and ringed. Ignored while typing: Backspace in a text
+   *  field is how you erase a character, and a rename box is exactly where you use it. */
+  private onKeyDown = (e: KeyboardEvent): void => {
+    if (e.key !== "Delete" && e.key !== "Backspace") return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const t = e.target instanceof HTMLElement ? e.target : null;
+    if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+    if (this.focusedWave === null || this.config.waves.length <= 1) return;
+    e.preventDefault();
+    this.deleteWave(this.focusedWave);
+  };
 
   setConfig(config: StudioConfig, presetName = "—"): void {
     this.config = config;
@@ -547,7 +572,21 @@ export class ControlPanel {
   }
 
   dispose(): void {
+    window.removeEventListener("keydown", this.onKeyDown);
     this.teardownPanel();
+  }
+
+  /** Remove one wave. Editing modes point at a wave by INDEX, so anything pointing past the hole
+   *  has to be let go of before the array shifts under it — leaving editing entirely is the honest
+   *  version of that, and cheaper than trying to re-point a gizmo mid-delete. */
+  deleteWave(index: number): void {
+    const waves = this.config.waves;
+    if (waves.length <= 1 || index < 0 || index >= waves.length) return;
+    void this.renderer.leaveEditing();
+    waves.splice(index, 1);
+    this.config.waveCount = waves.length;
+    this.focusedWave = null;
+    this.rebuildWaves();
   }
 
   private rebuildWaves = (): void => {
@@ -1379,6 +1418,73 @@ export class ControlPanel {
     this.renderer.setScrollPreview(scrollPrev.preview); // apply the rest state on (re)build
   }
 
+  /** Per-wave "Dissolve" sub-folder: the disintegration front that eats this wave away and (with a
+   *  particle field) sheds the chunks as dust. Bound to a panel-local proxy, never `wave.dissolve`
+   *  directly, so `sync()` writes the block only when `amount` > 0 and deletes it otherwise —
+   *  absent = intact, byte-identical (the present-only idiom the Particles folder uses). */
+  private buildWaveDissolveFolder(sf: FolderApi, wave: WaveConfig, refresh: () => void): FolderApi {
+    const f = sf.addFolder({ title: "Dissolve", expanded: true });
+    const d = wave.dissolve;
+    const uiDissolve = {
+      amount: d?.amount ?? 0,
+      axis: (d?.axis ?? "length") as DissolveAxis,
+      reverse: d?.reverse ?? false,
+      band: d?.band ?? 0.35,
+      scale: d?.scale ?? 90,
+      blocky: d?.blocky ?? 0.6,
+      dust: d?.dust ?? 1,
+    };
+    const sync = (): void => {
+      if (uiDissolve.amount > 0) {
+        wave.dissolve = {
+          amount: uiDissolve.amount,
+          axis: uiDissolve.axis,
+          reverse: uiDissolve.reverse,
+          band: uiDissolve.band,
+          scale: uiDissolve.scale,
+          blocky: uiDissolve.blocky,
+          dust: uiDissolve.dust,
+        };
+      } else {
+        delete wave.dissolve;
+      }
+      refresh();
+    };
+    f.addBinding(uiDissolve, "amount", { min: 0, max: 1, step: 0.01, label: "amount" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiDissolve, "axis", {
+      label: "sweep",
+      // length / width ride the ribbon's own uv; the screen axes are a straight line on the canvas,
+      // which is what makes a whole STACK crumble against one edge.
+      options: {
+        "along length": "length",
+        "across width": "width",
+        "screen →": "screenX",
+        "screen ↑": "screenY",
+      },
+    }).on("change", sync);
+    f.addBinding(uiDissolve, "reverse", { label: "from far end" }).on("change", sync);
+    f.addBinding(uiDissolve, "band", { min: 0.01, max: 1, step: 0.01, label: "fray width" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiDissolve, "scale", { min: 2, max: 400, step: 1, label: "chunk count" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiDissolve, "blocky", { min: 0, max: 1, step: 0.01, label: "blockiness" }).on(
+      "change",
+      sync,
+    );
+    f.addBinding(uiDissolve, "dust", { min: 0, max: 1, step: 0.01, label: "dust follows" }).on(
+      "change",
+      sync,
+    );
+    return f;
+  }
+
   /** Per-wave "Particles" sub-folder: the dust field emitted off THIS wave's deformed surface / edge.
    *  Bound to a panel-local proxy (never `wave.particles` directly), so `sync()` writes the block only
    *  when `count` > 0 and deletes it otherwise — absent = off for this wave, byte-identical (the
@@ -1398,6 +1504,7 @@ export class ControlPanel {
       color: p?.color ?? "#ffd597",
       color2: p?.color2 ?? p?.color ?? "#ffd597",
       shape: (p?.shape ?? "glitter") as ParticleShape,
+      blend: (p?.blend ?? "additive") as "additive" | "normal",
       twinkle: p?.twinkle ?? 0.6,
       life: p?.life ?? 6,
       speed: p?.speed ?? 1,
@@ -1420,6 +1527,7 @@ export class ControlPanel {
           color: uiParticles.color,
           color2: uiParticles.color2,
           shape: uiParticles.shape,
+          blend: uiParticles.blend,
           twinkle: uiParticles.twinkle,
           life: uiParticles.life,
           speed: uiParticles.speed,
@@ -1471,6 +1579,7 @@ export class ControlPanel {
           color: preset.color ?? "#ffd597",
           color2: preset.color2 ?? preset.color ?? "#ffd597",
           shape: preset.shape ?? "glitter",
+          blend: preset.blend ?? "additive",
           twinkle: preset.twinkle ?? 0,
           life: preset.life ?? 6,
           speed: preset.speed ?? 1,
@@ -1537,6 +1646,7 @@ export class ControlPanel {
           ring: "ring",
           star: "star",
           streak: "streak",
+          square: "square",
           "sprite (upload image)": "sprite",
         },
       })
@@ -1551,6 +1661,12 @@ export class ControlPanel {
         lastShape = uiParticles.shape;
         sync();
       });
+    // Compositing: additive glints can only ever brighten, so dark dust on a pale page needs plain
+    // alpha instead. Sits with `shape` because the two together decide what a mote LOOKS like.
+    f.addBinding(uiParticles, "blend", {
+      label: "blend",
+      options: { "additive (glow)": "additive", "normal (ink)": "normal" },
+    }).on("change", sync);
     // The artwork slot: previews the current sprite AND is where you replace or remove it, so
     // "sprite" isn't an opaque setting (at dust size the rendered particles are far too small to
     // check what actually got uploaded). No artwork, no row.
@@ -1796,6 +1912,57 @@ export class ControlPanel {
    *  running inside, so the rebuild is deferred to the next macrotask — which also puts it outside
    *  the originating caller's try/catch (a JSON "Apply", say). That's why the error boundary lives
    *  in buildSafely below rather than at the ~10 call sites. */
+  /**
+   * Reveal a wave's config: expand its folder, scroll it into view and flash it. `null` clears.
+   *
+   * Called when a wave is selected in the viewport — double-clicking a ribbon, or picking one with
+   * the transform gizmo — so the panel follows the canvas instead of leaving the author to hunt for
+   * "Wave 3" in a rail of identical folders.
+   */
+  focusWave(index: number | null): void {
+    this.focusedWave = index;
+    this.paintWaveFocus();
+  }
+
+  /**
+   * Apply the current focus to the live folders.
+   *
+   * Split from {@link focusWave} because a rebuild destroys every folder: the panel re-applies the
+   * focus afterwards rather than the caller having to know a rebuild was pending.
+   */
+  private paintWaveFocus(): void {
+    for (const { self } of this.waveFolders.values()) {
+      self.element.classList.remove("is-focused");
+    }
+    if (this.focusedWave === null) return;
+    const entry = this.waveFolders.get(this.focusedWave);
+    if (!entry) return; // rebuild in flight; rebuildPanel() paints again once the folders exist
+    // Outside in: a wave's own toggle does nothing while the Waves folder above it is collapsed.
+    entry.parent.expanded = true;
+    entry.self.expanded = true;
+    entry.self.element.classList.add("is-focused");
+    // Restarting the flash needs the animation removed and reflowed, or re-selecting the same wave
+    // is silent — the class is already there, so the browser has nothing to re-trigger.
+    const title = entry.self.element.querySelector<HTMLElement>(":scope > .tp-fldv_t");
+    if (title) {
+      title.style.animation = "none";
+      void title.offsetWidth;
+      title.style.animation = "";
+    }
+    // Scroll the PANEL, explicitly. scrollIntoView picks its own scroll container by walking
+    // ancestors, which here can land on the page instead of the rail — the folder got its highlight
+    // but the pane never moved. Measuring against the container and driving its scrollTop is
+    // unambiguous about which thing scrolls and where it stops.
+    const box = entry.self.element.getBoundingClientRect();
+    const frame = this.container.getBoundingClientRect();
+    const delta = box.top - frame.top - Math.max(0, (frame.height - box.height) / 2);
+    const smooth = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+    this.container.scrollTo({
+      top: Math.max(0, this.container.scrollTop + delta),
+      behavior: smooth ? "smooth" : "auto",
+    });
+  }
+
   private scheduleRebuild(): void {
     setTimeout(() => this.rebuildPanel(), 0);
   }
@@ -1810,10 +1977,17 @@ export class ControlPanel {
     const scrollTop = this.container.scrollTop;
     this.teardownPanel();
     this.buildSafely();
-    this.container.scrollTop = scrollTop;
+    // A pending wave focus OWNS the scroll position: restoring the old offset and then scrolling to
+    // the folder makes the two fight over the same frame, and the restore wins whenever the focus
+    // scroll animates. Selecting a wave is a deliberate "show me this", so it takes precedence over
+    // putting the rail back where it was.
+    const focusing = this.focusedWave !== null && this.waveFolders.has(this.focusedWave);
+    if (!focusing) this.container.scrollTop = scrollTop;
     requestAnimationFrame(() => {
-      this.container.scrollTop = scrollTop;
+      if (focusing) this.paintWaveFocus();
+      else this.container.scrollTop = scrollTop;
     });
+    if (focusing) this.paintWaveFocus();
   }
 
   /**
@@ -1868,6 +2042,7 @@ export class ControlPanel {
       /* half-built, already disposed, or never constructed */
     }
     this.folders = [];
+    this.waveFolders.clear();
     this.container.replaceChildren();
   }
 
@@ -1998,9 +2173,36 @@ export class ControlPanel {
     this.renderer.onCameraChanged = syncCameraPanel;
     // A wave gizmo drag mutates the dragged wave's position/rotation — refresh the panel so
     // that wave's Transform sliders track the drag live.
-    this.renderer.onWaveChanged = () => {
+    this.renderer.onWaveChanged = (selected: number) => {
       syncPanel();
+      this.focusWave(selected);
       this.hooks.onEdit?.();
+    };
+    // Path editing is all direct manipulation, so the gestures have to be on screen while it is on —
+    // and the panel has to rebuild, since its Path buttons read "Add"/"Clear" off the wave's state.
+    // Whole-wave transform editing has the same problem as path editing: the gestures are on the
+    // canvas, not in the panel, so they have to be on screen while the mode is on.
+    this.renderer.onWaveEditChanged = (waveIndex: number) => {
+      showWaveHints(
+        waveIndex,
+        () => void this.renderer.leaveEditing(),
+        this.config.waves[waveIndex]?.name,
+        this.renderer.getGizmoMode(),
+      );
+      this.focusWave(waveIndex < 0 ? null : waveIndex);
+      this.scheduleRebuild();
+    };
+    this.renderer.onPathEditChanged = (waveIndex: number) => {
+      // The bar's Done button leaves the mode, which is the only exit that is visible on screen.
+      showPathHints(
+        waveIndex,
+        () => void this.renderer.setPathEditMode(-1),
+        this.config.waves[waveIndex]?.name,
+      );
+      // Set the focus BEFORE the rebuild: the folders are about to be replaced, and rebuildPanel
+      // re-paints the focus once the new ones exist.
+      this.focusWave(waveIndex < 0 ? null : waveIndex);
+      this.scheduleRebuild();
     };
 
     const refresh = (): void => {
@@ -2073,7 +2275,29 @@ export class ControlPanel {
     // transform and blend — no duplicated "global" controls. Adding a wave clones the last.
     // (The whole document is StudioConfig = scene + waves: WaveConfig[].)
     const buildWaveFolder = (parent: Folder, wave: WaveConfig, index: number): void => {
-      const sf = parent.addFolder({ title: `Wave ${index + 1}`, expanded: true });
+      const fallbackTitle = `Wave ${index + 1}`;
+      const sf = parent.addFolder({ title: wave.name ?? fallbackTitle, expanded: true });
+      this.waveFolders.set(index, { self: sf, parent });
+      // Rename. Bound through a proxy because `name` is optional and Tweakpane cannot bind
+      // undefined; clearing the field puts it back to undefined so the wave falls back to its
+      // number rather than carrying an empty string. A stack of "Wave 1..5" tells you nothing
+      // about which is the collar and which is the sheet.
+      const nameProxy = { name: wave.name ?? "" };
+      const nameRow = sf.addBinding(nameProxy, "name", { label: "name" });
+      // Tweakpane ignores a `placeholder` option here, so set it on the input: an empty field would
+      // otherwise give no clue that the wave still has a name ("Wave 1") to fall back to.
+      nameRow.element.querySelector("input")?.setAttribute("placeholder", fallbackTitle);
+      nameRow.on("change", () => {
+        const next = nameProxy.name.trim();
+        wave.name = next || undefined;
+        sf.title = wave.name ?? fallbackTitle;
+        // Keep the hint bar honest while it is up — it names the wave being shaped.
+        if (this.renderer.pathEditWave() === index) {
+          showPathHints(index, () => void this.renderer.setPathEditMode(-1), wave.name);
+        }
+        this.clearPresetIndicator();
+        this.hooks.onEdit?.();
+      });
       // Per-section 🎲 that mutates only this wave's section, then rebuilds so the sliders
       // (some of which bind to replaced Vec objects) reflect the new values.
       const sectionRandom = (folder: Folder, fn: (s: WaveConfig) => void): void => {
@@ -2100,19 +2324,19 @@ export class ControlPanel {
 
       // Compositing (how this wave stacks on the others).
       sf.addBinding(wave, "opacity", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
-      sepAfter(
-        sf
-          .addBinding(wave, "blendMode", {
-            label: "blend",
-            options: {
-              Squared: "squared",
-              Normal: "normal",
-              Additive: "additive",
-              Multiply: "multiply",
-            },
-          })
-          .on("change", refresh),
-      );
+      // Kept as a handle: glass draws opaque and never reads it, so the material switch greys it out.
+      const bBlend = sf
+        .addBinding(wave, "blendMode", {
+          label: "blend",
+          options: {
+            Squared: "squared",
+            Normal: "normal",
+            Additive: "additive",
+            Multiply: "multiply",
+          },
+        })
+        .on("change", refresh);
+      sepAfter(bBlend);
       sf.addBinding(wave, "speed", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
       sf.addBinding(wave, "seed", { min: 0, max: 20, step: 0.1 }).on("change", refresh);
 
@@ -2124,6 +2348,15 @@ export class ControlPanel {
       const gradF = sf.addFolder({ title: "Color & Gradient", expanded: true });
       const gradContent =
         (gradF.element.querySelector(".tp-fldv_c") as HTMLElement | null) ?? gradF.element;
+      // Under glass the palette IS still read — it sets the hue of what the sheet lets through — but
+      // tint and density in Finish decide how much of it shows, so say so here rather than leave a
+      // full gradient editor that seems to do nothing at the default tint. Seated by the material
+      // switch below, once the folder's rows exist.
+      const glassNote = document.createElement("div");
+      glassNote.className = "wv-ctl-cap wv-glass-note";
+      glassNote.textContent =
+        "glass: the palette only sets the hue of what the sheet lets through — tint & density (Finish) decide how much";
+      glassNote.hidden = true;
       let swatchRaf = 0;
       const gradientEditor = new GradientEditor(gradContent, () => wave.palette, {
         onChange: () => {
@@ -2351,11 +2584,14 @@ export class ControlPanel {
       updatePaletteControls();
 
       // --- Finish (surface material) ---
+      // Built after Color & Gradient but SEATED above it (see the order at the end): the material
+      // decides what the palette even means, so it is chosen first.
+      let bandsFolder: FolderApi | undefined; // Noise Bands, built later; only the solid theme reads them
       const finF = sf.addFolder({ title: "Finish", expanded: true });
       finF
         .addBinding(wave, "theme", {
           label: "material",
-          options: { solid: "solid", wireframe: "wireframe" },
+          options: { solid: "solid", wireframe: "wireframe", glass: "glass" },
         })
         .on("change", () => {
           updateMaterialControls();
@@ -2431,15 +2667,225 @@ export class ControlPanel {
           label: "line falloff",
         })
         .on("change", refresh);
+      // Stripe hardening: at 0 the strand is a soft ramp (thickness fades the gaps away with the
+      // strands), so raising this turns "line thickness" into a duty cycle and gives dense ink with
+      // crisp gaps — the engraved look. See lineSharpness in config/model.
+      const bLineSharpness = finF
+        .addBinding(wave, "lineSharpness", {
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: "line sharpness",
+        })
+        .on("change", refresh);
+      const bLineDepthFade = finF
+        .addBinding(wave, "lineDepthFade", { min: 0, max: 1, step: 0.01, label: "depth fade" })
+        .on("change", refresh);
+      // What sits between the strands, as ONE field: the page background by default, a colour to
+      // make the ribbon its own opaque body, "transparent" to let stacked folds show through.
+      const gapProxy = { gap: wave.lineGapColor ?? this.config.background };
+      const bLineGap = finF
+        .addBinding(gapProxy, "gap", { view: "color", label: "gap colour" })
+        .on("change", () => {
+          wave.lineGapColor = gapProxy.gap;
+          refresh();
+        });
+      // Lit / round strands: a stripe is otherwise a mask with no cross-section, so no highlight can
+      // run along it and a dense wireframe reads as hatching however it is lit.
+      const bLineLight = finF
+        .addBinding(wave, "lineLight", { min: 0, max: 1, step: 0.01, label: "strand light" })
+        .on("change", refresh);
       const bRungAmount = finF
         .addBinding(wave, "rungAmount", { min: 0, max: 400, step: 1, label: "rung count" })
         .on("change", refresh);
       const bRungThickness = finF
         .addBinding(wave, "rungThickness", { min: 0, max: 6, step: 0.05, label: "rung thickness" })
         .on("change", refresh);
-      const bMaxWidth = finF
-        .addBinding(wave, "maxWidth", { min: 1, max: 3000, step: 1, label: "max width" })
-        .on("change", refresh);
+      // --- Glass ---
+      // Present-only on the config, so the panel edits a PROXY seeded from the wave's current
+      // values (or the theme's defaults) and writes back on change. That keeps a solid or
+      // wireframe wave's JSON free of a dozen glass fields it will never read.
+      const glassProxy = {
+        glassPath: wave.glassPath ?? 0.45,
+        glassDensity: wave.glassDensity ?? 1.2,
+        glassTint: wave.glassTint ?? 0.12,
+        glassStrength: wave.glassStrength ?? 90,
+        glassChroma: wave.glassChroma ?? 0.7,
+        glassFrost: wave.glassFrost ?? 0.08,
+        glassRim: wave.glassRim ?? 0.5,
+        glassSpec: wave.glassSpec ?? 1.2,
+        glassIrid: wave.glassIrid ?? 0,
+        glassFilmNm: wave.glassFilmNm ?? 380,
+        glassIor: wave.glassIor ?? 1.45,
+        glassVibrancy: wave.glassVibrancy ?? 0.05,
+        glassRimPower: wave.glassRimPower ?? 1.2,
+        glassRipple: wave.glassRipple ?? 0,
+        glassRippleScale: wave.glassRippleScale ?? 0.012,
+        glassFlow: wave.glassFlow ?? 0.9,
+        glassCaustic: wave.glassCaustic ?? 0.4,
+        glassLayerGain: wave.glassLayerGain ?? 0.6,
+        glassFusion: wave.glassFusion ?? 0,
+      };
+      const b_glassPath = finF
+        .addBinding(glassProxy, "glassPath", { min: 0, max: 3, step: 0.01, label: "thickness" })
+        .on("change", () => {
+          wave.glassPath = glassProxy.glassPath;
+          refresh();
+        });
+      const b_glassDensity = finF
+        .addBinding(glassProxy, "glassDensity", { min: 0, max: 12, step: 0.05, label: "density" })
+        .on("change", () => {
+          wave.glassDensity = glassProxy.glassDensity;
+          refresh();
+        });
+      const b_glassTint = finF
+        .addBinding(glassProxy, "glassTint", { min: 0, max: 1, step: 0.01, label: "tint" })
+        .on("change", () => {
+          wave.glassTint = glassProxy.glassTint;
+          refresh();
+        });
+      const b_glassStrength = finF
+        .addBinding(glassProxy, "glassStrength", {
+          min: 0,
+          max: 150,
+          step: 1,
+          label: "refraction px",
+        })
+        .on("change", () => {
+          wave.glassStrength = glassProxy.glassStrength;
+          refresh();
+        });
+      const b_glassChroma = finF
+        .addBinding(glassProxy, "glassChroma", { min: 0, max: 2, step: 0.01, label: "dispersion" })
+        .on("change", () => {
+          wave.glassChroma = glassProxy.glassChroma;
+          refresh();
+        });
+      const b_glassFrost = finF
+        .addBinding(glassProxy, "glassFrost", { min: 0, max: 1, step: 0.01, label: "frost" })
+        .on("change", () => {
+          wave.glassFrost = glassProxy.glassFrost;
+          refresh();
+        });
+      const b_glassRim = finF
+        .addBinding(glassProxy, "glassRim", { min: 0, max: 2, step: 0.01, label: "rim" })
+        .on("change", () => {
+          wave.glassRim = glassProxy.glassRim;
+          refresh();
+        });
+      const b_glassSpec = finF
+        .addBinding(glassProxy, "glassSpec", { min: 0, max: 3, step: 0.01, label: "specular" })
+        .on("change", () => {
+          wave.glassSpec = glassProxy.glassSpec;
+          refresh();
+        });
+      const b_glassIrid = finF
+        .addBinding(glassProxy, "glassIrid", { min: 0, max: 1, step: 0.01, label: "iridescence" })
+        .on("change", () => {
+          wave.glassIrid = glassProxy.glassIrid;
+          refresh();
+        });
+      const b_glassFilmNm = finF
+        .addBinding(glassProxy, "glassFilmNm", { min: 50, max: 1500, step: 5, label: "film nm" })
+        .on("change", () => {
+          wave.glassFilmNm = glassProxy.glassFilmNm;
+          refresh();
+        });
+      const b_glassIor = finF
+        .addBinding(glassProxy, "glassIor", { min: 1.01, max: 3, step: 0.01, label: "ior" })
+        .on("change", () => {
+          wave.glassIor = glassProxy.glassIor;
+          refresh();
+        });
+      const b_glassVibrancy = finF
+        .addBinding(glassProxy, "glassVibrancy", { min: 0, max: 1, step: 0.01, label: "vibrancy" })
+        .on("change", () => {
+          wave.glassVibrancy = glassProxy.glassVibrancy;
+          refresh();
+        });
+      const b_glassRimPower = finF
+        .addBinding(glassProxy, "glassRimPower", {
+          min: 0.1,
+          max: 6,
+          step: 0.05,
+          label: "rim falloff",
+        })
+        .on("change", () => {
+          wave.glassRimPower = glassProxy.glassRimPower;
+          refresh();
+        });
+      const b_glassRipple = finF
+        .addBinding(glassProxy, "glassRipple", { min: 0, max: 2, step: 0.01, label: "ripple" })
+        .on("change", () => {
+          wave.glassRipple = glassProxy.glassRipple;
+          refresh();
+        });
+      const b_glassRippleScale = finF
+        .addBinding(glassProxy, "glassRippleScale", {
+          min: 0.001,
+          max: 0.1,
+          step: 0.001,
+          label: "ripple scale",
+        })
+        .on("change", () => {
+          wave.glassRippleScale = glassProxy.glassRippleScale;
+          refresh();
+        });
+      const b_glassFlow = finF
+        .addBinding(glassProxy, "glassFlow", { min: 0, max: 6, step: 0.05, label: "flow" })
+        .on("change", () => {
+          wave.glassFlow = glassProxy.glassFlow;
+          refresh();
+        });
+      const b_glassCaustic = finF
+        .addBinding(glassProxy, "glassCaustic", { min: 0, max: 1, step: 0.01, label: "caustics" })
+        .on("change", () => {
+          wave.glassCaustic = glassProxy.glassCaustic;
+          refresh();
+        });
+      const b_glassLayerGain = finF
+        .addBinding(glassProxy, "glassLayerGain", {
+          min: 0,
+          max: 3,
+          step: 0.05,
+          label: "fold thickness",
+        })
+        .on("change", () => {
+          wave.glassLayerGain = glassProxy.glassLayerGain;
+          refresh();
+        });
+      const b_glassFusion = finF
+        .addBinding(glassProxy, "glassFusion", {
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: "droplet fusion",
+        })
+        .on("change", () => {
+          wave.glassFusion = glassProxy.glassFusion;
+          refresh();
+        });
+      const glassOnly = [
+        b_glassPath,
+        b_glassDensity,
+        b_glassTint,
+        b_glassStrength,
+        b_glassChroma,
+        b_glassFrost,
+        b_glassRim,
+        b_glassSpec,
+        b_glassIrid,
+        b_glassFilmNm,
+        b_glassIor,
+        b_glassVibrancy,
+        b_glassRimPower,
+        b_glassRipple,
+        b_glassRippleScale,
+        b_glassFlow,
+        b_glassCaustic,
+        b_glassLayerGain,
+        b_glassFusion,
+      ];
       const solidOnly = [
         bFiberCount,
         bFiberStrength,
@@ -2459,20 +2905,35 @@ export class ControlPanel {
         bLineAmount,
         bLineThickness,
         bLineFalloff,
+        bLineSharpness,
+        bLineDepthFade,
+        bLineGap,
+        bLineLight,
         bRungAmount,
         bRungThickness,
-        bMaxWidth,
       ];
       const updateMaterialControls = (): void => {
         const wire = wave.theme === "wireframe";
-        for (const b of solidOnly) b.hidden = wire;
+        const glass = wave.theme === "glass";
+        for (const b of solidOnly) b.hidden = wire || glass;
         for (const b of wireOnly) b.hidden = !wire;
+        for (const b of glassOnly) b.hidden = !glass;
+        // What the other themes never read: glass draws opaque (no blend), and only the solid
+        // fragment consumes the noise bands (they steer its streaks). Greyed / hidden rather than
+        // silently inert.
+        bBlend.disabled = glass;
+        glassNote.hidden = !glass;
+        if (bandsFolder) bandsFolder.hidden = wire || glass;
       };
       updateMaterialControls();
       sectionRandom(finF, randomizeFinish);
+      // Second child of Color & Gradient: after its 🎲, before the palette picker.
+      gradContent.insertBefore(glassNote, gradContent.children[1] ?? null);
 
       // --- Noise Bands ---
       const bandsF = sf.addFolder({ title: "Noise Bands", expanded: true });
+      bandsFolder = bandsF;
+      updateMaterialControls(); // now that the folder exists, hide it for the themes that never read it
       wave.noiseBands.forEach((band, bi) => {
         const sub = bandsF.addFolder({ title: `Band ${bi + 1}`, expanded: true });
         sub.addBinding(band, "startX", { min: 0, max: 1, step: 0.01 }).on("change", refresh);
@@ -2560,6 +3021,24 @@ export class ControlPanel {
         .addBinding(wave, "helixPhase", { min: -180, max: 180, step: 1, label: "phase °" })
         .on("change", refresh);
 
+      // --- Path --- the centreline this wave is swept along. Editing is a double-click on the
+      // ribbon itself, so this is only the way in from the panel and the way back out; the shape is
+      // authored by dragging, not by typing numbers.
+      const pathF = sf.addFolder({ title: "Path", expanded: true });
+      pathF
+        .addButton({ title: wave.path ? "Edit path (or double-click it)" : "Add a path" })
+        .on("click", () => {
+          void this.renderer.setPathEditMode(index);
+          this.scheduleRebuild();
+        });
+      if (wave.path) {
+        // Stable title: hints are keyed by the rendered button text, so a point count in it would
+        // never match. The count is not worth a row of its own — the handles on the canvas are it.
+        pathF.addButton({ title: "Clear path" }).on("click", () => {
+          this.renderer.clearPath(index);
+          this.scheduleRebuild();
+        });
+      }
       // --- Radial --- fan the ribbon into a plume from a source point; the combed fibers then read
       // as the individual radial strands. Inert until "fan amount" is dialled up (RADIAL off at 0).
       const raF = sf.addFolder({ title: "Radial", expanded: true });
@@ -2578,15 +3057,35 @@ export class ControlPanel {
       raF
         .addBinding(wave, "radialCenter", { min: -180, max: 180, step: 1, label: "center °" })
         .on("change", refresh);
-      // This wave's dust field (emitted off its own deformed surface / edge).
+      // Cone: lift the fan out of its own plane as it spreads, so the flat plume becomes a trumpet
+      // whose strands run down the slant into the throat. 0 = the flat fan.
+      raF
+        .addBinding(wave, "radialCone", { min: -2, max: 2, step: 0.01, label: "cone" })
+        .on("change", refresh);
+      // Swirl: the angle advances along the band as well as across it, curling each arm around the
+      // throat into a spiral rather than running it straight out.
+      raF
+        .addBinding(wave, "radialSwirl", { min: -360, max: 360, step: 1, label: "swirl °" })
+        .on("change", refresh);
+      // This wave's disintegration front, then the dust field it sheds through.
+      const diF = this.buildWaveDissolveFolder(sf, wave, refresh);
       const paF = this.buildWaveParticlesFolder(sf, wave, refresh);
-      // Order the sub-sections: appearance (colour, finish) → shape (displacement, twist) → pose
-      // (transform) → advanced (noise bands) → particles → interaction (this wave's reactivity, last —
-      // mirrors the global Interaction folder sitting last in the panel). DOM move so blocks stay grouped.
+      // Order the sub-sections: appearance (finish first — it decides what the palette means — then
+      // colour) → shape (displacement, twist) → pose (transform) → advanced (noise bands) → particles
+      // → interaction (this wave's reactivity, last — mirrors the global Interaction folder sitting
+      // last in the panel). DOM move so blocks stay grouped.
       const waveContent =
         (sf.element.querySelector(":scope > .tp-fldv_c") as HTMLElement | null) ?? sf.element;
-      for (const f of [gradF, finF, dispF, twF, hxF, raF, trF, bandsF, paF, waveIx])
+      for (const f of [finF, gradF, dispF, twF, hxF, pathF, raF, trF, bandsF, diF, paF, waveIx])
         waveContent.appendChild(f.element);
+      // Delete, last in the folder and only when there is something to fall back to — the model
+      // keeps at least one wave, so the button would be a no-op on a single-wave config.
+      if (cfg.waves.length > 1) {
+        const del = sf.addButton({ title: "delete this wave" });
+        del.element.classList.add("wv-wave-delete");
+        del.on("click", () => this.deleteWave(index));
+        waveContent.appendChild(del.element);
+      }
     };
 
     const wavesF = mkFolder("Waves", true);
@@ -2604,10 +3103,11 @@ export class ControlPanel {
       wavesF
         .addBinding(gizmoProxy, "mode", {
           label: "gizmo",
-          options: { move: "translate", rotate: "rotate" },
+          options: { move: "translate", rotate: "rotate", resize: "scale" },
         })
         .on("change", (ev) => {
-          this.renderer.setGizmoMode(ev.value as "translate" | "rotate");
+          this.renderer.setGizmoMode(ev.value as GizmoMode);
+          this.scheduleRebuild();
         });
     }
     cfg.waves.forEach((wave, i) => buildWaveFolder(wavesF, wave, i));

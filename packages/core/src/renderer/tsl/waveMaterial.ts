@@ -4,13 +4,18 @@
  * The GLSL `#ifdef` variants become JS flags, so each material builds exactly the graph it needs
  * instead of relying on a define set and a program cache key.
  *
- * Two deliberate differences from the GLSL, both because the node pipeline already does the work:
- *   - No `PREMULTIPLIED_ALPHA` block. `NodeMaterial.setupOutput()` calls `setupPremultipliedAlpha()`
- *     when `material.premultipliedAlpha` is set, so premultiplying here would double-apply it.
- *   - No output colour-space conversion. The material writes LINEAR, exactly as the GLSL does; the
- *     conversion happens once at the end of the post chain, matching `OutputPass` on the WebGL path.
+ * One deliberate difference from the GLSL: no output colour-space conversion. The material writes
+ * LINEAR, exactly as the GLSL does; the conversion happens once at the end of the post chain,
+ * matching `OutputPass` on the WebGL path.
+ *
+ * Premultiplied alpha, by contrast, has to be done HERE. `NodeMaterial.setupOutput()` does call
+ * `setupPremultipliedAlpha()` — but on its own `basicOutput`, which it then discards the moment a
+ * custom `outputNode` is set (`if (isCustomOutput) resultNode = this.outputNode`). So a material
+ * that writes its own output gets the premultiplied BLEND FACTORS without the premultiply, and
+ * every partly transparent pixel composites too bright. The GLSL does the same multiply under the
+ * PREMULTIPLIED_ALPHA define Three injects for it; this is that line.
  */
-import { NodeMaterial } from "three/webgpu";
+import { AdditiveBlending, NodeMaterial } from "three/webgpu";
 import {
   Fn,
   varying,
@@ -28,34 +33,49 @@ import {
   screenUV,
   dFdx,
   dFdy,
+  attribute,
+  sign,
+  length,
   fwidth,
   abs as tabs,
   sin,
   cos,
   pow,
   max,
+  min,
   clamp,
   mix,
   smoothstep,
+  asin,
   cross,
   dot,
+  exp,
+  sqrt,
   normalize,
   radians,
   Loop,
   If,
   Break,
   select,
+  Discard,
 } from "three/tsl";
 import { MAX_LIGHTS, MAX_NOISE_BANDS } from "../../config/model";
 import { simplexNoise, grainHash } from "./noise";
-import { waveShape, applyTwist, type WaveShapeFlags } from "./waveShape";
+import { waveShape, applyTwist, type WaveShapeFlags, type WaveShapeResult } from "./waveShape";
 import { applyColorGrade, waveBaseColor, hueShift, parabola, mapLinear } from "./color";
 import { pointerField } from "./pointerField";
-import type { FloatNode, Vec2Node, Vec3Node } from "./types";
+import { dissolved } from "./dissolve";
+import type { FloatNode, Vec2Node, Vec3Node, Vec4Node } from "./types";
 import type { WaveTslUniforms } from "./uniforms";
 
 export interface WaveMaterialFlags extends WaveShapeFlags {
-  theme: "solid" | "wireframe";
+  theme: "solid" | "wireframe" | "glass";
+  /** Build the glass LAYER-COUNT companion instead of the shaded material: the same vertex stage
+   *  on the same uniforms, with a fragment that only marks coverage. Drawn additively, depth off. */
+  layerPass?: boolean;
+  /** Interpolate a vertex-stage normal (glass): finite differences of the deformation at the two
+   *  baked grid neighbours. Smooth where the fragment's dFdx normal is constant per triangle. */
+  vertexNormal: boolean;
   /** Pointer field: per-wave, config-only, so input never triggers a rebuild. */
   pointerFx: boolean;
   /** Click ripples, which nest inside the pointer field. */
@@ -63,6 +83,20 @@ export interface WaveMaterialFlags extends WaveShapeFlags {
   depthTint: boolean;
   edgeFeather: boolean;
   rungs: boolean;
+  /** Stripe hardening (wireframe only): compiled only when lineSharpness > 0, as in the GLSL. */
+  lineSharp: boolean;
+  /** The disintegration front: compiled only when the wave has one, as in the GLSL. */
+  dissolve: boolean;
+  /** Clear gaps (wireframe only): compiled only when lineGapOpacity < 1, as in the GLSL. */
+  lineClearGaps: boolean;
+  /** Lit / round strands (wireframe only): compiled only when lineLight > 0, as in the GLSL. */
+  lineLight: boolean;
+  /**
+   * Premultiply the output, for the blend modes that ask for premultiplied factors ("squared" —
+   * the default — and "multiply"). Mirrors `applyBlendMode`'s own rule; see the note at the top of
+   * this file for why the node pipeline cannot do it for us.
+   */
+  premultiplied: boolean;
   /**
    * True when the active backend uses [0,1] clip Z (WebGPU) rather than [-1,1] (WebGL).
    *
@@ -140,44 +174,97 @@ function surfaceStreaks(
 /** Build one wave's material for the given flags. */
 export function buildWaveMaterial(u: WaveTslUniforms, flags: WaveMaterialFlags): NodeMaterial {
   const material = new NodeMaterial();
-  material.transparent = true;
+  // Glass draws OPAQUE with depth write on, exactly as the GLSL twin does: its see-through is
+  // sampled from the backdrop rather than blended, which is what keeps overlapping sheets free of
+  // any sorting. Leaving it transparent here made the two backends disagree on alpha across the
+  // whole sheet — the parity case caught it as a 0.43 alpha bias.
+  material.transparent = flags.theme !== "glass";
   material.depthTest = true;
   material.depthWrite = true;
   material.side = 2; // THREE.DoubleSide
+  if (flags.layerPass) {
+    // Every layer over a pixel has to land and add up: no depth test, additive.
+    material.transparent = true;
+    material.blending = AdditiveBlending;
+    material.depthTest = false;
+    material.depthWrite = false;
+  }
 
   // ---- Vertex ----
   // The pointer falloff is computed in the vertex stage alongside the displacement and carried to
   // the fragment, matching the GLSL's `varying float vPointerFall`.
   let pointerFall: FloatNode | null = null;
+  // The vertex normal (glass): finite differences of the SAME deformation at the two baked grid
+  // neighbours, so it follows every twist, path and pointer bump exactly and interpolates smoothly
+  // across the mesh — where dFdx of the position is constant per triangle. See the GLSL.
+  let vertexNormal: Vec3Node | null = null;
 
   material.positionNode = Fn(() => {
     const { t, loopOff } = timeNodes(u, flags);
     const ws = waveShape(u, flags, positionLocal, uv(), t, loopOff);
-    if (!flags.pointerFx) return ws.pos;
+    const nb = flags.vertexNormal
+      ? (() => {
+          const aU = attribute("positionU", "vec4") as unknown as Vec4Node;
+          const aV = attribute("positionV", "vec4") as unknown as Vec4Node;
+          const stepU = aU.w;
+          const stepV = aV.w;
+          return {
+            stepU,
+            stepV,
+            wsU: waveShape(u, flags, aU.xyz, uv().add(vec2(stepU, 0)), t, loopOff),
+            wsV: waveShape(u, flags, aV.xyz, uv().add(vec2(0, stepV)), t, loopOff),
+          };
+        })()
+      : null;
+    let pos: Vec3Node = ws.pos;
+    let posU: Vec3Node | null = nb ? nb.wsU.pos : null;
+    let posV: Vec3Node | null = nb ? nb.wsV.pos : null;
 
-    // Displace along the wave's own (post-twist) up-axis, weighted by a screen-space falloff around
-    // the smoothed cursor. Everything here is ADDITIVE, so the shared path above is untouched.
-    // Shared clip transform, computed once and reused for the cursor metric and the ribbon tangent
-    // (the compiler is not guaranteed to CSE the triple product).
-    const mvp = cameraProjectionMatrix.mul(cameraViewMatrix).mul(modelWorldMatrix).toVar("mvp");
-    const preClip = mvp.mul(vec4(ws.pos, 1.0)).toVar("preClip");
-    const hit = pointerField(
-      u,
-      { loopMotion: flags.loopMotion, ripples: flags.pointerRipples },
-      preClip.xy.div(max(preClip.w, 1.0e-6)),
-      mvp,
-      ws.twists,
-      ws.pos,
-      t,
-      loopOff,
-    );
-    pointerFall = varying(hit.fall, "vPointerFall");
-    // Rotations are linear, so displacing the post-twist axis equals displacing pre-twist Y.
-    const dispAxis = applyTwist(
-      applyTwist(applyTwist(vec3(0, 1, 0), ws.twists[0]), ws.twists[1]),
-      ws.twists[2],
-    );
-    return ws.pos.add(dispAxis.mul(hit.disp));
+    if (flags.pointerFx) {
+      // Displace along the wave's own (post-twist) up-axis, weighted by a screen-space falloff
+      // around the smoothed cursor. Everything here is ADDITIVE, so the shared path above is
+      // untouched. Shared clip transform, computed once and reused for the cursor metric and the
+      // ribbon tangent (the compiler is not guaranteed to CSE the triple product).
+      const mvp = cameraProjectionMatrix.mul(cameraViewMatrix).mul(modelWorldMatrix).toVar("mvp");
+      const bump = (p: Vec3Node, twists: WaveShapeResult["twists"]) => {
+        const clip = mvp.mul(vec4(p, 1.0)).toVar();
+        const hit = pointerField(
+          u,
+          { loopMotion: flags.loopMotion, ripples: flags.pointerRipples },
+          clip.xy.div(max(clip.w, 1.0e-6)),
+          mvp,
+          twists,
+          p,
+          t,
+          loopOff,
+        );
+        // Rotations are linear, so displacing the post-twist axis equals displacing pre-twist Y.
+        const axis = applyTwist(
+          applyTwist(applyTwist(vec3(0, 1, 0), twists[0]), twists[1]),
+          twists[2],
+        );
+        return { hit, pos: p.add(axis.mul(hit.disp)) as Vec3Node };
+      };
+      const main = bump(ws.pos, ws.twists);
+      pointerFall = varying(main.hit.fall, "vPointerFall");
+      pos = main.pos;
+      // The neighbours ride the same bump, each from its own clip position and twist frame, so the
+      // normal follows the pointer's displacement rather than ignoring it.
+      if (nb) {
+        posU = bump(nb.wsU.pos, nb.wsU.twists).pos;
+        posV = bump(nb.wsV.pos, nb.wsV.twists).pos;
+      }
+    }
+
+    if (nb && posU && posV) {
+      // Tangents transform covariantly, so the model matrix is right for any scale (a normal would
+      // need its inverse transpose); sign(w) undoes the backward step the last row and column take.
+      const tU = modelWorldMatrix.mul(vec4(posU.sub(pos).mul(sign(nb.stepU)), 0)).xyz;
+      const tV = modelWorldMatrix.mul(vec4(posV.sub(pos).mul(sign(nb.stepV)), 0)).xyz;
+      const n = cross(tU, tV).toVar("vtxNormal");
+      vertexNormal = varying(n.div(max(length(n), 1.0e-9)), "vNormal") as unknown as Vec3Node;
+    }
+    return pos;
   })();
 
   // Clip-space depth, normalised to the WebGL [-1,1] convention the GLSL was written against.
@@ -191,10 +278,21 @@ export function buildWaveMaterial(u: WaveTslUniforms, flags: WaveMaterialFlags):
   const clipZ: FloatNode = flags.webgpuClipZ ? rawClip.z.mul(2).sub(1) : rawClip.z;
 
   // ---- Fragment ----
-  material.outputNode =
-    flags.theme === "wireframe"
-      ? buildWireframeFragment(u, flags, clipZ, pointerFall)
-      : buildSolidFragment(u, flags, clipZ, pointerFall);
+  // This fragment's 0..1 screen position — read only by a screen-axis dissolve front. Taken from
+  // the same clip vector the depth fade uses, so the two never disagree about where a fragment is.
+  const ndc = rawClip.xy.div(max(rawClip.w, 1.0e-6)).mul(0.5).add(0.5);
+  const fragment = (
+    flags.layerPass
+      ? buildGlassLayerFragment(u, flags, ndc)
+      : flags.theme === "wireframe"
+        ? buildWireframeFragment(u, flags, clipZ, () => pointerFall, ndc)
+        : flags.theme === "glass"
+          ? buildGlassFragment(u, flags, ndc, () => vertexNormal)
+          : buildSolidFragment(u, flags, clipZ, () => pointerFall, ndc)
+  ).toVar("fragOut");
+  material.outputNode = flags.premultiplied
+    ? vec4(fragment.rgb.mul(fragment.a), fragment.a)
+    : fragment;
 
   return material;
 }
@@ -204,10 +302,19 @@ function buildWireframeFragment(
   u: WaveTslUniforms,
   flags: WaveMaterialFlags,
   clipZ: FloatNode,
-  pointerFall: FloatNode | null,
+  getPointerFall: () => FloatNode | null,
+  ndc: Vec2Node,
 ) {
   return Fn(() => {
+    // Read at build time, not at the call: the positionNode closure that creates this varying
+    // runs only when the vertex stage is built, after buildWaveMaterial has returned.
+    const pointerFall = getPointerFall();
+    if (flags.pointerFx && !pointerFall) {
+      throw new Error("wave: the pointer varying was not created before the fragment built");
+    }
     const vUv = uv();
+    // The disintegration front: drop the chunks it has already eaten, before any shading work.
+    if (flags.dissolve) Discard(dissolved(u, vUv, ndc));
     const color = applyColorGrade(u, waveBaseColor(u, vUv)).toVar("lineColor");
     if (pointerFall) {
       color.assign(hueShift(color, radians(u.uPointerHue).mul(pointerFall)));
@@ -217,30 +324,386 @@ function buildWireframeFragment(
     // Carve into fine lengthwise strands; thickness from the screen-space uv derivative.
     const dy = dFdy(vUv).toVar();
     const lineThickness = u.uLineThickness
-      .mul(pow(tabs(dy.x.mul(u.uMaxWidth)), u.uLineDerivativePower))
+      .mul(pow(tabs(dy.x.mul(1232.0)), u.uLineDerivativePower)) // fixed reference width; see the GLSL
       .toVar("lineThickness");
     if (pointerFall) {
       // Strands taper to hairlines near the cursor.
       lineThickness.mulAssign(clamp(float(1).sub(u.uPointerThin.mul(pointerFall)), 0, 1));
     }
+    // Each family's per-pixel rate and the duty cycle it averages to — see the GLSL for why a
+    // sub-pixel period has to fall back to a tone rather than be point-sampled.
+    const lineRate = u.uLineAmount.mul(fwidth(vUv.x)).toVar("lineRate");
+    if (flags.lineLight) {
+      // The line theme is otherwise UNLIT — a strand's colour comes from its uv alone, so it holds
+      // one tone wherever the surface turns. This shades it with the same derivative normal and
+      // lights the solid theme uses, and ROUNDS each strand so a highlight can run along one and not
+      // its neighbour. See the LINE_LIGHT block in the GLSL for the full reasoning.
+      const vWorldPos = positionWorld;
+      const vViewDir = cameraPosition.sub(vWorldPos).toVar("lineViewDir");
+      const n = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos))).toVar("lineN");
+      const vd = normalize(vViewDir).toVar("lineV");
+      If(dot(n, vd).lessThan(0.0), () => {
+        n.assign(n.negate());
+      });
+      {
+        // World direction of increasing uv.x, by least squares from the screen derivatives — the
+        // axis to tilt each strand about.
+        const gu = vec2(dFdx(vUv.x), dFdy(vUv.x)).toVar("lineGu");
+        const gg = dot(gu, gu).toVar("lineGg");
+        If(gg.greaterThan(1.0e-12), () => {
+          const across = dFdx(vWorldPos)
+            .mul(gu.x)
+            .add(dFdy(vWorldPos).mul(gu.y))
+            .div(gg)
+            .toVar("lineAcross");
+          across.assign(normalize(across.sub(n.mul(dot(across, n)))));
+          const sAcross = clamp(
+            sin(vUv.x.mul(u.uLineAmount)).div(max(lineThickness, 1.0e-4)),
+            -1,
+            1,
+          );
+          n.assign(normalize(n.add(across.mul(sAcross).mul(1.2)))); // LINE_ROUND
+          If(dot(n, vd).lessThan(0.0), () => {
+            n.assign(n.negate());
+          });
+        });
+      }
+      const facing = tabs(dot(n, vd)).toVar("lineFacing");
+      const lit = color.mul(mix(float(0.08), float(1), facing)).toVar("lineLit");
+      Loop({ start: 0, end: MAX_LIGHTS, type: "int" }, ({ i }) => {
+        If(float(i).greaterThanEqual(float(u.uNumLights)), () => {
+          Break();
+        });
+        const l = normalize(u.uLightPos.el(i).sub(vWorldPos)).toVar();
+        const lc = u.uLightColor.el(i).mul(u.uLightIntensity.el(i)).toVar();
+        lit.addAssign(
+          color
+            .mul(max(dot(n, l), 0.0))
+            .mul(lc)
+            .mul(0.5),
+        );
+        lit.addAssign(
+          lc.mul(pow(max(dot(n, normalize(l.add(vd))), 0.0), 48.0)).mul(1.5), // LINE_GLINT
+        );
+      });
+      lit.mulAssign(clamp(u.uAmbient, 0, 1).add(0.55));
+      color.assign(mix(color, lit, clamp(u.uLineLight, 0, 1)));
+    }
     const a = smoothstep(lineThickness, 0.0, tabs(sin(vUv.x.mul(u.uLineAmount)))).toVar("lineA");
-
+    // No duty-cycle fallback for the LENGTHWISE family — see the GLSL: its threshold is itself
+    // derivative-built, so keying one on it makes cross-backend agreement worse.
+    const rungRate = float(0).toVar("rungRate");
+    const dutyRung = float(0).toVar("dutyRung");
     if (flags.rungs) {
       // The same carve at constant uv.y, so this family runs ACROSS the ribbon where the one above
       // runs along it — together they read as a ladder. Width comes from fwidth(), not the
       // lengthwise term's dFdy(vUv).x, which is the derivative of the wrong axis for this direction.
-      const rung = tabs(sin(vUv.y.mul(u.uRungAmount)));
+      rungRate.assign(u.uRungAmount.mul(fwidth(vUv.y)));
+      const rungT = u.uRungThickness.mul(rungRate).toVar("rungT");
+      a.assign(max(a, smoothstep(rungT, 0.0, tabs(sin(vUv.y.mul(u.uRungAmount))))));
+      dutyRung.assign(asin(clamp(rungT.mul(0.5), 0, 1)).mul(0.63661977));
+    }
+    if (flags.lineSharp) {
+      // Steepen the stripe about its own midpoint, which turns uLineThickness into a DUTY CYCLE and
+      // this into the edge — see the LINE_SHARP block in the GLSL for why the soft ramp alone cannot
+      // reach dense ink, why it is applied to the MERGED coverage, and why the floor is the analytic
+      // stripe rate rather than fwidth() of that merged value.
+      const aaRate = max(lineRate, rungRate).mul(0.5);
       a.assign(
-        max(a, smoothstep(u.uRungThickness.mul(u.uRungAmount).mul(fwidth(vUv.y)), 0.0, rung)),
+        clamp(
+          a
+            .sub(0.5)
+            .div(max(float(1).sub(u.uLineSharpness), aaRate.mul(1.4)))
+            .add(0.5),
+          0,
+          1,
+        ),
       );
     }
+    // Sub-pixel rungs: fade to the tone those strands average to.
+    a.assign(mix(a, max(a, dutyRung), smoothstep(1.2, 3.0, rungRate)));
 
     // Depth fade: the wave recedes into the background colour with depth.
-    const depthFade = clamp(clipZ.mul(6.0), 0, 1);
-    const faded = mix(u.uClearColor, color, a.mul(float(1).sub(depthFade))).toVar("lineFaded");
+    const depthFade = clamp(clipZ.mul(6.0), 0, 1).mul(u.uLineDepthFade);
+    const cov = a.mul(float(1).sub(depthFade)).toVar("lineCov");
+    // Soft ribbon ENDS, as the solid theme fades them — see the GLSL for why a wireframe needs it.
+    const feather = flags.edgeFeather ? u.uEdgeFeather : float(0.1);
+    cov.mulAssign(
+      smoothstep(0.0, feather, vUv.y).mul(
+        float(1).sub(smoothstep(float(1).sub(feather), 1.0, vUv.y)),
+      ),
+    );
+    if (flags.lineClearGaps) {
+      // CLEAR GAPS: the gaps carry the page colour only as far as uLineGapOpacity and are otherwise
+      // transparent, so the strands composite over whatever is really behind them rather than over a
+      // flat card of page colour. See the LINE_CLEAR_GAPS block in the GLSL.
+      const gapA = float(1).sub(cov).mul(u.uLineGapOpacity).toVar("lineGapA");
+      const outA = cov.add(gapA).toVar("lineOutA");
+      // A fully clear gap must not reach the depth buffer, or it occludes the wave behind it.
+      Discard(outA.lessThanEqual(0.002));
+      const straight = color.mul(cov).add(u.uClearColor.mul(gapA)).div(outA).toVar("lineStraight");
+      const outC = select(u.uSquared.greaterThan(0.5), straight.mul(straight), straight);
+      return vec4(outC, u.uOpacity.mul(outA));
+    }
+    const faded = mix(u.uClearColor, color, cov).toVar("lineFaded");
     // Deep "squared" look — composited, not replace-blended (see applyBlendMode).
     const out = select(u.uSquared.greaterThan(0.5), faded.mul(faded), faded);
     return vec4(out, u.uOpacity);
+  })();
+}
+
+/**
+ * The glass theme's twin. Structurally the same as the GLSL: bend the backdrop along the surface
+ * normal, absorb the wave's own palette over a thickness, then fresnel / rim / specular on top.
+ *
+ * Three TSL-specific departures, all forced:
+ *  - The surface normal is the interpolated vertex-stage `vNormal`, as in the GLSL, and the caustic
+ *    is the screen-space Jacobian of the offset — so there is no normal pass to twin.
+ *  - The frost samples are unrolled in JavaScript. A Loop carrying a toVar accumulator inside
+ *    another control block does not survive node generation — the accumulator gets hoisted out of
+ *    scope — and building eleven taps as straight-line graph avoids the question entirely.
+ *  - Screen position comes from the clip vector (the `ndc` the dissolve already uses), NOT from
+ *    `screenUV`, which is top-down here while a clip-derived UV is y-up. Mixing the two is the
+ *    classic way to send a sample the wrong way and get banding no one can explain.
+ */
+function buildGlassFragment(
+  u: WaveTslUniforms,
+  flags: WaveMaterialFlags,
+  ndc: Vec2Node,
+  getVertexNormal: () => Vec3Node | null,
+) {
+  return Fn(() => {
+    const vUv = uv();
+    if (flags.dissolve) Discard(dissolved(u, vUv, ndc));
+    const vWorldPos = positionWorld;
+    // Read here, not at the call: TSL runs the positionNode closure that creates the varying only
+    // when the vertex stage is BUILT, which is after buildWaveMaterial has returned. A value taken
+    // at the call is always null — and the fallback below then compiled silently, faceted.
+    const vertexNormal = getVertexNormal();
+    if (flags.vertexNormal && !vertexNormal) {
+      throw new Error("glass: the vertex normal varying was not created before the fragment built");
+    }
+
+    // ORTHOGRAPHIC view axis, not a per-fragment ray to the eye — column 2 of the view matrix.
+    const V = normalize(u.uViewAxis).toVar("glassV");
+    // The interpolated vertex normal, or the per-triangle one where none is compiled.
+    const rawN = (vertexNormal ?? cross(dFdx(vWorldPos), dFdy(vWorldPos))).toVar("glassRawN");
+    // The shading normal: unit length, faced toward the viewer (the orientation the screen-derivative
+    // normal always had, so a thin sheet bends the same way whichever face is in front), then
+    // rippled. Shared with the caustic's finite differences below — see the GLSL twin. `tag` keeps
+    // the declarations of the three evaluations apart.
+    const shadingNormal = (raw: Vec3Node, pos: Vec3Node, tag: string) => {
+      const len = length(raw).toVar(`glassNLen${tag}`);
+      const n0 = select(len.greaterThan(1.0e-6), raw.div(len), V).toVar(`glassN0${tag}`);
+      const flat = select(dot(n0, V).lessThan(0), n0.negate(), n0).toVar(`glassFlatN${tag}`);
+      const n = flat.toVar(`glassN${tag}`);
+      If(u.uGlassRipple.greaterThan(0.001), () => {
+        // Four travelling waves added to the normal as a gradient — see the GLSL for why trig rather
+        // than scrolled noise, and why the temporal frequencies are integer multiples.
+        const ph = u.uTime.mul(u.uGlassFlow);
+        const k1 = vec3(1.0, 0.62, 0.31);
+        const k2 = vec3(-0.54, 1.13, 0.47);
+        const k3 = vec3(0.36, -0.82, 1.07);
+        const k4 = vec3(-1.18, -0.33, 0.72);
+        const g = k1
+          .mul(cos(dot(pos, k1).mul(u.uGlassRippleScale).add(ph)))
+          .add(k2.mul(cos(dot(pos, k2).mul(u.uGlassRippleScale).sub(ph.mul(2)).add(1.7))).mul(0.65))
+          .add(k3.mul(cos(dot(pos, k3).mul(u.uGlassRippleScale).add(ph.mul(3)).add(3.9))).mul(0.42))
+          .add(k4.mul(cos(dot(pos, k4).mul(u.uGlassRippleScale).sub(ph).add(2.6))).mul(0.55));
+        n.assign(normalize(n.add(g.mul(u.uGlassRipple).mul(0.16))));
+      });
+      return { N: n, flatN: flat };
+    };
+    // The refraction offset, in pixels, of the surface at (raw, pos) — before droplet fusion.
+    const glassOffset = (raw: Vec3Node, pos: Vec3Node, tag: string): Vec2Node => {
+      const { N: n, flatN: flat } = shadingNormal(raw, pos, tag);
+      const r = pow(float(1).sub(tabs(dot(n, V))), max(u.uGlassRimPower, float(0.001)));
+      const d = n.xy.sub(flat.xy).mul(2).add(n.xy).mul(-1);
+      return d.mul(mix(r, float(1), u.uGlassRipple.mul(0.25))).mul(u.uGlassStrength);
+    };
+    const { N, flatN } = shadingNormal(rawN, vWorldPos, "");
+
+    const ndv = clamp(tabs(dot(N, V)), 0.02, 1.0).toVar("glassNdv");
+    const rim = pow(float(1).sub(tabs(dot(N, V))), max(u.uGlassRimPower, float(0.001))).toVar();
+
+    const sUv = ndc.toVar("glassSUv");
+    // The captures are sampled TOP-DOWN here while a clip-derived UV is y-up, so every texture
+    // coordinate and every offset that rides one has its y flipped. These are not two flips that
+    // cancel: getting it wrong does not mirror the image, it sends each sample to the wrong side of
+    // the surface, which looked like the whole refraction had been rotated.
+    const texUv = vec2(sUv.x, float(1).sub(sUv.y)).toVar("glassTexUv");
+    const dir = N.xy.sub(flatN.xy).mul(2).add(N.xy).mul(-1).toVar("glassDir");
+    If(u.uGlassFusion.greaterThan(0.001), () => {
+      const g = vec2(9.0, 9.0).div(u.uResolution);
+      const fieldAt = (p: Vec2Node): FloatNode => u.uLayers.sample(p).r;
+      const grad = vec2(
+        fieldAt(texUv.add(vec2(g.x, 0))).sub(fieldAt(texUv.sub(vec2(g.x, 0)))),
+        // y runs the other way in the texture, so the difference is negated to stay a gradient in
+        // the same space as the normal it is blended with.
+        fieldAt(texUv.sub(vec2(0, g.y))).sub(fieldAt(texUv.add(vec2(0, g.y)))),
+      ).toVar("glassGrad");
+      If(dot(grad, grad).greaterThan(1.0e-8), () => {
+        dir.assign(mix(dir, normalize(grad), clamp(u.uGlassFusion, 0, 1)));
+      });
+    });
+    const offPx = dir
+      .mul(mix(rim, float(1), u.uGlassRipple.mul(0.25)))
+      .mul(u.uGlassStrength)
+      .toVar("glassOffPx");
+    const off = offPx.div(max(u.uResolution, vec2(1, 1))).toVar("glassOff");
+    const texOff = vec2(off.x, off.y.negate()).toVar("glassTexOff");
+
+    // Opaque capture: the sample IS the colour behind the glass, no alpha composite.
+    const backdropAt = (p: Vec2Node): Vec3Node => u.uBackdrop.sample(p).rgb;
+
+    const uvR = texUv.add(texOff.mul(float(1).add(u.uGlassChroma.mul(0.2)))).toVar("glassUvR");
+    const uvG = texUv.add(texOff.mul(float(1).add(u.uGlassChroma.mul(0.1)))).toVar("glassUvG");
+    const uvB = texUv.add(texOff).toVar("glassUvB");
+    const col = vec3(backdropAt(uvR).r, backdropAt(uvG).g, backdropAt(uvB).b).toVar("glassCol");
+
+    If(u.uGlassCaustic.greaterThan(0.001), () => {
+      // One-pixel forward differences of the offset from dFdx of the INTERPOLATED normal and
+      // position — linear across a triangle, so the two backends agree on them to the bit where
+      // dFdx of the offset itself (coarse or fine, implementation-defined) split them at every
+      // steep fold. See the GLSL twin.
+      // A ±3 px central difference, the baseline the normal-buffer stencil had — see the GLSL.
+      const dNx = dFdx(rawN).mul(3).toVar("glassDNx");
+      const dNy = dFdy(rawN).mul(3).toVar("glassDNy");
+      const dPx = dFdx(vWorldPos).mul(3).toVar("glassDPx");
+      const dPy = dFdy(vWorldPos).mul(3).toVar("glassDPy");
+      const dOdx = glassOffset(rawN.add(dNx), vWorldPos.add(dPx), "Cxp")
+        .sub(glassOffset(rawN.sub(dNx), vWorldPos.sub(dPx), "Cxm"))
+        .div(6)
+        .toVar("glassDOdx");
+      const dOdy = glassOffset(rawN.add(dNy), vWorldPos.add(dPy), "Cyp")
+        .sub(glassOffset(rawN.sub(dNy), vWorldPos.sub(dPy), "Cym"))
+        .div(6)
+        .toVar("glassDOdy");
+      const detJ = float(1).add(dOdx.x).mul(float(1).add(dOdy.y)).sub(dOdy.x.mul(dOdx.y));
+      const gain = clamp(float(1).div(max(tabs(detJ), float(0.12))), 0, 6);
+      col.mulAssign(mix(float(1), gain, clamp(u.uGlassCaustic, 0, 1)));
+    });
+
+    // Gated on the radius in PIXELS, as the GLSL is: under half a pixel the taps average back to
+    // the sample they surround, and the default knob value sat there.
+    const frostRadius = u.uGlassFrost.mul(u.uGlassFrost).mul(46.0).toVar("glassFrostRadius");
+    If(frostRadius.greaterThan(0.5), () => {
+      const r = frostRadius.div(max(u.uResolution, vec2(1, 1)));
+      // The SAME hash the GLSL uses. A different per-pixel rotation is not "equivalent noise": the
+      // two backends then pick different sample sets and the frosted area disagrees everywhere at
+      // once, which is pure mae with no bias to point at it.
+      const p = ndc.mul(u.uResolution);
+      const rot = sin(dot(p, vec2(12.9898, 78.233)))
+        .mul(43758.5453)
+        .fract()
+        .mul(6.2831853);
+      // One RGB gather at the green offset — see the GLSL for why not one per channel.
+      const tap = (i: number): Vec3Node => {
+        const t = (i + 0.5) / 11;
+        const a = rot.add(i * 2.399963);
+        const o = vec2(cos(a), sin(a)).mul(r).mul(Math.sqrt(t));
+        return backdropAt(uvG.add(o));
+      };
+      let sum: Vec3Node = tap(0);
+      for (let i = 1; i < 11; i++) sum = sum.add(tap(i));
+      col.assign(mix(col, sum.div(11), clamp(u.uGlassFrost, 0, 1)));
+    });
+
+    // The material itself: the palette as transmitted light, absorbed over the sheet's thickness.
+    const layers = max(u.uLayers.sample(texUv).r.mul(8), float(1)).toVar("glassLayers");
+    const chord = float(2)
+      .mul(u.uGlassPath)
+      .mul(pow(ndv, 0.4))
+      .mul(float(1).add(u.uGlassLayerGain.mul(layers.sub(1))))
+      .toVar("glassChord");
+    const lit = applyColorGrade(u, waveBaseColor(u, vUv)).toVar("glassLit");
+    const hue = lit.div(max(max(lit.r, max(lit.g, lit.b)), float(0.001))).toVar("glassHue");
+    const sigma = u.uGlassDensity.mul(float(1).sub(hue.mul(0.9)));
+    const chordRGB = chord.mul(
+      vec3(float(1).add(u.uGlassChroma.mul(0.12)), 1.0, float(1).sub(u.uGlassChroma.mul(0.12))),
+    );
+    col.mulAssign(mix(vec3(1, 1, 1), exp(sigma.mul(chordRGB).mul(-1)), clamp(u.uGlassTint, 0, 1)));
+
+    // Thin film tints only what BOUNCES.
+    const s2 = float(1)
+      .sub(ndv.mul(ndv))
+      .div(max(u.uGlassIor.mul(u.uGlassIor), float(1.0e-4)));
+    const cosT = sqrt(max(float(1).sub(s2), float(0)));
+    const phase = vec3(650.0, 550.0, 440.0);
+    const film = mix(
+      vec3(1, 1, 1),
+      float(0.5).add(
+        cos(
+          float(6.2831853).mul(float(2).mul(u.uGlassIor).mul(u.uGlassFilmNm).mul(cosT)).div(phase),
+        ).mul(0.5),
+      ),
+      clamp(u.uGlassIrid, 0, 1),
+    ).toVar("glassFilm");
+
+    const f0 = pow(u.uGlassIor.sub(1).div(u.uGlassIor.add(1)), float(2));
+    const F = f0.add(
+      float(1)
+        .sub(f0)
+        .mul(pow(float(1).sub(ndv), float(5))),
+    );
+    col.assign(
+      mix(
+        col,
+        mix(u.uClearColor, vec3(1, 1, 1), 0.35).mul(film),
+        F.mul(float(0.18).add(u.uGlassIrid.mul(0.4))),
+      ),
+    );
+
+    // Rim, with a deliberately WIDE window — see the GLSL.
+    col.assign(
+      mix(
+        col,
+        film,
+        float(1)
+          .sub(ndv)
+          .smoothstep(mix(float(0.62), float(0.42), u.uGlassIrid), float(1))
+          .mul(u.uGlassRim),
+      ),
+    );
+    col.mulAssign(float(1).sub(float(1).sub(ndv).smoothstep(0.62, 0.86).mul(0.1)));
+
+    // Two keys, wide lobe: one overhead light never reaches horizontal normals.
+    const KEY = normalize(vec3(-0.3, 0.86, 0.42));
+    const KEY_FILL = normalize(vec3(0.42, 0.16, 0.89));
+    // reflect(-V, N) = -V - 2*dot(-V,N)*N. Spelled out because there is no reflect() helper here;
+    // negating the whole expression, as this first did, points the mirror direction backwards and
+    // puts the highlight on the wrong face.
+    const mirror = V.mul(-1)
+      .sub(N.mul(dot(V.mul(-1), N).mul(2)))
+      .toVar("glassMirror");
+    const lobe = pow(max(dot(mirror, KEY), float(0)), float(40))
+      .add(pow(max(dot(mirror, KEY_FILL), float(0)), float(40)).mul(0.55))
+      .toVar("glassLobe");
+    const spec = lobe.add(rim.mul(0.25)).mul(u.uGlassSpec).toVar("glassSpec");
+    col.addAssign(lobe.mul(u.uGlassSpec).mul(0.35).mul(film));
+
+    const luma = dot(col, vec3(0.299, 0.587, 0.114)).toVar("glassLuma");
+    const darkBlend = luma.smoothstep(0.25, 0.7);
+    col.assign(max(mix(col.add(spec), col.mul(float(1).sub(spec)), darkBlend), vec3(0, 0, 0)));
+    col.addAssign(float(0.5).sub(luma).mul(u.uGlassVibrancy));
+
+    // Opaque draw, so the feather (and opacity) fade toward the UNBENT backdrop rather than
+    // scaling the colour — see the GLSL twin for the dark line that scaling drew.
+    const fade = clamp(u.uOpacity, 0, 1).toVar("glassFade");
+    If(u.uEdgeFeather.greaterThan(0), () => {
+      const e = min(min(vUv.x, float(1).sub(vUv.x)), min(vUv.y, float(1).sub(vUv.y)));
+      fade.mulAssign(e.smoothstep(float(0), u.uEdgeFeather));
+    });
+    col.assign(mix(backdropAt(texUv), col, fade));
+    return vec4(clamp(col, 0, 1), 1.0);
+  })();
+}
+
+/** The glass layer-count companion: coverage only, on the wave's own vertex stage. */
+function buildGlassLayerFragment(u: WaveTslUniforms, flags: WaveMaterialFlags, ndc: Vec2Node) {
+  return Fn(() => {
+    if (flags.dissolve) Discard(dissolved(u, uv(), ndc));
+    return vec4(0.125, 0.125, 0.125, 1.0);
   })();
 }
 
@@ -249,10 +712,19 @@ function buildSolidFragment(
   u: WaveTslUniforms,
   flags: WaveMaterialFlags,
   clipZ: FloatNode,
-  pointerFall: FloatNode | null,
+  getPointerFall: () => FloatNode | null,
+  ndc: Vec2Node,
 ) {
   return Fn(() => {
+    // Read at build time, not at the call: the positionNode closure that creates this varying
+    // runs only when the vertex stage is built, after buildWaveMaterial has returned.
+    const pointerFall = getPointerFall();
+    if (flags.pointerFx && !pointerFall) {
+      throw new Error("wave: the pointer varying was not created before the fragment built");
+    }
     const vUv = uv();
+    // The disintegration front: drop the chunks it has already eaten, before any shading work.
+    if (flags.dissolve) Discard(dissolved(u, vUv, ndc));
     const vWorldPos = positionWorld;
     const vViewDir = cameraPosition.sub(vWorldPos).toVar("vViewDir");
 

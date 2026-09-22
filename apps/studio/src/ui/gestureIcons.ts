@@ -27,6 +27,16 @@ const DIVIDER = '<path d="M3.6 6.95h8.8"/>';
 export const GESTURE_ICONS = {
   /** Left button filled. */
   left: mouse(`${LEFT_BUTTON}${DIVIDER}`),
+  /**
+   * Left button filled, with two arcs coming off it: the same button, pressed twice.
+   *
+   * Emanation arcs rather than a numeral or dots — at 16px a "2" is a smudge, and a pair of dots
+   * beside the body just reads as a stray colon. Nested arcs are the same "something happened here,
+   * more than once" mark a click or a signal already uses.
+   */
+  doubleLeft: mouse(
+    `${LEFT_BUTTON}${DIVIDER}<path d="M3 5Q1.9 6.6 3 8.2"/><path d="M1.75 3.6Q-.15 6.6 1.75 9.6"/>`,
+  ),
   /** Right button filled. */
   right: mouse(`${RIGHT_BUTTON}${DIVIDER}`),
   /** Scroll wheel filled, both buttons empty. */
