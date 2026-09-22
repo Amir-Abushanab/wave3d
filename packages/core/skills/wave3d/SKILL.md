@@ -341,7 +341,18 @@ The shell shows a poster immediately, then crossfades to the live wave.
   `@wave3d/vite/client` for React / `createWave`. Re-snapshots over HMR; `vite build` just uses the
   committed file.
 - **`onFallback(reason)`** fires when the shell keeps the poster instead of upgrading; reasons:
-  `"no-webgl" | "reduced-motion" | "save-data" | "context-lost" | "load-error"`.
+  `"no-webgl" | "software-renderer" | "reduced-motion" | "save-data" | "context-lost" |
+"load-error"`.
+- **`webgl="auto"` upgrades only onto a GPU.** A software rasteriser (SwiftShader, llvmpipe) keeps
+  the poster and reports `"software-renderer"` — it can run the wave, at roughly 2 fps with seconds
+  of blocked main thread, which is worse for the page than the still it already has. Use
+  `webgl="force"` if you want the live render anyway. `probeWebGL()` and `isSoftwareRenderer(gl)`
+  are exported for pages that need the same answer for their own reasons; note that an unreadable
+  renderer string counts as HARDWARE, because the extension is hidden under some privacy settings
+  and guessing "software" there downgrades people silently.
+- **`paused` does not decline the upgrade.** It stops FRAMES: the engine is still fetched, the
+  renderer still builds, ready still fires and the poster is still swapped for a static canvas.
+  `webgl="off"` is the one that keeps the poster and builds nothing.
 - **`onStateChange(state)`**: `"poster" → "loading" → "running"`, or `"fallback"`.
 
 ## Performance

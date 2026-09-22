@@ -1,7 +1,7 @@
 import type { StudioConfig } from "../config/model";
 import type { WaveRenderer, WaveRendererOptions } from "../renderer/WaveRenderer";
 import type { TiltStatus } from "../renderer/tilt";
-import { hasWebGL, hasWebGPU, prefersReducedMotion, prefersReducedData } from "./probe";
+import { probeWebGL, hasWebGPU, prefersReducedMotion, prefersReducedData } from "./probe";
 import { setupPoster, ensurePositioned, type Poster, type PosterFit } from "./poster";
 
 export type { PosterFit } from "./poster";
@@ -9,6 +9,10 @@ export type { PosterFit } from "./poster";
 /** Why the shell showed the poster instead of a live wave. */
 export type FallbackReason =
   | "no-webgl"
+  /** WebGL exists, but it is a software rasteriser — the poster is the better answer. Distinct from
+   *  `"no-webgl"` on purpose: a page that wants to say "your browser cannot do this" and one that
+   *  wants to say "this machine has no GPU" are different messages. */
+  | "software-renderer"
   | "reduced-motion"
   | "save-data"
   | "context-lost"
@@ -31,7 +35,16 @@ export interface WaveOptions {
   lazy?: boolean;
   /** IntersectionObserver margin for the lazy trigger. Default "200px". */
   rootMargin?: string;
-  /** "auto" probes WebGL (with failIfMajorPerformanceCaveat); "force" skips the probe; "off" stays a poster. */
+  /**
+   * - `"auto"` (default) — probe, and upgrade only onto a GPU. A software rasteriser (SwiftShader,
+   *   llvmpipe) keeps the poster and reports `"software-renderer"`: it can technically run the
+   *   wave, at around 2 fps with seconds of blocked main thread, which is worse for the page than
+   *   the still it already has.
+   * - `"force"` — skip the probe entirely and upgrade regardless. This is the escape hatch if you
+   *   genuinely want the live render on a software renderer.
+   * - `"off"` — stay a poster. THIS is how you decline the upgrade; `paused` does not, it keeps the
+   *   whole renderer and only stops the frames.
+   */
   webgl?: "auto" | "force" | "off";
   /**
    * Which renderer backend to use.
@@ -53,7 +66,14 @@ export interface WaveOptions {
   respectSaveData?: boolean;
   /** Poster→canvas crossfade duration (ms). Default 300. */
   fadeMs?: number;
-  /** Start paused. */
+  /**
+   * Start paused.
+   *
+   * This stops FRAMES; it does not decline the upgrade. The engine is still fetched, the renderer
+   * still builds, `wave3d-ready` still fires, state still reaches `"running"` and the poster is
+   * still swapped out for a (static) canvas. If what you want is "keep the still and do nothing",
+   * that is `webgl: "off"`.
+   */
   paused?: boolean;
   onReady?(renderer: WaveRenderer): void;
   onFallback?(reason: FallbackReason): void;
@@ -266,9 +286,13 @@ export function createWaveImpl(
 
   function probeAndUpgrade(): void {
     if (aborted) return;
-    if (webgl === "auto" && !hasWebGL()) {
-      fallback("no-webgl");
-      return;
+    if (webgl === "auto") {
+      // One probe, two outcomes. Software is NOT folded into "no-webgl": the consumer asked to be
+      // told why, and "this machine has no GPU" is a different thing to say than "your browser
+      // cannot do this".
+      const probe = probeWebGL();
+      if (probe === "none") return fallback("no-webgl");
+      if (probe === "software") return fallback("software-renderer");
     }
     void upgrade();
   }
