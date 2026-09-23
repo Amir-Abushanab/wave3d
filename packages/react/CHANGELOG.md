@@ -1,5 +1,12 @@
 # @wave3d/react
 
+## 0.11.1
+
+### Patch Changes
+
+- Updated dependencies [[`dcef321`](https://github.com/Amir-Abushanab/wave3d/commit/dcef321dc3b393b37a4f729a0a7e00ae4f50cc38)]:
+  - @wave3d/core@0.11.1
+
 ## 0.11.0
 
 ### Patch Changes
