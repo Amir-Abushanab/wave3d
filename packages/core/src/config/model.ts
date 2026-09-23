@@ -72,6 +72,17 @@ export interface LightConfig {
   position: Vec3;
   color: string;
   intensity: number;
+  /**
+   * How far the light reaches, measured on the SCREEN plane, in world units: past this distance
+   * from the light's own projection the contribution fades to nothing (a smoothstep). Absent or 0
+   * = unlimited, which is the light as it always was — shaded by angle alone, no falloff.
+   *
+   * On the view plane rather than in 3D on purpose. A light that follows something on the page (a
+   * button, the cursor) wants a pool of a fixed on-screen size, and the ribbon's depth under any
+   * one spot varies by thousands of units across the sheet: a world-space range would give a pool
+   * that swells, shrinks and vanishes as the surface rolls under it, where this one holds.
+   */
+  spread?: number;
 }
 
 /** A default light; pass overrides for added fill lights. */
@@ -1341,7 +1352,7 @@ function num(v: unknown, dflt: number): number {
  * field below directly, so one hand-authored `"lights": [{}]` was enough to make the whole control
  * panel unbuildable. Entries that aren't objects at all are dropped.
  */
-function normalizeLights(config: StudioConfig): void {
+export function normalizeLights(config: StudioConfig): void {
   config.lights = config.lights.filter((l) => typeof l === "object" && l !== null);
   for (const l of config.lights) {
     if (typeof l.position !== "object" || l.position === null) {
@@ -1352,6 +1363,8 @@ function normalizeLights(config: StudioConfig): void {
     l.position.z = num(l.position.z, DEFAULT_LIGHT_POSITION.z);
     if (typeof l.color !== "string") l.color = "#ffffff";
     l.intensity = num(l.intensity, 1);
+    // Absent stays absent (off = byte-identical); present must be a finite radius.
+    if (l.spread !== undefined) l.spread = Math.max(0, num(l.spread, 0));
   }
 }
 

@@ -6,8 +6,8 @@
 import * as THREE from "three";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { TransformControls } from "three/addons/controls/TransformControls.js";
-import { WaveRenderer, hexToLinearVec3 } from "../renderer/WaveRenderer";
-import { createLight, DEFAULT_LIGHT_POSITION, MAX_LIGHTS } from "../config/model";
+import { WaveRenderer } from "../renderer/WaveRenderer";
+import { createLight, DEFAULT_LIGHT_POSITION } from "../config/model";
 import type { LightConfig, PathPoint } from "../config/model";
 import { isClosedPath, samplePath, straightPath } from "../renderer/wavePath";
 import { RIBBON_HALF_WIDTH } from "../renderer/WaveGeometry";
@@ -1559,7 +1559,7 @@ export class StudioWaveRenderer extends WaveRenderer {
     light.position.x = roundTo(h.position.x, 2);
     light.position.y = roundTo(h.position.y, 2);
     light.position.z = roundTo(h.position.z, 2);
-    this.pushLightUniforms();
+    this.setLights(this.config.lights ?? []);
     this.onLightsChanged?.(this.selectedLight);
   }
 
@@ -1741,29 +1741,6 @@ export class StudioWaveRenderer extends WaveRenderer {
       this.orbit.target.set(t.x, t.y, t.z);
       this.orbit.update();
     }
-  }
-
-  /** Push only the light uniforms (used live during a gizmo drag). */
-  private pushLightUniforms(): void {
-    const lights = this.config.lights ?? [];
-    for (const wave of this.waves) {
-      const u = wave.material.uniforms;
-      u.uNumLights.value = Math.min(lights.length, MAX_LIGHTS);
-      const lPos = u.uLightPos.value as THREE.Vector3[];
-      const lCol = u.uLightColor.value as THREE.Vector3[];
-      const lInt = u.uLightIntensity.value as number[];
-      for (let li = 0; li < MAX_LIGHTS; li++) {
-        const light = lights[li];
-        if (light) {
-          lPos[li].set(light.position.x, light.position.y, light.position.z);
-          hexToLinearVec3(light.color, lCol[li]);
-          lInt[li] = light.intensity;
-        } else {
-          lInt[li] = 0;
-        }
-      }
-    }
-    if (!this.running) this.renderOnce();
   }
 
   // ---- Hook overrides: plug the editor behavior into the base render pipeline (5 hook points) ----

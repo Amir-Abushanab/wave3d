@@ -97,6 +97,17 @@ describe("ensureStudioConfig repairs configs that used to break the panel", () =
     assertBindableLeaves(c);
   });
 
+  it("repairs a light's spread when present, and leaves it absent when absent", () => {
+    const c = ensureStudioConfig(
+      hostile({ waves: [{}], lights: [{ spread: "x" }, { spread: -5 }, { spread: 280 }, {}] }),
+    );
+    expect(c.lights[0].spread).toBe(0);
+    expect(c.lights[1].spread).toBe(0);
+    expect(c.lights[2].spread).toBe(280);
+    expect("spread" in c.lights[3]).toBe(false); // off = byte-identical
+    assertBindableLeaves(c.lights);
+  });
+
   it("replaces NaN and Infinity, which pass a typeof check but poison the shader", () => {
     const c = ensureStudioConfig(
       hostile({ waves: [{ displaceAmount: NaN }], grain: NaN, quality: Infinity }),

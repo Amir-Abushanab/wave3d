@@ -58,8 +58,16 @@ import {
   MAX_MESH_POINTS,
   MAX_NOISE_BANDS,
   ensureStudioConfig,
+  normalizeLights,
 } from "../config/model";
-import type { StudioConfig, WaveConfig, BlendMode, CameraFit, DissolveAxis } from "../config/model";
+import type {
+  StudioConfig,
+  WaveConfig,
+  BlendMode,
+  CameraFit,
+  DissolveAxis,
+  LightConfig,
+} from "../config/model";
 
 /** Which fragment program a wave's theme wants. */
 function fragmentFor(sc: WaveConfig | undefined): string {
@@ -591,6 +599,7 @@ export class WaveRenderer {
     const lightPos: THREE.Vector3[] = [];
     const lightColor: THREE.Vector3[] = [];
     const lightIntensity: number[] = [];
+    const lightSpread: number[] = Array.from({ length: MAX_LIGHTS }, () => 0);
     for (let i = 0; i < MAX_LIGHTS; i++) {
       lightPos.push(new THREE.Vector3());
       lightColor.push(new THREE.Vector3(1, 1, 1));
@@ -690,6 +699,9 @@ export class WaveRenderer {
       uGlassFusion: { value: 0 },
       uGlassCaustic: { value: 0.4 },
       uViewAxis: { value: new THREE.Vector3(0, 0, 1) },
+      // The camera's screen axes (matrixWorld columns), for a light's `spread` — see pushViewAxis().
+      uViewRight: { value: new THREE.Vector3(1, 0, 0) },
+      uViewUp: { value: new THREE.Vector3(0, 1, 0) },
       uOpacity: { value: 1 },
       uSquared: { value: 1 }, // "squared" deep-colour mode: square the colour in-shader (see applyBlendMode)
       // Seed from the CURRENT drawing buffer, not (1,1): resize() is the only other writer, so a wave
@@ -702,6 +714,7 @@ export class WaveRenderer {
       uLightPos: { value: lightPos },
       uLightColor: { value: lightColor },
       uLightIntensity: { value: lightIntensity },
+      uLightSpread: { value: lightSpread },
       uNumNoiseBands: { value: 0 },
       uNoiseBandBounds: { value: bandBounds },
       uNoiseBandParams: { value: bandParams },
@@ -1200,22 +1213,8 @@ export class WaveRenderer {
         u.uGlassCaustic.value = sc.glassCaustic ?? 0.4;
       }
       // Lights + ambient are scene-level (shared by every wave).
-      const lights = this.config.lights ?? [];
       u.uAmbient.value = this.config.ambient ?? 0.45;
-      u.uNumLights.value = Math.min(lights.length, MAX_LIGHTS);
-      const lPos = u.uLightPos.value as THREE.Vector3[];
-      const lCol = u.uLightColor.value as THREE.Vector3[];
-      const lInt = u.uLightIntensity.value as number[];
-      for (let li = 0; li < MAX_LIGHTS; li++) {
-        const light = lights[li];
-        if (light) {
-          lPos[li].set(light.position.x, light.position.y, light.position.z);
-          hexToLinearVec3(light.color, lCol[li]);
-          lInt[li] = light.intensity;
-        } else {
-          lInt[li] = 0;
-        }
-      }
+      this.writeLightUniforms(u, this.config.lights ?? []);
       // Noise bands (per-region fiber overrides) — per wave
       const bands = sc.noiseBands ?? [];
       u.uNumNoiseBands.value = Math.min(bands.length, MAX_NOISE_BANDS);
@@ -2091,15 +2090,24 @@ export class WaveRenderer {
    *  The texture MUST be unbound while we render into it: binding a target as a texture while it is
    *  the render target is a framebuffer feedback loop, and the frame is undefined. */
   /** The world axis from a surface toward the camera. Constant under an orthographic projection,
-   *  which is exactly why it is a uniform rather than something the shader derives per fragment. */
+   *  which is exactly why it is a uniform rather than something the shader derives per fragment.
+   *  The camera's right and up go with it: a light's `spread` measures distance on the screen
+   *  plane, and these two axes are that plane. */
   private pushViewAxis(): void {
+    // getWorldDirection() refreshed matrixWorld, so its columns are current.
     const fwd = this.camera.getWorldDirection(this.viewAxisTmp).multiplyScalar(-1);
+    const right = this.viewRightTmp.setFromMatrixColumn(this.camera.matrixWorld, 0).normalize();
+    const up = this.viewUpTmp.setFromMatrixColumn(this.camera.matrixWorld, 1).normalize();
     for (const w of this.waves) {
       (w.material.uniforms.uViewAxis.value as THREE.Vector3).copy(fwd);
+      (w.material.uniforms.uViewRight.value as THREE.Vector3).copy(right);
+      (w.material.uniforms.uViewUp.value as THREE.Vector3).copy(up);
     }
   }
 
   private viewAxisTmp = new THREE.Vector3();
+  private viewRightTmp = new THREE.Vector3();
+  private viewUpTmp = new THREE.Vector3();
   private empty?: THREE.DataTexture;
   private backdropClear = new THREE.Color();
   private prevClear = new THREE.Color();
@@ -2823,6 +2831,43 @@ export class WaveRenderer {
 
   getConfig(): StudioConfig {
     return this.config;
+  }
+
+  /**
+   * Replace the scene's lights and push ONLY their uniforms — no config re-normalisation, no
+   * camera reset, no palette work — so it is safe to call every frame for a light that follows
+   * something on the page (a button, the cursor). `setConfig()` / the handle's `set()` do the
+   * whole refresh; this is the narrow path the studio's light gizmo has always used. The lights
+   * are repaired in place the way a loaded config's are (`normalizeLights`), so a bad entry can't
+   * reach the shader.
+   */
+  setLights(lights: LightConfig[]): void {
+    this.config.lights = lights;
+    normalizeLights(this.config);
+    for (const wave of this.waves)
+      this.writeLightUniforms(wave.material.uniforms, this.config.lights);
+    if (!this.running) this.renderOnce();
+  }
+
+  /** The light uniforms for one wave, from a light list: the one writer shared by refresh() and
+   *  setLights(), so the two can't disagree. Slots past the list are switched off, not cleared. */
+  private writeLightUniforms(u: Wave["material"]["uniforms"], lights: LightConfig[]): void {
+    u.uNumLights.value = Math.min(lights.length, MAX_LIGHTS);
+    const lPos = u.uLightPos.value as THREE.Vector3[];
+    const lCol = u.uLightColor.value as THREE.Vector3[];
+    const lInt = u.uLightIntensity.value as number[];
+    const lSpread = u.uLightSpread.value as number[];
+    for (let li = 0; li < MAX_LIGHTS; li++) {
+      const light = lights[li];
+      if (light) {
+        lPos[li].set(light.position.x, light.position.y, light.position.z);
+        hexToLinearVec3(light.color, lCol[li]);
+        lInt[li] = light.intensity;
+        lSpread[li] = light.spread ?? 0;
+      } else {
+        lInt[li] = 0;
+      }
+    }
   }
 
   setConfig(config: StudioConfig): void {

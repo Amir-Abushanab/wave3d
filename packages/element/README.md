@@ -59,6 +59,10 @@ wave.addEventListener("wave3d-ready", async () => {
 
 `handle.snapshot(options?)` resolves `null` until the wave is running. Options: `type` (default `"image/webp"`), `quality`, `transparent` (default `true`), and `time` (a fixed animation time — pass `0` for the frame the wave opens on, so the poster matches the first live frame).
 
+## Light the wave from the page
+
+`wave.handle.setLights(lights)` replaces the scene's `lights` and pushes only their uniforms, so it is safe to call every frame for a light that tracks a button or the cursor (`handle.set()` re-normalises the whole config). A light's optional `spread` is its reach measured on the screen plane, in world units: past it the light fades to nothing however deep the ribbon runs, so the pool keeps one size on screen. Absent or `0` is unlimited.
+
 ### Capture at the pixel ratio it will be shown at
 
 `snapshot()` returns the canvas at its **backing-store** size, which is the element's CSS size times the device pixel ratio (capped by `dprMax`). If you generate posters in a headless browser, that browser's `deviceScaleFactor` therefore decides the poster's resolution — and the default is `1`.

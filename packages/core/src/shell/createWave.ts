@@ -1,4 +1,4 @@
-import type { StudioConfig } from "../config/model";
+import type { LightConfig, StudioConfig } from "../config/model";
 import type { WaveRenderer, WaveRendererOptions } from "../renderer/WaveRenderer";
 import type { TiltStatus } from "../renderer/tilt";
 import { probeWebGL, hasWebGPU, prefersReducedMotion, prefersReducedData } from "./probe";
@@ -106,6 +106,12 @@ export interface WaveHandle {
   /** Feed a `custom:<name>` interaction input for `custom:*` bindings. Staged (last value per name)
    *  before upgrade and replayed once the renderer is live; a no-op if no binding consumes it. */
   setInteractionInput(name: string, value: number): void;
+  /** Replace the scene's lights, cheaply: only the light uniforms are pushed, where {@link set}
+   *  re-normalises the whole config and re-seats the camera. Safe to call every frame, which is
+   *  what a light that follows something on the page (a button, the cursor) needs; give such a
+   *  light a `spread` so its pool keeps one size on screen however deep the surface runs. Staged
+   *  before upgrade and applied with the config once the renderer is live. */
+  setLights(lights: LightConfig[]): void;
   /**
    * Explicitly ask for the device-orientation sensor. OPTIONAL, and on iOS it opens a modal
    * permission dialog — nothing calls it for you, and a decorative scene should simply go without
@@ -344,6 +350,10 @@ export function createWaveImpl(
     setInteractionInput(name, value) {
       if (renderer) renderer.setInteractionInput(name, value);
       else stagedInputs.set(name, value);
+    },
+    setLights(lights) {
+      if (renderer) renderer.setLights(lights);
+      else staged = { ...staged, lights };
     },
     enableTilt() {
       if (renderer) return renderer.enableTilt();
