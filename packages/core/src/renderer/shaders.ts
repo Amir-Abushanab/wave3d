@@ -546,7 +546,23 @@ varying vec4 vClipPosition; // = gl_Position, for the wireframe theme's depth fa
 #ifdef VERTEX_NORMAL
 attribute vec4 positionU; // next vertex across the width: xyz = base position, w = signed uv.x step
 attribute vec4 positionV; // next vertex along the length, likewise (w = signed uv.y step)
+// One ring further out, for the normal's own derivative: each neighbour's next step in its own
+// direction (w = that step) and the diagonal both share.
+attribute vec4 positionUU;
+attribute vec4 positionVV;
+attribute vec3 positionUV;
+uniform vec2 uResolution;
 varying vec3 vNormal;     // world space, unit length; zero where the surface is degenerate
+// The surface derivatives the caustic differentiates ALONG, all per unit uv and interpolated —
+// so they are continuous across shared vertices where dFdx of the interpolated normal is a
+// different constant in every triangle. Tangents in world space; the screen pair is the same
+// two tangents projected, in device pixels, which is linear under the orthographic camera.
+varying vec3 vNormalDu;
+varying vec3 vNormalDv;
+varying vec3 vTangentU;
+varying vec3 vTangentV;
+varying vec2 vScreenU;
+varying vec2 vScreenV;
 #endif
 
 // Pointer field (optional, additive) — the shared chunk, gated so a wave with no interaction config
@@ -585,11 +601,18 @@ void main(){
   WaveShape ws = waveShape(position, uv, t, loopOff);
   vec3 pos = ws.pos;
 #ifdef VERTEX_NORMAL
-  // The two neighbours through the SAME deformation (and the same pointer bump, below).
+  // The two neighbours through the SAME deformation (and the same pointer bump, below), and the
+  // ring beyond them, which the neighbours' own normals are built from.
   WaveShape wsU = waveShape(positionU.xyz, uv + vec2(positionU.w, 0.0), t, loopOff);
   WaveShape wsV = waveShape(positionV.xyz, uv + vec2(0.0, positionV.w), t, loopOff);
+  WaveShape wsUU = waveShape(positionUU.xyz, uv + vec2(positionU.w + positionUU.w, 0.0), t, loopOff);
+  WaveShape wsVV = waveShape(positionVV.xyz, uv + vec2(0.0, positionV.w + positionVV.w), t, loopOff);
+  WaveShape wsUV = waveShape(positionUV, uv + vec2(positionU.w, positionV.w), t, loopOff);
   vec3 posU = wsU.pos;
   vec3 posV = wsV.pos;
+  vec3 posUU = wsUU.pos;
+  vec3 posVV = wsVV.pos;
+  vec3 posUV = wsUV.pos;
 #endif
 
 #ifdef POINTER_FX
@@ -621,6 +644,18 @@ void main(){
   PointerHit hitV = pointerField(clipV.xy / max(clipV.w, 1.0e-6), mvp,
                                  wsV.rotA, wsV.rotB, wsV.rotC, posV, t, loopOff);
   posV += (((vec4(0.0, 1.0, 0.0, 0.0) * wsV.rotA) * wsV.rotB) * wsV.rotC).xyz * hitV.disp;
+  vec4 clipUU = mvp * vec4(posUU, 1.0);
+  PointerHit hitUU = pointerField(clipUU.xy / max(clipUU.w, 1.0e-6), mvp,
+                                  wsUU.rotA, wsUU.rotB, wsUU.rotC, posUU, t, loopOff);
+  posUU += (((vec4(0.0, 1.0, 0.0, 0.0) * wsUU.rotA) * wsUU.rotB) * wsUU.rotC).xyz * hitUU.disp;
+  vec4 clipVV = mvp * vec4(posVV, 1.0);
+  PointerHit hitVV = pointerField(clipVV.xy / max(clipVV.w, 1.0e-6), mvp,
+                                  wsVV.rotA, wsVV.rotB, wsVV.rotC, posVV, t, loopOff);
+  posVV += (((vec4(0.0, 1.0, 0.0, 0.0) * wsVV.rotA) * wsVV.rotB) * wsVV.rotC).xyz * hitVV.disp;
+  vec4 clipUV = mvp * vec4(posUV, 1.0);
+  PointerHit hitUV = pointerField(clipUV.xy / max(clipUV.w, 1.0e-6), mvp,
+                                  wsUV.rotA, wsUV.rotB, wsUV.rotC, posUV, t, loopOff);
+  posUV += (((vec4(0.0, 1.0, 0.0, 0.0) * wsUV.rotA) * wsUV.rotB) * wsUV.rotC).xyz * hitUV.disp;
 #endif
 #endif
 
@@ -628,10 +663,26 @@ void main(){
   {
     // Tangents transform covariantly, so mat3(modelMatrix) is right for any scale — a normal would
     // need its inverse transpose. sign(w) undoes the backward step the last row and column take.
-    vec3 tU = mat3(modelMatrix) * ((posU - pos) * sign(positionU.w));
-    vec3 tV = mat3(modelMatrix) * ((posV - pos) * sign(positionV.w));
+    mat3 M = mat3(modelMatrix);
+    vec3 tU = M * ((posU - pos) * sign(positionU.w));
+    vec3 tV = M * ((posV - pos) * sign(positionV.w));
     vec3 n = cross(tU, tV);
     vNormal = n / max(length(n), 1.0e-9);
+    // The same normal at each neighbour, from ITS two tangents (dividing by the signed step both
+    // orients and scales them per unit uv), and the difference back to this vertex as dN/du,
+    // dN/dv. At the last column or row the outer hop folds back onto this vertex, so the
+    // neighbour's tangent equals ours and the derivative there is zero — a flat boundary.
+    vTangentU = M * ((posU - pos) / positionU.w);
+    vTangentV = M * ((posV - pos) / positionV.w);
+    vec3 nU = cross(M * ((posUU - posU) / positionUU.w), M * ((posUV - posU) / positionV.w));
+    vec3 nV = cross(M * ((posUV - posV) / positionU.w), M * ((posVV - posV) / positionVV.w));
+    vNormalDu = (nU / max(length(nU), 1.0e-9) - vNormal) / positionU.w;
+    vNormalDv = (nV / max(length(nV), 1.0e-9) - vNormal) / positionV.w;
+    // Where a unit step in u and in v lands on screen, in device pixels. The camera is
+    // orthographic, so a direction projects linearly and the pair interpolates exactly.
+    mat4 pv = projectionMatrix * viewMatrix;
+    vScreenU = (pv * vec4(vTangentU, 0.0)).xy * 0.5 * uResolution;
+    vScreenV = (pv * vec4(vTangentV, 0.0)).xy * 0.5 * uResolution;
   }
 #endif
 
@@ -926,6 +977,12 @@ varying vec3 vViewDir;
 varying vec4 vClipPosition;
 #ifdef VERTEX_NORMAL
 varying vec3 vNormal;
+varying vec3 vNormalDu;   // the surface derivatives the caustic differentiates along — see the vertex
+varying vec3 vNormalDv;
+varying vec3 vTangentU;
+varying vec3 vTangentV;
+varying vec2 vScreenU;    // a unit uv step on screen, in device pixels
+varying vec2 vScreenV;
 #endif
 
 #ifdef DISSOLVE
@@ -1105,10 +1162,26 @@ void main(){
     // A ±3 px central difference — the baseline the normal-buffer stencil had. The map's fold is a
     // pole in 1/|det J|, and a one-pixel difference lands so close to it that rounding alone moved
     // the bright band between the two backends; six pixels of baseline keep them on the same side.
+#ifdef VERTEX_NORMAL
+    // The steps come from the interpolated SURFACE derivatives (dN/du, dN/dv, the two tangents,
+    // and where a unit uv step lands on screen — all varyings, so continuous across shared
+    // vertices), chained through the inverse of the (u, v) → pixel map. dFdx of the interpolated
+    // normal is exact too, but it is a different constant in every triangle, and that same pole
+    // amplified each jump into a visible cell: the caustic drew the mesh.
+    float sDet = vScreenU.x * vScreenV.y - vScreenV.x * vScreenU.y;
+    sDet = (sDet < 0.0 ? -1.0 : 1.0) * max(abs(sDet), 1.0e-6); // edge-on: bounded, not NaN
+    vec2 duvdx = vec2(vScreenV.y, -vScreenU.y) / sDet; // d(u, v) per pixel along x
+    vec2 duvdy = vec2(-vScreenV.x, vScreenU.x) / sDet; // and along y
+    vec3 dNx = (vNormalDu * duvdx.x + vNormalDv * duvdx.y) * 3.0;
+    vec3 dNy = (vNormalDu * duvdy.x + vNormalDv * duvdy.y) * 3.0;
+    vec3 dPx = (vTangentU * duvdx.x + vTangentV * duvdx.y) * 3.0;
+    vec3 dPy = (vTangentU * duvdy.x + vTangentV * duvdy.y) * 3.0;
+#else
     vec3 dNx = dFdx(rawN) * 3.0;
     vec3 dNy = dFdy(rawN) * 3.0;
     vec3 dPx = dFdx(vWorldPos) * 3.0;
     vec3 dPy = dFdy(vWorldPos) * 3.0;
+#endif
     vec2 dOdx = (glassOffset(rawN + dNx, vWorldPos + dPx, V)
                - glassOffset(rawN - dNx, vWorldPos - dPx, V)) / 6.0;
     vec2 dOdy = (glassOffset(rawN + dNy, vWorldPos + dPy, V)

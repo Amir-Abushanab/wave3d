@@ -141,15 +141,37 @@ export class WaveGeometry {
     // the fragment's dFdx normal is constant per triangle, and a 120 px refraction turns every
     // triangle edge into a seam. The last column and row step BACKWARD; the sign in `w` lets the
     // shader flip that tangent so the normal keeps its orientation. Read only under VERTEX_NORMAL.
+    //
+    // And one ring further out, for the normal's own derivative: the U neighbour's U neighbour,
+    // the V neighbour's V neighbour, and the diagonal they share (U's V neighbour is V's U
+    // neighbour — the steps depend only on the column and the row). With those the vertex stage
+    // can build the normal at both neighbours too, and hand the fragment dN/du and dN/dv as
+    // varyings. The glass caustic is the Jacobian of the refraction, and taking it from dFdx of
+    // the interpolated normal gave a different slope in every triangle — the fold's pole in
+    // 1/|det J| turned each jump into a visible cell, so the caustic drew the mesh. The uv steps of
+    // the outer hops ride in `w` as before; the diagonal's steps are the vertex's own.
     const nU = new Float32Array(pos.count * 4);
     const nV = new Float32Array(pos.count * 4);
+    const nUU = new Float32Array(pos.count * 4);
+    const nVV = new Float32Array(pos.count * 4);
+    const nUV = new Float32Array(pos.count * 3);
+    const nextCol = (ix: number) => (ix < subX ? ix + 1 : ix - 1);
+    const nextRow = (iy: number) => (iy < subY ? iy + 1 : iy - 1);
     for (let iy = 0; iy <= subY; iy++) {
       for (let ix = 0; ix <= subX; ix++) {
         const i = iy * cols + ix;
-        const iU = iy * cols + (ix < subX ? ix + 1 : ix - 1);
-        const iV = (iy < subY ? iy + 1 : iy - 1) * cols + ix;
+        const ixU = nextCol(ix);
+        const iyV = nextRow(iy);
+        const iU = iy * cols + ixU;
+        const iV = iyV * cols + ix;
+        const iUU = iy * cols + nextCol(ixU);
+        const iVV = nextRow(iyV) * cols + ix;
+        const iUV = iyV * cols + ixU;
         nU.set([pos.getX(iU), pos.getY(iU), pos.getZ(iU), uv.getX(iU) - uv.getX(i)], i * 4);
         nV.set([pos.getX(iV), pos.getY(iV), pos.getZ(iV), uv.getY(iV) - uv.getY(i)], i * 4);
+        nUU.set([pos.getX(iUU), pos.getY(iUU), pos.getZ(iUU), uv.getX(iUU) - uv.getX(iU)], i * 4);
+        nVV.set([pos.getX(iVV), pos.getY(iVV), pos.getZ(iVV), uv.getY(iVV) - uv.getY(iV)], i * 4);
+        nUV.set([pos.getX(iUV), pos.getY(iUV), pos.getZ(iUV)], i * 3);
       }
     }
 
@@ -160,6 +182,9 @@ export class WaveGeometry {
     this.geometry.setAttribute("normal", plane.getAttribute("normal"));
     this.geometry.setAttribute("positionU", new THREE.BufferAttribute(nU, 4));
     this.geometry.setAttribute("positionV", new THREE.BufferAttribute(nV, 4));
+    this.geometry.setAttribute("positionUU", new THREE.BufferAttribute(nUU, 4));
+    this.geometry.setAttribute("positionVV", new THREE.BufferAttribute(nVV, 4));
+    this.geometry.setAttribute("positionUV", new THREE.BufferAttribute(nUV, 3));
     this.geometry.computeBoundingSphere();
     plane.dispose();
   }

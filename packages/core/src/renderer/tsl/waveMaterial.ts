@@ -196,8 +196,10 @@ export function buildWaveMaterial(u: WaveTslUniforms, flags: WaveMaterialFlags):
   let pointerFall: FloatNode | null = null;
   // The vertex normal (glass): finite differences of the SAME deformation at the two baked grid
   // neighbours, so it follows every twist, path and pointer bump exactly and interpolates smoothly
-  // across the mesh — where dFdx of the position is constant per triangle. See the GLSL.
-  let vertexNormal: Vec3Node | null = null;
+  // across the mesh — where dFdx of the position is constant per triangle. With it, the surface
+  // derivatives the caustic differentiates along (dN/du, dN/dv, the two tangents, and where a
+  // unit uv step lands on screen), all interpolated. See the GLSL.
+  let vertexGlass: VertexGlassData | null = null;
 
   material.positionNode = Fn(() => {
     const { t, loopOff } = timeNodes(u, flags);
@@ -206,19 +208,34 @@ export function buildWaveMaterial(u: WaveTslUniforms, flags: WaveMaterialFlags):
       ? (() => {
           const aU = attribute("positionU", "vec4") as unknown as Vec4Node;
           const aV = attribute("positionV", "vec4") as unknown as Vec4Node;
+          // One ring further out — each neighbour's next step in its own direction, and the
+          // diagonal they share — for the normal at the neighbours themselves.
+          const aUU = attribute("positionUU", "vec4") as unknown as Vec4Node;
+          const aVV = attribute("positionVV", "vec4") as unknown as Vec4Node;
+          const aUV = attribute("positionUV", "vec3") as unknown as Vec3Node;
           const stepU = aU.w;
           const stepV = aV.w;
+          const stepUU = aUU.w;
+          const stepVV = aVV.w;
           return {
             stepU,
             stepV,
+            stepUU,
+            stepVV,
             wsU: waveShape(u, flags, aU.xyz, uv().add(vec2(stepU, 0)), t, loopOff),
             wsV: waveShape(u, flags, aV.xyz, uv().add(vec2(0, stepV)), t, loopOff),
+            wsUU: waveShape(u, flags, aUU.xyz, uv().add(vec2(stepU.add(stepUU), 0)), t, loopOff),
+            wsVV: waveShape(u, flags, aVV.xyz, uv().add(vec2(0, stepV.add(stepVV))), t, loopOff),
+            wsUV: waveShape(u, flags, aUV, uv().add(vec2(stepU, stepV)), t, loopOff),
           };
         })()
       : null;
     let pos: Vec3Node = ws.pos;
     let posU: Vec3Node | null = nb ? nb.wsU.pos : null;
     let posV: Vec3Node | null = nb ? nb.wsV.pos : null;
+    let posUU: Vec3Node | null = nb ? nb.wsUU.pos : null;
+    let posVV: Vec3Node | null = nb ? nb.wsVV.pos : null;
+    let posUV: Vec3Node | null = nb ? nb.wsUV.pos : null;
 
     if (flags.pointerFx) {
       // Displace along the wave's own (post-twist) up-axis, weighted by a screen-space falloff
@@ -253,16 +270,59 @@ export function buildWaveMaterial(u: WaveTslUniforms, flags: WaveMaterialFlags):
       if (nb) {
         posU = bump(nb.wsU.pos, nb.wsU.twists).pos;
         posV = bump(nb.wsV.pos, nb.wsV.twists).pos;
+        posUU = bump(nb.wsUU.pos, nb.wsUU.twists).pos;
+        posVV = bump(nb.wsVV.pos, nb.wsVV.twists).pos;
+        posUV = bump(nb.wsUV.pos, nb.wsUV.twists).pos;
       }
     }
 
-    if (nb && posU && posV) {
+    if (nb && posU && posV && posUU && posVV && posUV) {
       // Tangents transform covariantly, so the model matrix is right for any scale (a normal would
       // need its inverse transpose); sign(w) undoes the backward step the last row and column take.
-      const tU = modelWorldMatrix.mul(vec4(posU.sub(pos).mul(sign(nb.stepU)), 0)).xyz;
-      const tV = modelWorldMatrix.mul(vec4(posV.sub(pos).mul(sign(nb.stepV)), 0)).xyz;
+      const tU = toWorldDir(posU.sub(pos).mul(sign(nb.stepU)));
+      const tV = toWorldDir(posV.sub(pos).mul(sign(nb.stepV)));
       const n = cross(tU, tV).toVar("vtxNormal");
-      vertexNormal = varying(n.div(max(length(n), 1.0e-9)), "vNormal") as unknown as Vec3Node;
+      const unit = n.div(max(length(n), 1.0e-9)).toVar("vtxUnitNormal");
+      // The same normal at each neighbour, from ITS two tangents (dividing by the signed step
+      // both orients and scales them per unit uv), and the difference back as dN/du, dN/dv. At
+      // the last column or row the outer hop folds back onto this vertex, so the neighbour's
+      // tangent equals ours and the derivative there is zero — a flat boundary. See the GLSL.
+      const tanU = toWorldDir(posU.sub(pos).div(nb.stepU)).toVar("vtxTanU");
+      const tanV = toWorldDir(posV.sub(pos).div(nb.stepV)).toVar("vtxTanV");
+      const nU = cross(
+        toWorldDir(posUU.sub(posU).div(nb.stepUU)),
+        toWorldDir(posUV.sub(posU).div(nb.stepV)),
+      ).toVar("vtxNormalU");
+      const nV = cross(
+        toWorldDir(posUV.sub(posV).div(nb.stepU)),
+        toWorldDir(posVV.sub(posV).div(nb.stepVV)),
+      ).toVar("vtxNormalV");
+      // Where a unit step in u and in v lands on screen, in device pixels. The camera is
+      // orthographic, so a direction projects linearly and the pair interpolates exactly.
+      const pv = cameraProjectionMatrix.mul(cameraViewMatrix).toVar("vtxPv");
+      const px = (tan: Vec3Node): Vec2Node =>
+        pv.mul(vec4(tan, 0)).xy.mul(0.5).mul(u.uResolution) as unknown as Vec2Node;
+      vertexGlass = {
+        normal: vec3Varying(unit, "vNormal"),
+        normalDu: vec3Varying(
+          nU
+            .div(max(length(nU), 1.0e-9))
+            .sub(unit)
+            .div(nb.stepU),
+          "vNormalDu",
+        ),
+        normalDv: vec3Varying(
+          nV
+            .div(max(length(nV), 1.0e-9))
+            .sub(unit)
+            .div(nb.stepV),
+          "vNormalDv",
+        ),
+        tangentU: vec3Varying(tanU, "vTangentU"),
+        tangentV: vec3Varying(tanV, "vTangentV"),
+        screenU: varying(px(tanU), "vScreenU") as unknown as Vec2Node,
+        screenV: varying(px(tanV), "vScreenV") as unknown as Vec2Node,
+      };
     }
     return pos;
   })();
@@ -287,7 +347,7 @@ export function buildWaveMaterial(u: WaveTslUniforms, flags: WaveMaterialFlags):
       : flags.theme === "wireframe"
         ? buildWireframeFragment(u, flags, clipZ, () => pointerFall, ndc)
         : flags.theme === "glass"
-          ? buildGlassFragment(u, flags, ndc, () => vertexNormal)
+          ? buildGlassFragment(u, flags, ndc, () => vertexGlass)
           : buildSolidFragment(u, flags, clipZ, () => pointerFall, ndc)
   ).toVar("fragOut");
   material.outputNode = flags.premultiplied
@@ -452,13 +512,33 @@ function buildWireframeFragment(
   })();
 }
 
+/** A local direction to world space: tangents transform covariantly, so the model matrix itself
+ *  is right for any scale (a normal would need its inverse transpose). */
+const toWorldDir = (v: Vec3Node): Vec3Node =>
+  modelWorldMatrix.mul(vec4(v, 0)).xyz as unknown as Vec3Node;
+/** A named vec3 varying, typed as one. */
+const vec3Varying = (node: Vec3Node, name: string): Vec3Node =>
+  varying(node, name) as unknown as Vec3Node;
+
+/** What the vertex stage hands the glass fragment, all interpolated — see `positionNode`. */
+type VertexGlassData = {
+  normal: Vec3Node;
+  normalDu: Vec3Node;
+  normalDv: Vec3Node;
+  tangentU: Vec3Node;
+  tangentV: Vec3Node;
+  screenU: Vec2Node;
+  screenV: Vec2Node;
+};
+
 /**
  * The glass theme's twin. Structurally the same as the GLSL: bend the backdrop along the surface
  * normal, absorb the wave's own palette over a thickness, then fresnel / rim / specular on top.
  *
  * Three TSL-specific departures, all forced:
  *  - The surface normal is the interpolated vertex-stage `vNormal`, as in the GLSL, and the caustic
- *    is the screen-space Jacobian of the offset — so there is no normal pass to twin.
+ *    is the screen-space Jacobian of the offset, differentiated along the interpolated surface
+ *    derivatives — so there is no normal pass to twin.
  *  - The frost samples are unrolled in JavaScript. A Loop carrying a toVar accumulator inside
  *    another control block does not survive node generation — the accumulator gets hoisted out of
  *    scope — and building eleven taps as straight-line graph avoids the question entirely.
@@ -470,19 +550,20 @@ function buildGlassFragment(
   u: WaveTslUniforms,
   flags: WaveMaterialFlags,
   ndc: Vec2Node,
-  getVertexNormal: () => Vec3Node | null,
+  getVertexGlass: () => VertexGlassData | null,
 ) {
   return Fn(() => {
     const vUv = uv();
     if (flags.dissolve) Discard(dissolved(u, vUv, ndc));
     const vWorldPos = positionWorld;
-    // Read here, not at the call: TSL runs the positionNode closure that creates the varying only
+    // Read here, not at the call: TSL runs the positionNode closure that creates the varyings only
     // when the vertex stage is BUILT, which is after buildWaveMaterial has returned. A value taken
     // at the call is always null — and the fallback below then compiled silently, faceted.
-    const vertexNormal = getVertexNormal();
-    if (flags.vertexNormal && !vertexNormal) {
+    const vertexGlass = getVertexGlass();
+    if (flags.vertexNormal && !vertexGlass) {
       throw new Error("glass: the vertex normal varying was not created before the fragment built");
     }
+    const vertexNormal = vertexGlass?.normal ?? null;
 
     // ORTHOGRAPHIC view axis, not a per-fragment ray to the eye — column 2 of the view matrix.
     const V = normalize(u.uViewAxis).toVar("glassV");
@@ -562,15 +643,35 @@ function buildGlassFragment(
     const col = vec3(backdropAt(uvR).r, backdropAt(uvG).g, backdropAt(uvB).b).toVar("glassCol");
 
     If(u.uGlassCaustic.greaterThan(0.001), () => {
-      // One-pixel forward differences of the offset from dFdx of the INTERPOLATED normal and
-      // position — linear across a triangle, so the two backends agree on them to the bit where
-      // dFdx of the offset itself (coarse or fine, implementation-defined) split them at every
-      // steep fold. See the GLSL twin.
-      // A ±3 px central difference, the baseline the normal-buffer stencil had — see the GLSL.
-      const dNx = dFdx(rawN).mul(3).toVar("glassDNx");
-      const dNy = dFdy(rawN).mul(3).toVar("glassDNy");
-      const dPx = dFdx(vWorldPos).mul(3).toVar("glassDPx");
-      const dPy = dFdy(vWorldPos).mul(3).toVar("glassDPy");
+      // A ±3 px central difference of the offset, the baseline the normal-buffer stencil had —
+      // see the GLSL twin for the reasoning, and for why the steps come from the interpolated
+      // SURFACE derivatives rather than from dFdx of the interpolated normal: that is a different
+      // slope in every triangle, and the fold's pole in 1/|det J| drew the mesh.
+      const step = ((): { dNx: Vec3Node; dNy: Vec3Node; dPx: Vec3Node; dPy: Vec3Node } => {
+        if (!vertexGlass) {
+          return {
+            dNx: dFdx(rawN).mul(3).toVar("glassDNx"),
+            dNy: dFdy(rawN).mul(3).toVar("glassDNy"),
+            dPx: dFdx(vWorldPos).mul(3).toVar("glassDPx"),
+            dPy: dFdy(vWorldPos).mul(3).toVar("glassDPy"),
+          };
+        }
+        const { normalDu, normalDv, tangentU, tangentV, screenU: sU, screenV: sV } = vertexGlass;
+        // Invert the (u, v) → pixel map, guarded where the surface is edge-on.
+        const sDet = sU.x.mul(sV.y).sub(sV.x.mul(sU.y)).toVar("glassSDet");
+        const safe = select(sDet.lessThan(0), float(-1), float(1))
+          .mul(max(tabs(sDet), float(1.0e-6)))
+          .toVar("glassSDetSafe");
+        const duvdx = vec2(sV.y, sU.y.negate()).div(safe).toVar("glassDuvDx");
+        const duvdy = vec2(sV.x.negate(), sU.x).div(safe).toVar("glassDuvDy");
+        return {
+          dNx: normalDu.mul(duvdx.x).add(normalDv.mul(duvdx.y)).mul(3).toVar("glassDNx"),
+          dNy: normalDu.mul(duvdy.x).add(normalDv.mul(duvdy.y)).mul(3).toVar("glassDNy"),
+          dPx: tangentU.mul(duvdx.x).add(tangentV.mul(duvdx.y)).mul(3).toVar("glassDPx"),
+          dPy: tangentU.mul(duvdy.x).add(tangentV.mul(duvdy.y)).mul(3).toVar("glassDPy"),
+        };
+      })();
+      const { dNx, dNy, dPx, dPy } = step;
       const dOdx = glassOffset(rawN.add(dNx), vWorldPos.add(dPx), "Cxp")
         .sub(glassOffset(rawN.sub(dNx), vWorldPos.sub(dPx), "Cxm"))
         .div(6)
