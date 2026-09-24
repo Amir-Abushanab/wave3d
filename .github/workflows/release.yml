@@ -100,6 +100,9 @@ jobs:
       #   • create path — empty-body HttpError, nothing opened (2026-07-24, reproducible)
       #   • update path — "State cannot be changed. The pull request cannot be reopened.", when the
       #     PR it listed as open gets merged mid-run (2026-07-22, a race with a human merge)
+      # And one the guard itself caused: on the run that publishes (the version PR just merged,
+      # its branch deleted) it read the compare API's 404 as a commit count and went red AFTER a
+      # successful publish (2026-09-07, 2026-09-24). See the digits check below.
       # `gh` prints the real status, so a genuine block — e.g. the account-level "Allow GitHub
       # Actions to create and approve pull requests" toggle — surfaces as a message, not "HttpError".
       - name: Ensure Version Packages PR
@@ -113,7 +116,13 @@ jobs:
 
           # Ask the API rather than git: actions/checkout clones shallow, so a local
           # `rev-list origin/main..origin/$branch` can miss the merge base and lie.
-          ahead=$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$branch" --jq '.ahead_by' 2>/dev/null || echo "")
+          ahead=$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$branch" --jq '.ahead_by' 2>/dev/null) || ahead=""
+          # Only a count counts. `gh api` prints an error body to STDOUT, so once the version PR
+          # has merged and its branch is gone, the compare's 404 arrived here as JSON — and JSON
+          # is neither empty nor "0", so the guard went on to open a PR from a branch that no
+          # longer existed. (The fallback used to sit inside the substitution, where it could only
+          # append to that output, never replace it.)
+          case "$ahead" in *[!0-9]*) ahead="" ;; esac
 
           # No version branch, or nothing on it: there was no PR to open, so the action's outcome
           # is the whole story — a failure here was in the publish path and must stay red.
