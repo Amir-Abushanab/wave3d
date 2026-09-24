@@ -1322,6 +1322,21 @@ export class ControlPanel {
       vec(sub, light.position, "pos", { min: -3000, max: 3000, step: 25 });
       sub.addBinding(light, "color", { view: "color", label: "color" }).on("change", refresh);
       sub.addBinding(light, "intensity", { min: 0, max: 4, step: 0.01 }).on("change", refresh);
+      // Absent means unlimited and stays absent in the JSON (0 is unlimited too), so the knob edits
+      // a seeded proxy and writes back only a reach that was set — the glass knobs' pattern.
+      const spreadProxy = { spread: light.spread ?? 0 };
+      sub
+        .addBinding(spreadProxy, "spread", {
+          min: 0,
+          max: 3000,
+          step: 25,
+          label: "spread (0 = unlimited)",
+        })
+        .on("change", () => {
+          if (spreadProxy.spread > 0) light.spread = spreadProxy.spread;
+          else delete light.spread;
+          refresh();
+        });
       if (cfg.lights.length > 1) {
         sub.addButton({ title: "remove this light" }).on("click", () => {
           cfg.lights.splice(i, 1);

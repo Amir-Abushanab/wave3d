@@ -203,6 +203,13 @@ hatching however it is posed. `lineLight` (0..1) shades it with the same derivat
 one strand and not its neighbour — which is what separates combed thread from print. One knob, not
 three: shading a flat stripe barely reads, so the rounding is not optional to it. Default 0.
 
+**Scene `lights` (up to 8: `{ position, color, intensity, spread? }`, plus `ambient`) shade the solid
+theme and a lit wireframe; glass ignores them.** `spread` bounds a light on the screen plane: past that
+many world units from its own spot on the canvas it fades out, whatever the depth of the surface there
+— the knob for a light that follows a button or the cursor (absent / 0 = unlimited). Move such a light
+with `handle.setLights(lights)`, which pushes only the light uniforms and is safe every frame;
+`handle.set()` re-normalises the whole config and re-seats the camera.
+
 **`lineDerivativePower` decides whether a close-framed wave has any ink.** It scales strand thickness
 by the screen-space uv derivative, which is right for a ribbon seen whole (strands thicken where the
 surface turns away, which reads as light on a curve). But the bigger a sheet gets on screen the

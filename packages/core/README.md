@@ -24,7 +24,13 @@ import { createWave } from "@wave3d/core";
 const handle = createWave(document.getElementById("wave"), config, {
   poster: "/wave.png",
 });
-// handle.set(nextConfig) · handle.pause() · handle.play() · handle.snapshot() · handle.destroy()
+// handle.set(nextConfig) · handle.setLights(lights) · handle.pause() · handle.play() · handle.snapshot() · handle.destroy()
+```
+
+A light that follows the page: `handle.setLights(lights)` replaces the scene's `lights` and pushes only their uniforms, so it is safe every frame (`set()` re-normalises the whole config). Give such a light a `spread` — its reach measured on the screen plane, in world units — and its pool keeps one size on screen however deep the ribbon runs under it; absent or `0` is unlimited, the light as it always was.
+
+```ts
+handle.setLights([{ position: toWorld(x, y), color: "#36c6ff", intensity: 4, spread: 280 }]);
 ```
 
 Capture the live frame as an image you can host and reuse as the poster for reduced-motion, no-WebGL, and Save-Data visitors:

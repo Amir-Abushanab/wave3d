@@ -723,6 +723,9 @@ uniform int uNumLights;
 uniform vec3 uLightPos[MAX_LIGHTS];
 uniform vec3 uLightColor[MAX_LIGHTS];
 uniform float uLightIntensity[MAX_LIGHTS];
+uniform float uLightSpread[MAX_LIGHTS];   // screen-plane reach, world units; 0 = unlimited
+uniform vec3 uViewRight;                  // the camera's screen axes, for the spread's projected distance
+uniform vec3 uViewUp;
 uniform int uNumNoiseBands;
 uniform vec4 uNoiseBandBounds[MAX_NOISE_BANDS];  // (startX, endX, startY, endY)
 uniform vec4 uNoiseBandParams[MAX_NOISE_BANDS];  // (feather, strength, frequency, colorAttenuation)
@@ -861,6 +864,13 @@ void main(){
       if (i >= uNumLights) break;
       vec3 L = normalize(uLightPos[i] - vWorldPos);
       vec3 lc = uLightColor[i] * uLightIntensity[i];
+      // Spread: fade the light out past a radius measured on the screen plane, so a light that
+      // tracks something on the page keeps a pool of one size however deep the surface runs.
+      if (uLightSpread[i] > 0.0) {
+        vec3 dW = vWorldPos - uLightPos[i];
+        float d = length(vec2(dot(dW, uViewRight), dot(dW, uViewUp)));
+        lc *= 1.0 - smoothstep(0.0, uLightSpread[i], d);
+      }
       float diff = max(dot(N, L), 0.0);
       float spec = pow(max(dot(N, normalize(L + Vd)), 0.0), 28.0);
       col += col * diff * lc * 0.16 + spec * lc * 0.10;
@@ -968,6 +978,7 @@ uniform int uNumLights;
 uniform vec3 uLightPos[MAX_LIGHTS];
 uniform vec3 uLightColor[MAX_LIGHTS];
 uniform float uLightIntensity[MAX_LIGHTS];
+uniform float uLightSpread[MAX_LIGHTS];   // screen-plane reach, world units; 0 = unlimited
 uniform float uEdgeFeather;
 uniform float uEdgeFade;
 
@@ -1356,6 +1367,9 @@ uniform int uNumLights;
 uniform vec3 uLightPos[MAX_LIGHTS];
 uniform vec3 uLightColor[MAX_LIGHTS];
 uniform float uLightIntensity[MAX_LIGHTS];
+uniform float uLightSpread[MAX_LIGHTS];   // screen-plane reach, world units; 0 = unlimited
+uniform vec3 uViewRight;                  // the camera's screen axes, for the spread's projected distance
+uniform vec3 uViewUp;
 varying vec3 vWorldPos;
 varying vec3 vViewDir;
 #endif
@@ -1456,6 +1470,13 @@ void main(){
       if (i >= uNumLights) break;
       vec3 L = normalize(uLightPos[i] - vWorldPos);
       vec3 lc = uLightColor[i] * uLightIntensity[i];
+      // Spread: fade the light out past a radius measured on the screen plane, so a light that
+      // tracks something on the page keeps a pool of one size however deep the surface runs.
+      if (uLightSpread[i] > 0.0) {
+        vec3 dW = vWorldPos - uLightPos[i];
+        float d = length(vec2(dot(dW, uViewRight), dot(dW, uViewUp)));
+        lc *= 1.0 - smoothstep(0.0, uLightSpread[i], d);
+      }
       lit += color * max(dot(N, L), 0.0) * lc * 0.5;
       // A tight specular, which on a combed surface is the glint that runs along one strand and not
       // its neighbour — the thing that reads as filament rather than as print.

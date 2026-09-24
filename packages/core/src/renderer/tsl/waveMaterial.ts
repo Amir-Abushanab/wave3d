@@ -436,6 +436,13 @@ function buildWireframeFragment(
         });
         const l = normalize(u.uLightPos.el(i).sub(vWorldPos)).toVar();
         const lc = u.uLightColor.el(i).mul(u.uLightIntensity.el(i)).toVar();
+        // Spread: fade the light out past a radius measured on the screen plane (see the GLSL).
+        const spread = u.uLightSpread.el(i);
+        If(spread.greaterThan(0.0), () => {
+          const dW = vWorldPos.sub(u.uLightPos.el(i));
+          const d = length(vec2(dot(dW, u.uViewRight), dot(dW, u.uViewUp)));
+          lc.mulAssign(float(1).sub(smoothstep(0.0, spread, d)));
+        });
         lit.addAssign(
           color
             .mul(max(dot(n, l), 0.0))
@@ -881,6 +888,13 @@ function buildSolidFragment(
         });
         const l = normalize(u.uLightPos.el(i).sub(vWorldPos)).toVar();
         const lc = u.uLightColor.el(i).mul(u.uLightIntensity.el(i)).toVar();
+        // Spread: fade the light out past a radius measured on the screen plane (see the GLSL).
+        const spread = u.uLightSpread.el(i);
+        If(spread.greaterThan(0.0), () => {
+          const dW = vWorldPos.sub(u.uLightPos.el(i));
+          const d = length(vec2(dot(dW, u.uViewRight), dot(dW, u.uViewUp)));
+          lc.mulAssign(float(1).sub(smoothstep(0.0, spread, d)));
+        });
         const diff = max(dot(n, l), 0.0);
         const spec = pow(max(dot(n, normalize(l.add(vd))), 0.0), 28.0);
         col.addAssign(col.mul(diff).mul(lc).mul(0.16).add(lc.mul(spec).mul(0.1)));

@@ -49,6 +49,8 @@ const CONTROL_HINTS: Record<string, string> = {
   blur: "Soft-focus spin blur that smears toward the top and bottom edges.",
   "blur samples": "Samples taken for the blur — higher is smoother but slower.",
   ambient: "Overall brightness / exposure of the wave (~0.45 is neutral).",
+  "spread (0 = unlimited)":
+    "How far this light reaches, measured on the screen: past this many world units from the light's own spot on the canvas it fades to nothing, however deep the surface runs there. 0 lights by angle alone, with no falloff — the knob for a light that follows a button or the cursor.",
 
   // --- Post FX (each pass is skipped entirely at 0, so its sub-knobs are inert until you lift it) ---
   "bloom threshold":
