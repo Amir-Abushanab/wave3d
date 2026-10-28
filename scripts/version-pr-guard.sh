@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Keeps the Version Packages PR honest against the CURRENT main, not the commit a release run
-# checked out. Called by .github/workflows/release.yml, twice per run:
+# Keeps the Version Packages PR honest against the CURRENT main, not the commit a version run
+# checked out. Called by .github/workflows/version.yml, twice per run (it never publishes; that
+# is release.yml):
 #
-#   precheck  Before changesets/action. In version mode (the checkout has changesets), if main has
-#             since moved under packages/ or .changeset/, write skip=true to $GITHUB_OUTPUT: this
-#             run's versioning is already stale, and that newer push has its own release run
-#             queued behind this one (the paths are in the push filter, and the concurrency group
-#             runs one at a time), which versions from the newer main. Publish mode (no
-#             changesets) never skips: that later run may be in version mode and publish nothing.
+#   precheck  Before changesets/action. Writes skip=true to $GITHUB_OUTPUT when there is nothing
+#             to version (no changesets in the checkout), or when main has since moved under
+#             packages/ or .changeset/: this run's versioning is already stale, and that newer
+#             push has its own version run queued behind this one (the paths are in the push
+#             filter, and the concurrency group runs one at a time), which versions from it.
 #   ensure    After it. Decides the run's real outcome from the action's (OUTCOME = success,
 #             failure or skipped), closes an open Version PR whose branch carries no version
 #             newer than current main, and opens the PR the action pushed a branch for but
@@ -68,7 +68,12 @@ fetch_ref() {
 precheck() {
   local pending head moved
   pending=$(find .changeset -maxdepth 1 -name '*.md' ! -name README.md 2>/dev/null | head -n1)
-  if [ -z "$pending" ] || [ "${GITHUB_REF:-}" != refs/heads/main ]; then
+  if [ -z "$pending" ]; then
+    echo "::notice::no changesets in this checkout; nothing to version"
+    echo "skip=true" >>"$output"
+    return
+  fi
+  if [ "${GITHUB_REF:-}" != refs/heads/main ]; then
     echo "skip=false" >>"$output"
     return
   fi
@@ -84,14 +89,14 @@ precheck() {
     echo "skip=false" >>"$output"
     return
   fi
-  echo "::notice::main moved to $head since this run's $GITHUB_SHA, changing $(grep -c . <<<"$moved") file(s) under packages/ or .changeset/. Skipping the Version PR: the release run for that push is queued behind this one and versions from it."
+  echo "::notice::main moved to $head since this run's $GITHUB_SHA, changing $(grep -c . <<<"$moved") file(s) under packages/ or .changeset/. Skipping the Version PR: the version run for that push is queued behind this one and versions from it."
   echo "skip=true" >>"$output"
 }
 
 close_stale() {
   local number=$1 tip=$2
   echo "::notice::closing version PR #$number: $branch carries no version newer than main"
-  gh pr close "$number" --comment "Closing as stale: every version on \`$branch\` (${tip:0:7}) is already on main ($(git rev-parse --short refs/remotes/origin/main)), so merging it would publish nothing. The release workflow's guard closed it. A release run for a newer push opens a fresh one if changesets are pending."
+  gh pr close "$number" --comment "Closing as stale: every version on \`$branch\` (${tip:0:7}) is already on main ($(git rev-parse --short refs/remotes/origin/main)), so merging it would publish nothing. The version workflow's guard closed it. A version run for a newer push opens a fresh one if changesets are pending."
   gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$branch" >/dev/null
 }
 
@@ -150,7 +155,7 @@ ensure() {
   echo "No open version PR but $branch bumps $(printf '%s' "$bump" | tr '\n' ';'). Opening it here."
   gh pr create --base main --head "$branch" \
     --title "chore: version packages" \
-    --body "Automated version bump from changesets. Merging this publishes the bumped \`@${GITHUB_REPOSITORY#*/}/*\` packages to npm. Opened by the release workflow's guard because \`changesets/action\` could not create it."
+    --body "Automated version bump from changesets. Merging this publishes the bumped \`@${GITHUB_REPOSITORY#*/}/*\` packages to npm. Opened by the version workflow's guard because \`changesets/action\` could not create it."
 }
 
 case "${1:-}" in
