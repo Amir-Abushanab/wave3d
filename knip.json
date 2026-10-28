@@ -9,7 +9,7 @@
       "project": ["src/**/*.ts"]
     },
     "apps/studio": {
-      "entry": ["src/preview.ts", "src/gallery.ts"],
+      "entry": ["src/preview.ts"],
       "project": ["src/**/*.ts"],
       "ignoreDependencies": ["@tweakpane/core"]
     },

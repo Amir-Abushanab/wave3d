@@ -87,7 +87,11 @@ import { Wave3D } from "@wave3d/react";
 ```ts
 import { createWave } from "@wave3d/core";
 
-const handle = createWave(document.getElementById("wave"), {/* config */}, { poster: "/wave.png" });
+const handle = createWave(
+  document.getElementById("wave")!,
+  {/* config */},
+  { poster: "/wave.png" },
+);
 // handle: { state, renderer, set(config), play(), pause(), destroy() }
 ```
 
@@ -169,7 +173,7 @@ under it (grab on the ribbon, pointer on a handle). The wave takes a straight pa
 **Disintegration (`WaveConfig.dissolve`).** A front sweeps across the wave and eats it away chunk by
 chunk, so the surface CRUMBLES rather than fading. Absent ⇒ intact and byte-identical.
 
-```ts
+```ts no-check
 dissolve: { amount: 0.3, axis: "screenX", reverse: true, band: 0.55, scale: 150, blocky: 0.75, dust: 1 }
 ```
 
@@ -292,7 +296,7 @@ is optional tuning on top: `range` (degrees to the 0/1 ends, default 25), `smoot
 scene authored entirely for `pointerX` / `pointerY` and the per-wave hover field comes alive on a
 phone without a second set of bindings (a real finger always wins).
 
-```ts
+```ts no-check
 interaction: { tilt: { range: 20 }, bindings: [{ source: "tiltX", target: "cameraZoom", to: 1.2 }] }
 ```
 
@@ -361,7 +365,7 @@ The shell shows a poster immediately, then crossfades to the live wave.
   committed file.
 - **`onFallback(reason)`** fires when the shell keeps the poster instead of upgrading; reasons:
   `"no-webgl" | "software-renderer" | "reduced-motion" | "save-data" | "context-lost" |
-"load-error"`.
+  "load-error"`.
 - **`webgl="auto"` upgrades only onto a GPU.** A software rasteriser (SwiftShader, llvmpipe) keeps
   the poster and reports `"software-renderer"` — it can run the wave, at roughly 2 fps with seconds
   of blocked main thread, which is worse for the page than the still it already has. Use
