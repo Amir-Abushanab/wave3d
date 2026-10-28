@@ -1,0 +1,96 @@
+name: Version
+
+# Opens and updates the "Version Packages" PR from pending changesets. It never publishes:
+# release.yml does that, on the push that merges the PR.
+#
+# The two used to be one workflow in one concurrency group, and GitHub keeps only the NEWEST
+# pending run per group, cancelling the one before it. So a publish run waiting behind another
+# run could be cancelled by a feature push that came in next. That newer run carried changesets,
+# so changesets/action went to version mode and published nothing, and the merged versions sat
+# unpublished until some later publish run. Now a versioning run can only cancel another
+# versioning run, which is harmless: the newer one versions everything the older one would have.
+
+on:
+  push:
+    branches: [main]
+    # What versioning reads. scripts/version-pr-guard.sh relies on packages/ and .changeset/
+    # being here: when main moves under them, the push's own run is guaranteed to be queued.
+    paths:
+      - "packages/**"
+      - ".changeset/**"
+      - ".github/workflows/version.yml"
+  workflow_dispatch: {}
+
+# One at a time, so two runs never force-push the version branch over each other. No
+# cancel-in-progress: an older run that starts late is caught by the guard's precheck instead.
+concurrency:
+  group: version
+  cancel-in-progress: false
+
+permissions:
+  contents: write # the version branch
+  pull-requests: write # the Version Packages PR
+
+jobs:
+  version:
+    name: Version Packages PR
+    runs-on: ubuntu-latest
+    # No test gates here, unlike release.yml: this only proposes a PR, and the publish that
+    # merging it triggers runs every gate at the merge commit. Gates here would only widen the
+    # window in which main moves under a running version job (orb3d #16 waited on its native jobs).
+    steps:
+      # Taken before anything else, so that "newer than this" in the guard step means "made by
+      # this run": the previous run's branch push and PR update are older.
+      - id: started
+        run: echo "at=$(date -u +%s)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # skip=true when there is nothing to version (no changesets in this checkout), or when main
+      # has since changed under packages/ or .changeset/: this checkout is stale, and the run for
+      # that push is queued behind this one. orb3d #16: the run for 71db24e versioned it after #15
+      # had put 0.3.1 on main, and opened a Version PR bumping nothing.
+      - name: Check main has not moved on
+        id: fresh
+        run: bash scripts/version-pr-guard.sh precheck
+      - name: Version Packages PR
+        id: changesets
+        if: steps.fresh.outputs.skip != 'true'
+        # Soft-fail on purpose: the action reports PR-API problems as a bare `HttpError` (an
+        # Octokit RequestError whose message is empty). The guard step below decides the real
+        # outcome and prints the actual API error.
+        continue-on-error: true
+        uses: changesets/action@v2
+        with:
+          # `pnpm run version` = changeset version + sync the skill's library_version, so the
+          # skill bump rides this same PR instead of drifting behind the packages.
+          version-script: pnpm run version
+          # Never runs: this step only runs with changesets present, which is version mode. It is
+          # set because the action words the PR body from it ("will be published to npm
+          # automatically", which release.yml makes true). If it ever did run, `false` fails.
+          publish-script: "false"
+          commit-message: "chore: version packages"
+          pr-title: "chore: version packages"
+        # No GITHUB_TOKEN env: v2 only reads its github-token input, which already defaults to
+        # this workflow's token, and passes it to the version script as GITHUB_TOKEN.
+
+      # Decide the run's real outcome, and self-heal the failure the action cannot report on.
+      # Two flakes observed so far, both leaving the version branch pushed but no PR:
+      #   * create path: empty-body HttpError, nothing opened
+      #   * update path: "State cannot be changed. The pull request cannot be reopened.", when the
+      #     PR it listed as open gets merged mid-run (a race with a human merge)
+      # scripts/version-pr-guard.sh ensure compares the version branch against main fetched fresh
+      # at this point, and acts only on a `version` newer than main's (dependency edits on a
+      # leftover branch are not a release, orb3d #12). An open Version PR that bumps nothing main
+      # lacks is closed with a comment and its branch deleted.
+      - name: Ensure Version Packages PR
+        if: steps.fresh.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OUTCOME: ${{ steps.changesets.outcome }}
+          STARTED: ${{ steps.started.outputs.at }}
+        run: bash scripts/version-pr-guard.sh ensure
