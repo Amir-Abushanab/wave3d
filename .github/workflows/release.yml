@@ -27,6 +27,13 @@ on:
       - ".changeset/**"
   workflow_dispatch: {}
 
+# One release run at a time, and never cancel one in progress: a run cancelled mid-publish can
+# leave packages on npm without their tags or GitHub releases. cancel-in-progress cannot tell a
+# versioning run from a publishing one, so it is not the answer to a run that starts after main
+# moved on; scripts/version-pr-guard.sh is (see the "Check main has not moved on" step).
+# GitHub keeps only the newest PENDING run per group and cancels the older one. That newer run is
+# at a newer commit, so it covers the versioning; but if it is in version mode (it carries new
+# changesets) it publishes nothing, and a cancelled pending publish waits for the next publish run.
 concurrency:
   group: release
   cancel-in-progress: false
@@ -56,6 +63,10 @@ jobs:
     needs: preflight
     runs-on: ubuntu-latest
     steps:
+      # Taken before anything else, so that "newer than this" in the guard step means "made by
+      # this run": the previous run's branch push and PR update are older.
+      - id: started
+        run: echo "at=$(date -u +%s)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
@@ -71,8 +82,18 @@ jobs:
       - run: pnpm test
       # Trusted publishing needs npm >= 11.5.1; Node 24 may ship an older npm.
       - run: npm install -g npm@latest
+      # Versioning reads the commit this run checked out, but a run can start long after its push
+      # (it waits for the run ahead of it in the concurrency group), and main may have moved
+      # on by then. orb3d #16: the run for 71db24e versioned it after #15 had put 0.3.1 on main,
+      # and opened a Version PR bumping nothing. If main has since changed under packages/ or
+      # .changeset/, the release run for that push is queued behind this one and versions from it,
+      # so this one skips the action. Never skips a publish (a checkout with no changesets).
+      - name: Check main has not moved on
+        id: fresh
+        run: bash scripts/version-pr-guard.sh precheck
       - name: Version Packages PR / publish
         id: changesets
+        if: steps.fresh.outputs.skip != 'true'
         # Soft-fail on purpose. This action manages BOTH the version PR and the publish, and it
         # reports PR-API problems as a bare `HttpError` — an Octokit RequestError whose message is
         # empty, so `Error.toString()` degrades to just the name. That tells you nothing and kills
@@ -102,63 +123,19 @@ jobs:
       #     PR it listed as open gets merged mid-run (2026-07-22, a race with a human merge)
       # And one the guard itself caused: on the run that publishes (the version PR just merged,
       # its branch deleted) it read the compare API's 404 as a commit count and went red AFTER a
-      # successful publish (2026-09-07, 2026-09-24). See the digits check below.
+      # successful publish (2026-09-07, 2026-09-24). The guard now asks `git ls-remote` instead.
       # `gh` prints the real status, so a genuine block — e.g. the account-level "Allow GitHub
       # Actions to create and approve pull requests" toggle — surfaces as a message, not "HttpError".
+      #
+      # scripts/version-pr-guard.sh ensure compares the version branch against main fetched fresh at
+      # this point, not this run's checkout, and acts only on a `version` newer than main's
+      # (dependency edits on a leftover branch are not a release, orb3d #12). An open Version PR
+      # that bumps nothing main lacks is closed with a comment and its branch deleted: it was
+      # versioned from a commit main has since released past, or main moved during the action.
       - name: Ensure Version Packages PR
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          branch=changeset-release/main
-          failed='${{ steps.changesets.outcome }}'
-
-          # Ask the API rather than git: actions/checkout clones shallow, so a local
-          # `rev-list origin/main..origin/$branch` can miss the merge base and lie.
-          ahead=$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$branch" --jq '.ahead_by' 2>/dev/null) || ahead=""
-          # Only a count counts. `gh api` prints an error body to STDOUT, so once the version PR
-          # has merged and its branch is gone, the compare's 404 arrived here as JSON — and JSON
-          # is neither empty nor "0", so the guard went on to open a PR from a branch that no
-          # longer existed. (The fallback used to sit inside the substitution, where it could only
-          # append to that output, never replace it.)
-          case "$ahead" in *[!0-9]*) ahead="" ;; esac
-
-          # No version branch, or nothing on it: there was no PR to open, so the action's outcome
-          # is the whole story — a failure here was in the publish path and must stay red.
-          if [ -z "$ahead" ] || [ "$ahead" = "0" ]; then
-            echo "::notice::no version commits on $branch — nothing to open"
-            if [ "$failed" = "failure" ]; then exit 1; fi
-            exit 0
-          fi
-
-          # Ahead is not enough: the compare API diffs three-dot, from the merge base, so a version
-          # branch left behind by a squash-merged version PR stays "ahead" for good. Open a PR only
-          # when the branch carries a `version` that main lacks. Compare that field alone: whole
-          # package.json files also differ by any dependency edit main got since, and a PR from that
-          # branch would revert them (as orb3d #12 would have).
-          git fetch --no-tags --quiet --depth=1 origin "+refs/heads/main:refs/remotes/origin/main" \
-            "+refs/heads/$branch:refs/remotes/origin/$branch"
-          bump=""
-          for f in $(git ls-tree -r --name-only "origin/$branch" -- packages | grep -E '^packages/[^/]+/package\.json$'); do
-            new=$(git show "origin/$branch:$f" | jq -r '.version // empty')
-            old=$( (git show "origin/main:$f" 2>/dev/null || echo '{}') | jq -r '.version // empty')
-            if [ -n "$new" ] && [ "$new" != "$old" ]; then
-              bump="$bump$(git show "origin/$branch:$f" | jq -r .name) ${old:-(new)} -> $new"$'\n'
-            fi
-          done
-          if [ -z "$bump" ]; then
-            echo "::notice::$branch is $ahead commit(s) ahead but carries no version that main lacks (left over from a squash-merged version PR?); nothing to open"
-            if [ "$failed" = "failure" ]; then exit 1; fi
-            exit 0
-          fi
-
-          if [ "$(gh pr list --head "$branch" --base main --state open --json number --jq 'length')" != "0" ]; then
-            echo "::notice::version PR already open"
-            exit 0
-          fi
-
-          echo "No open version PR but $branch is $ahead commit(s) ahead, bumping $(printf '%s' "$bump" | tr '\n' ' ')— opening it here."
-          gh pr create --base main --head "$branch" \
-            --title "chore: version packages" \
-            --body "Automated version bump from changesets. Merging this publishes the bumped \`@wave3d/*\` packages to npm. Opened by the release workflow's self-heal step because \`changesets/action\` could not create it."
+          OUTCOME: ${{ steps.changesets.outcome }}
+          STARTED: ${{ steps.started.outputs.at }}
+        run: bash scripts/version-pr-guard.sh ensure
