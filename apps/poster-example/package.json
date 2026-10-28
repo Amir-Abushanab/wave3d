@@ -10,10 +10,10 @@
   "dependencies": {
     "@wave3d/core": "workspace:*",
     "@wave3d/element": "workspace:*",
-    "three": "^0.185.0"
+    "three": "^0.186.1"
   },
   "devDependencies": {
     "@wave3d/vite": "workspace:*",
-    "vite": "^8.1.0"
+    "vite": "^8.3.5"
   }
 }
