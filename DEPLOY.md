@@ -3,7 +3,10 @@
 CI lives in [`.github/workflows`](.github/workflows):
 
 - **`ci.yml`** — on every push / PR to `main`: `pnpm check` (format, lint, typecheck, depcruise, knip, skill validate) + `pnpm build`. On a push to `main` it then deploys the studio to Cloudflare Pages **if** the Cloudflare secrets are set.
-- **`release.yml`** — on push to `main`, [Changesets](https://github.com/changesets/changesets) opens a "Version Packages" PR from any pending changesets; merging that PR publishes the bumped `@wave3d/*` packages to npm via OIDC / Trusted Publishing.
+- **`version.yml`** — on a push to `main` that touches `packages/**` or `.changeset/**` (or itself), [Changesets](https://github.com/changesets/changesets) opens or updates a "Version Packages" PR from any pending changesets. It never publishes. `scripts/version-pr-guard.sh` skips a run whose checkout is stale because main has since moved under packages or changesets, and closes a Version PR that bumps nothing main lacks.
+- **`release.yml`** — on a push to `main` that changes a `packages/**/CHANGELOG.md` (in practice, merging the Version PR), publishes the bumped `@wave3d/*` packages to npm via OIDC / Trusted Publishing. It never versions.
+
+The two workflows have separate concurrency groups (`version` and `release`), and neither cancels a run in progress. GitHub keeps only the newest pending run per group and cancels the one before it, so when versioning and publishing shared a group, a feature push carrying changesets could cancel a waiting publish and then publish nothing itself. Now only Version PR merges queue for `release`.
 
 Both need some one-time account setup, below. Until you do it, CI still runs green — it just skips the deploy.
 
@@ -62,7 +65,7 @@ pnpm release            # builds + `changeset publish` → publishes @wave3d/{co
 
 ### Enable tokenless CI releases (one-time, right after the first publish)
 
-On **each** package's npm page → _Settings_ → _Trusted Publisher_ → add provider **GitHub Actions**, repository **`Amir-Abushanab/wave3d`**, workflow **`release.yml`** (leave _Environment_ blank). Now CI publishes over OIDC with **no `NPM_TOKEN`** — nothing to leak or rotate — and every release gets provenance automatically.
+On **each** package's npm page → _Settings_ → _Trusted Publisher_ → add provider **GitHub Actions**, repository **`Amir-Abushanab/wave3d`**, workflow **`release.yml`** (leave _Environment_ blank). Now CI publishes over OIDC with **no `NPM_TOKEN`** — nothing to leak or rotate — and every release gets provenance automatically. `release.yml` is still the publisher; `version.yml` never publishes and needs no Trusted Publisher.
 
 ### Adding a new package
 
@@ -76,9 +79,9 @@ After that it releases tokenlessly via CI like the rest.
 ### Ongoing releases (automated)
 
 1. Merge PRs that include changesets into `main`.
-2. Changesets opens/updates a **"Version Packages"** PR (bumps the shared version, writes `CHANGELOG.md`).
-3. **Merge that PR** → CI publishes the new version, tags it, and cuts a GitHub Release.
+2. `version.yml` opens/updates a **"Version Packages"** PR (bumps the shared version, writes `CHANGELOG.md`).
+3. **Merge that PR** → `release.yml` publishes the new version, tags it, and cuts a GitHub Release. A changeset that landed after the PR was last versioned is removed from the publish run's checkout so the merged versions go out; `version.yml` versions it into the next PR.
 
-> **Benign red run:** merging the Version PR while an older Release run is still in flight can fail that older run with _"The pull request cannot be reopened"_ — it raced the merge. The run for the Version PR's own merge commit does the real work; nothing to fix.
+> **Benign red run:** merging the Version PR while an older Version run is still in flight can fail that older run with _"The pull request cannot be reopened"_ — it raced the merge. The `release.yml` run for the Version PR's merge does the publishing; nothing to fix.
 
-> **Fallback:** pnpm's OIDC support is still maturing — if CI publishing 404s, create a granular **`NPM_TOKEN`** (scoped to `@wave3d`, read-write, no IP allowlist) and uncomment the `NODE_AUTH_TOKEN` line in `release.yml`.
+> **Fallback:** pnpm's OIDC support is still maturing — if CI publishing 404s, create a granular **`NPM_TOKEN`** (scoped to `@wave3d`, read-write, no IP allowlist) and uncomment the `NODE_AUTH_TOKEN` line in the `env` of `release.yml`'s Publish step.
