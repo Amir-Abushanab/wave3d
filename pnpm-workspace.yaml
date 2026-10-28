@@ -16,3 +16,12 @@ packageExtensions:
   tweakpane:
     peerDependencies:
       "@tweakpane/core": "*"
+
+# Supply-chain cooldown, in two layers. This is the install-time one: never install a version
+# published less than 7 days ago (10080 minutes), transitive dependencies included. Without it,
+# pnpm resolves anything inside a `^` range however fresh (its built-in default is one day,
+# non-strict). The other layer, `cooldown: 7` in .ncurc.cjs, only governs which versions
+# npm-check-updates proposes for direct deps. Setting this explicitly makes it strict, and
+# `pnpm install --frozen-lockfile` re-checks every lockfile entry against it, so a lockfile
+# resolved without it fails until it is re-resolved.
+minimumReleaseAge: 10080
