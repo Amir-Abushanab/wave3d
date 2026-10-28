@@ -132,12 +132,33 @@ jobs:
             exit 0
           fi
 
+          # Ahead is not enough: the compare API diffs three-dot, from the merge base, so a version
+          # branch left behind by a squash-merged version PR stays "ahead" for good. Open a PR only
+          # when the branch carries a `version` that main lacks. Compare that field alone: whole
+          # package.json files also differ by any dependency edit main got since, and a PR from that
+          # branch would revert them (as orb3d #12 would have).
+          git fetch --no-tags --quiet --depth=1 origin "+refs/heads/main:refs/remotes/origin/main" \
+            "+refs/heads/$branch:refs/remotes/origin/$branch"
+          bump=""
+          for f in $(git ls-tree -r --name-only "origin/$branch" -- packages | grep -E '^packages/[^/]+/package\.json$'); do
+            new=$(git show "origin/$branch:$f" | jq -r '.version // empty')
+            old=$( (git show "origin/main:$f" 2>/dev/null || echo '{}') | jq -r '.version // empty')
+            if [ -n "$new" ] && [ "$new" != "$old" ]; then
+              bump="$bump$(git show "origin/$branch:$f" | jq -r .name) ${old:-(new)} -> $new"$'\n'
+            fi
+          done
+          if [ -z "$bump" ]; then
+            echo "::notice::$branch is $ahead commit(s) ahead but carries no version that main lacks (left over from a squash-merged version PR?); nothing to open"
+            if [ "$failed" = "failure" ]; then exit 1; fi
+            exit 0
+          fi
+
           if [ "$(gh pr list --head "$branch" --base main --state open --json number --jq 'length')" != "0" ]; then
             echo "::notice::version PR already open"
             exit 0
           fi
 
-          echo "No open version PR but $branch is $ahead commit(s) ahead — opening it here."
+          echo "No open version PR but $branch is $ahead commit(s) ahead, bumping $(printf '%s' "$bump" | tr '\n' ' ')— opening it here."
           gh pr create --base main --head "$branch" \
             --title "chore: version packages" \
             --body "Automated version bump from changesets. Merging this publishes the bumped \`@wave3d/*\` packages to npm. Opened by the release workflow's self-heal step because \`changesets/action\` could not create it."
